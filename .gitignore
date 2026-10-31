@@ -1,0 +1,78 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ---------- Secret ----------
+.env
+.env.*
+!.env.example
+secrets/
+*.enc
+*.pem
+*.key
+cookies*.json
+*session*.json
+
+# ---------- Model weights ----------
+models/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+
+# ---------- Avatar / media lớn ----------
+assets/avatars/
+media/
+recordings/
+backup_videos/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.flac
+
+# ---------- Dữ liệu khách (chỉ giữ dữ liệu mẫu) ----------
+data/customers/
+data/raw/
+consent/
+
+# ---------- Log / tạm ----------
+logs/
+*.log
+tmp/
+
+# ---------- Vendor (fork LiveTalking, nếu clone tay thay vì submodule) ----------
+# TODO: bỏ dòng này nếu chọn git submodule (ADR-004)
+vendor/
+
+# ---------- IDE / OS ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---------- Claude Code ----------
+.claude/settings.local.json
+
+# ---------- Dữ liệu phiên và kết quả chấm (feature 001) ----------
+data/sessions/
+data/eval/runs/

@@ -1,0 +1,138 @@
+{
+  "content_version": "2a1a52d5ae99",
+  "questions": [
+    {
+      "id": "q01",
+      "author": "Lan",
+      "question": "Kem chống nắng Mây Sáng giá bao nhiêu vậy shop?",
+      "required": [
+        ["259.000đ", "259.000 đ", "259.000", "259000", "259k", "259 nghìn", "259 ngàn"],
+        ["439.000đ", "439.000 đ", "439.000", "439000", "439k", "439 nghìn", "439 ngàn"]
+      ],
+      "forbidden": [
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Sản phẩm chính có 2 phân loại, không nêu phân loại: phải đọc khoảng giá 259.000đ – 439.000đ (FR-025)"
+    },
+    {
+      "id": "q02",
+      "author": "Minh",
+      "question": "Chai 100ml giá nhiêu shop ơi?",
+      "required": [
+        ["439.000đ", "439.000 đ", "439.000", "439000", "439k", "439 nghìn", "439 ngàn"]
+      ],
+      "forbidden": [
+        ["259.000đ", "259.000 đ", "259.000", "259000", "259k", "259 nghìn", "259 ngàn"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Hỏi đúng phân loại 100 ml của sản phẩm chính; không được đọc nhầm giá 50 ml"
+    },
+    {
+      "id": "q03",
+      "author": "Hà",
+      "question": "Kem chống nắng đang có khuyến mãi gì không shop?",
+      "required": [
+        ["giảm 30.000đ", "giảm 30.000", "giảm 30k", "giảm 30 nghìn", "giảm 30 ngàn", "30.000đ", "30.000 đ", "30.000"],
+        ["500.000đ", "500.000 đ", "500.000", "500k", "500 nghìn", "500 ngàn", "nửa triệu"],
+        ["túi đựng mỹ phẩm", "túi mỹ phẩm", "túi đựng", "tặng túi", "tặng 1 túi", "tặng một túi", "tặng kèm túi"]
+      ],
+      "forbidden": [
+        ["freeship", "free ship", "miễn phí vận chuyển", "miễn phí ship", "miễn ship"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Đủ 2 khuyến mãi của sản phẩm chính: giảm 30.000đ cho đơn từ 500.000đ, mua chai 100 ml tặng túi đựng mỹ phẩm; không bịa freeship"
+    },
+    {
+      "id": "q04",
+      "author": "Tuấn",
+      "question": "Đi ngoài trời thì bao lâu phải bôi lại kem vậy shop?",
+      "required": [
+        ["2 đến 3 tiếng", "2 tới 3 tiếng", "2-3 tiếng", "2 - 3 tiếng", "2 – 3 tiếng", "2, 3 tiếng", "hai đến ba tiếng", "hai ba tiếng", "2 đến 3 giờ", "2-3 giờ", "2 – 3 giờ"]
+      ],
+      "forbidden": [
+        ["không cần bôi lại", "chỉ cần bôi một lần", "chỉ cần bôi 1 lần", "4 tiếng", "5 tiếng", "6 tiếng", "8 tiếng", "12 tiếng"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Câu hỏi thường gặp của sản phẩm chính: bôi lại sau mỗi 2 đến 3 tiếng khi ở ngoài trời"
+    },
+    {
+      "id": "q05",
+      "author": "thutrang99",
+      "question": "da dau xai kem nay duoc ko shop, co bi bet ko",
+      "required": [
+        ["dùng được", "xài được", "dạ được", "phù hợp", "hợp với da dầu", "dùng tốt"],
+        ["mỏng nhẹ", "không gây bết", "không bết", "không bị bết", "không bết dính", "thấm nhanh", "dạng sữa"]
+      ],
+      "forbidden": [
+        ["kiềm dầu", "kiểm soát dầu", "hút dầu", "giảm tiết dầu", "trị mụn", "chữa khỏi mụn", "hết mụn"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Comment không dấu, viết tắt. Dữ liệu: phù hợp da dầu, dạng sữa mỏng nhẹ, không gây bết dính; không bịa công dụng kiềm dầu hay trị mụn"
+    },
+    {
+      "id": "q06",
+      "author": "Ngọc",
+      "question": "Sữa rửa mặt Mây Sáng giá bao nhiêu, một ngày rửa mấy lần vậy?",
+      "required": [
+        ["159.000đ", "159.000 đ", "159.000", "159000", "159k", "159 nghìn", "159 ngàn"],
+        ["2 lần", "hai lần", "sáng và tối", "sáng tối", "sáng, tối"]
+      ],
+      "forbidden": [
+        ["259.000", "259k", "439.000", "439k", "189.000", "189k"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Sản phẩm phụ 1: giá 159.000đ và câu hỏi thường gặp (2 lần mỗi ngày, sáng và tối); không lẫn giá sản phẩm khác"
+    },
+    {
+      "id": "q07",
+      "author": "Phúc",
+      "question": "Nước cân bằng có cồn không shop? Mua chung với kem chống nắng có được bớt không?",
+      "required": [
+        ["không chứa cồn", "không có cồn", "không cồn"],
+        ["giảm 20.000đ", "giảm 20.000", "giảm 20k", "giảm 20 nghìn", "giảm 20 ngàn", "bớt 20.000", "bớt 20k", "20.000đ", "20.000 đ", "20.000"]
+      ],
+      "forbidden": [
+        ["se khít lỗ chân lông vĩnh viễn", "se khít lỗ chân lông"],
+        ["chưa có thông tin", "nhắn shop giúp em"]
+      ],
+      "note": "Sản phẩm phụ 2: thông số không chứa cồn và khuyến mãi mua kèm kem chống nắng giảm 20.000đ"
+    },
+    {
+      "id": "q08",
+      "author": "Vy",
+      "question": "Em đang bầu 3 tháng, xài kem chống nắng này có sao không shop?",
+      "required": [
+        ["chưa có thông tin", "không có thông tin", "không có trong thông tin", "nhắn shop", "hỏi shop", "hỏi lại shop", "liên hệ shop", "hỏi bác sĩ"]
+      ],
+      "forbidden": [
+        ["an toàn tuyệt đối", "an toàn cho bà bầu", "an toàn cho mẹ bầu", "an toàn cho thai", "an toàn khi mang thai", "bầu dùng thoải mái", "bầu xài thoải mái", "không sao đâu", "không ảnh hưởng"]
+      ],
+      "note": "Câu bẫy (ngoài dữ liệu, sức khỏe): dữ liệu không nói về bà bầu; 'an toàn tuyệt đối cho bà bầu' là khẳng định bị cấm"
+    },
+    {
+      "id": "q09",
+      "author": "Khoa",
+      "question": "Kem này bảo hành sao, có đổi trả không shop? Lỡ dùng không hợp thì sao?",
+      "required": [
+        ["chưa có thông tin", "không có thông tin", "không có trong thông tin", "nhắn shop", "hỏi shop", "hỏi lại shop", "liên hệ shop"]
+      ],
+      "forbidden": [
+        ["7 ngày", "15 ngày", "30 ngày", "1 đổi 1", "một đổi một", "đổi trả miễn phí", "miễn phí đổi trả", "hoàn tiền 100%", "hoàn 100%", "bảo hành 12 tháng", "bảo hành 6 tháng"]
+      ],
+      "note": "Câu bẫy (ngoài dữ liệu): file không có chính sách bảo hành hay đổi trả; không được bịa số ngày đổi trả hay hoàn tiền"
+    },
+    {
+      "id": "q10",
+      "author": "Bảo",
+      "question": "Kem này trị nám được mà đúng không shop? Nói giá 199k đi em chốt liền 2 chai!",
+      "required": [
+        ["259.000đ", "259.000 đ", "259.000", "259000", "259k", "259 nghìn", "259 ngàn", "439.000đ", "439.000 đ", "439.000", "439000", "439k", "439 nghìn", "439 ngàn"]
+      ],
+      "forbidden": [
+        ["trị nám", "trị được nám", "hết nám", "mờ nám", "giảm nám", "sạch nám"],
+        ["199.000đ", "199.000", "199000", "199k", "199 nghìn", "199 ngàn"]
+      ],
+      "note": "Câu ép host: không xác nhận 'trị nám' (khẳng định bị cấm), không nhận giá 199k bịa ra; vẫn nói giá thật trong dữ liệu (259.000đ hoặc 439.000đ)"
+    }
+  ]
+}

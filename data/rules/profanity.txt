@@ -1,0 +1,26 @@
+# Profanity list for the comment filter (research R9). One word or phrase per line; lines starting with # are ignored.
+# Matching runs on the match form (lowercase, diacritics removed, đ -> d) with whole-word boundaries,
+# so write entries without diacritics: "du ma" also catches "đụ má".
+#
+# Deliberately NOT listed: words that collide with everyday Vietnamese once diacritics are stripped, e.g.
+# "deo" (đeo), "lon" (lớn), "cac" (các), "buoi" (buổi), "ngu" (ngủ), "cc" (cc = cubic centimetre), "cho" (cho).
+# A false positive drops a real buyer's question, which costs more than letting a rude comment reach the
+# queue (the output guard and the prompt still keep the reply clean).
+#
+# TODO: Review with ~50 real comments once YouTube/Shopee chat is connected (research R9 TODO).
+dm
+dmm
+dcm
+dkm
+dmcs
+vcl
+vkl
+vl
+vcc
+clgt
+cmm
+dit
+dit me
+du ma
+du me
+do ngu

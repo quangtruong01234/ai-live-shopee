@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Điều khiển AI Live</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="control">
+    <header>
+      <h1>Điều khiển AI Live</h1>
+      <div>
+        Server <span id="server-badge" class="badge bad">mất kết nối</span>
+        Host <span id="host-badge" class="badge bad">chưa mở</span>
+        Phiên <span id="session-badge" class="badge">…</span>
+      </div>
+      <div class="session-controls">
+        <button id="pause-btn" type="button">Tạm dừng</button>
+        <button id="resume-btn" type="button">Tiếp tục</button>
+        <button id="skip-btn" type="button">Bỏ qua câu đang nói</button>
+        <span id="control-msg" class="form-msg"></span>
+      </div>
+    </header>
+
+    <div id="host-warning" class="banner">
+      Chưa mở màn hình host. Mở <a href="/host" target="_blank" rel="noopener">/host</a> trên Chrome và bấm <b>Bắt đầu</b>,
+      nếu không comment sẽ lỗi ở bước <code>render</code>.
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>Gửi comment</h2>
+        <form id="comment-form" class="comment">
+          <input id="author" name="author" placeholder="Tên người xem (ví dụ Lan)" maxlength="30" autocomplete="off">
+          <textarea id="text" name="text" placeholder="Nội dung comment" maxlength="300" required></textarea>
+          <button type="submit">Gửi</button>
+          <div id="form-msg" class="form-msg"></div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Nội dung sản phẩm</h2>
+        <div id="catalog-meta" class="turn-meta">Đang tải…</div>
+        <ul id="catalog-products" class="sentences"></ul>
+        <form id="content-form" class="comment">
+          <input id="content-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+          <button type="submit">Nạp file mới</button>
+          <div id="content-msg" class="form-msg"></div>
+          <ul id="content-issues" class="list" hidden></ul>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Hàng đợi <span id="queue-count" class="badge">0</span></h2>
+        <ol id="queue" class="list queue"><li class="empty">Hàng đợi trống.</li></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Comment bị loại gần đây</h2>
+        <ul id="dropped" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Lượt đang nói</h2>
+        <div id="turn-meta" class="turn-meta">Chưa có lượt nào.</div>
+        <ol id="turn-sentences" class="sentences"></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Câu bị guard chặn</h2>
+        <ul id="blocked" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <section class="panel">
+        <h2>Lỗi gần đây</h2>
+        <ul id="errors" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <section class="panel wide">
+        <h2>Độ trễ (giây, từ lúc nhận comment)</h2>
+        <table class="latency">
+          <thead>
+            <tr><th>Bước</th><th>Số mẫu</th><th>Trung vị</th><th>p95</th></tr>
+          </thead>
+          <tbody id="latency-rows"></tbody>
+        </table>
+        <div id="latency-meta" class="latency-meta">Chưa có lượt nào xong.</div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Lượt đã xong</h2>
+        <ul id="history" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+    </div>
+  </div>
+  <script src="/static/control.js"></script>
+</body>
+</html>

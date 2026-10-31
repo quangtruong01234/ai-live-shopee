@@ -1,0 +1,43 @@
+[project]
+name = "ai-live"
+version = "0.1.0"
+description = "AI host livestream bán hàng: avatar nhép miệng realtime, giọng tiếng Việt, tự trả lời comment"
+readme = "CLAUDE.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "google-genai>=2.34.0",
+    "pydantic-settings>=2.16.2",
+    "python-docx>=1.2.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+# Khối code trong docs/specs là ví dụ minh họa, căn lề tay cho dễ đọc; không để ruff format lại.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+markers = ["live_llm: gọi Gemini API thật (cần GEMINI_API_KEY, tính vào quota free tier)"]
+addopts = '-m "not live_llm"'
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]

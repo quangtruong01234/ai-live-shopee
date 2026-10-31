@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Host</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="host">
+  <main class="stage">
+    <img id="avatar" class="avatar" src="{{AVATAR_SRC}}" alt="Avatar AI host">
+    <div id="ai-label" class="ai-label label-{{AI_LABEL_POSITION}}">{{AI_LABEL_TEXT}}</div>
+    <div id="subtitle" class="subtitle" aria-live="polite"></div>
+    <div id="start-overlay" class="start-overlay">
+      <button id="start-btn" type="button">Bắt đầu</button>
+      <p>Bấm một lần để trình duyệt cho phép phát âm thanh.</p>
+    </div>
+    <div id="host-status" class="host-status"></div>
+  </main>
+  <script src="/static/host.js"></script>
+</body>
+</html>

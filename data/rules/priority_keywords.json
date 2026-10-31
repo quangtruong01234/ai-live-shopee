@@ -1,0 +1,17 @@
+{
+  "_comment": "Priority rules (research R9, docs/ARCHITECTURE.md §5). Write phrases without diacritics; matching is whole-word on the match form. HIGH is checked before MEDIUM. With no match, a '?' or a question word gives MEDIUM, otherwise LOW. Avoid 'co' (collides with 'có') and 'dat' (collides with 'đạt'). TODO: measure misclassification on ~50 real comments.",
+  "high": [
+    "gia", "bao nhieu", "bn", "bnhieu", "bao tien", "nhieu tien", "may tien", "may k",
+    "khuyen mai", "km", "giam gia", "sale", "voucher", "ma giam", "freeship", "free ship", "uu dai", "qua tang", "tang kem",
+    "mua", "dat hang", "chot", "chot don", "len don", "ib", "inbox", "gio hang", "link mua",
+    "size", "sz", "phan loai", "mau",
+    "con hang", "het hang", "ton kho", "con khong", "con ko", "con k", "con size", "con mau",
+    "ship", "giao hang", "phi ship", "cod", "thanh toan"
+  ],
+  "medium": [
+    "chat lieu", "thanh phan", "cong dung", "tac dung", "dung tich", "trong luong", "kich thuoc", "xuat xu",
+    "han su dung", "hsd", "cach dung", "su dung", "da dau", "da kho", "da nhay cam", "da mun", "an toan",
+    "so sanh", "so voi", "khac gi", "review", "bao hanh", "doi tra", "spf", "chong nuoc", "bao lau", "mui"
+  ],
+  "question_words": ["khong", "ko", "k", "sao", "nao", "gi", "may"]
+}

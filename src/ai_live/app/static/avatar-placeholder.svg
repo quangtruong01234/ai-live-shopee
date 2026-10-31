@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-label="Avatar minh họa">
+  <!-- Hình vẽ minh họa tự làm, không phải người thật (research R10). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe3d3"/>
+      <stop offset="1" stop-color="#ffc3a6"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <path d="M70 400c10-80 60-120 130-120s120 40 130 120z" fill="#ee4d2d"/>
+  <rect x="175" y="240" width="50" height="50" rx="20" fill="#f2c4a4"/>
+  <ellipse cx="200" cy="180" rx="85" ry="95" fill="#f7d2b6"/>
+  <path d="M112 175c-6-80 40-120 92-120 58 0 96 44 86 120-14-40-40-62-88-62-48 0-74 24-90 62z" fill="#3b2a24"/>
+  <ellipse cx="168" cy="185" rx="9" ry="11" fill="#3b2a24"/>
+  <ellipse cx="232" cy="185" rx="9" ry="11" fill="#3b2a24"/>
+  <ellipse cx="150" cy="215" rx="14" ry="8" fill="#f5a98c" opacity=".6"/>
+  <ellipse cx="250" cy="215" rx="14" ry="8" fill="#f5a98c" opacity=".6"/>
+  <path class="mouth" d="M180 230q20 16 40 0" stroke="#b5483a" stroke-width="6" fill="none" stroke-linecap="round"/>
+</svg>
