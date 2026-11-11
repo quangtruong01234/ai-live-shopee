@@ -174,3 +174,100 @@ def test_mark_and_finish_by_utterance_id():
     assert s.completed == 1
     assert s.steps["total"].median == pytest.approx(1.4)
     assert s.steps["received_to_first_sentence"].median == pytest.approx(1.0)
+
+
+def test_scripted_sentence_is_not_a_reply_turn():
+    """004 research R2: a scripted sentence has no comment_received; it goes to ShowStats, not the 001 summary."""
+    tracker = LatencyTracker()
+    tracker.record(_turn("u1"))
+    scripted = Utterance(
+        utterance_id="s1",
+        comment_id=None,
+        catalog_version="v1",
+        outcome=TurnOutcome.COMPLETED,
+        segment_id="seg-1",
+        show_id="show-1",
+    )
+    scripted.mark(M.SEGMENT_REQUESTED, 0.0)
+    scripted.mark(M.LLM_FIRST_SENTENCE, 1.0)
+    scripted.mark(M.TTS_FIRST_CHUNK, 1.1)
+    scripted.mark(M.AVATAR_FIRST_FRAME, 1.2)
+    tracker.mark("s1", M.TTS_FIRST_CHUNK, 1.1)
+
+    assert tracker.record(scripted) is None
+    s = tracker.summary()
+    assert s.completed == 1
+    assert [t.utterance_id for t in tracker.turns] == ["u1"]
+    assert s.steps["total"].count == 1
+
+
+# ---------- Feature 005: render stats per turn (data-model §5, FR-020, T012) ----------
+
+
+def _render(uid: str, render_fps: float | None = 25.0, infer_fps: float | None = 30.0, clips=("talk_01",)):
+    from ai_live.core.models import RenderTurnStats
+
+    return RenderTurnStats(
+        utterance_id=uid,
+        mode="livetalking",
+        clips_used=list(clips),
+        frames=50,
+        render_fps=render_fps,
+        infer_fps=infer_fps,
+    )
+
+
+def test_turn_latency_render_fields_default_none():
+    tracker = LatencyTracker()
+    turn = tracker.record(_turn("u1"))
+    assert turn is not None
+    assert (turn.render_fps, turn.infer_fps, turn.clips_used) == (None, None, None)
+
+
+def test_record_copies_render_stats():
+    tracker = LatencyTracker()
+    turn = tracker.record(_turn("u1"), render=_render("u1", 24.5, 31.0, ("talk_02", "talk_01")))
+    assert turn is not None
+    assert turn.render_fps == pytest.approx(24.5)
+    assert turn.infer_fps == pytest.approx(31.0)
+    assert turn.clips_used == ["talk_02", "talk_01"]
+
+
+def test_render_fps_stats_skip_turns_without_value():
+    tracker = LatencyTracker()
+    tracker.record(_turn("u1"), render=_render("u1", 20.0))
+    tracker.record(_turn("u2"), render=_render("u2", 24.0))
+    tracker.record(_turn("u3"))  # static turn: no render stats
+    tracker.record(_turn("u4"), render=_render("u4", None))
+    s = tracker.summary()
+    assert s.render_fps.count == 2
+    assert s.render_fps.median == pytest.approx(22.0)
+    assert s.render_fps.p95 is None
+    assert s.render_fps.note == NOT_ENOUGH_SAMPLES
+    # render_fps is a rate, not a duration step: the step table is unchanged.
+    assert set(s.steps) == set(STEP_NAMES)
+
+
+def test_render_fps_p95_after_20_samples():
+    tracker = LatencyTracker()
+    values = [15.0 + 0.5 * i for i in range(20)]
+    for i, fps in enumerate(values):
+        tracker.record(_turn(f"u{i}"), render=_render(f"u{i}", fps))
+    stats = tracker.summary().render_fps
+    assert stats.count == 20
+    assert stats.p95 == pytest.approx(statistics.quantiles(values, n=20)[18], abs=1e-3)
+    assert stats.note is None
+
+
+def test_render_fps_only_from_completed_turns():
+    tracker = LatencyTracker()
+    tracker.record(_turn("u1", outcome=TurnOutcome.ERROR), render=_render("u1", 5.0))
+    assert tracker.summary().render_fps.count == 0
+
+
+def test_summary_json_has_render_fps():
+    tracker = LatencyTracker()
+    tracker.record(_turn("u1"), render=_render("u1", 25.0))
+    body = tracker.summary().to_json()
+    assert body["render_fps"] == {"count": 1, "median": 25.0, "p95": None, "note": NOT_ENOUGH_SAMPLES}
+    assert list(body["steps"]) == list(STEP_NAMES)

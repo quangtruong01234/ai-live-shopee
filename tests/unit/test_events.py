@@ -1,11 +1,12 @@
 """T012: EventBus (contracts/adapters.md, contracts/events.md §3)."""
 
 import time
+from datetime import UTC, datetime
 
 import anyio
 import pytest
 
-from ai_live.core.events import Event, EventBus, EventType
+from ai_live.core.events import Event, EventBus, EventType, show_error_event
 
 pytestmark = pytest.mark.anyio
 
@@ -39,7 +40,7 @@ async def test_full_subscriber_drops_oldest_without_affecting_others():
     fast_seen: list[int] = []
     for i in range(1005):
         bus.publish(Event(EventType.QUEUE_CHANGED, {"i": i}))
-        # subscriber nhanh đọc ngay nên không bao giờ đầy
+        # the fast subscriber reads right away, so it is never full
         fast_seen += [e.payload["i"] for e in fast.drain()]
     assert fast_seen == list(range(1005))
     slow_events = await take(slow, 1000)
@@ -50,8 +51,8 @@ async def test_full_subscriber_drops_oldest_without_affecting_others():
 
 async def test_publish_does_not_wait_for_slow_subscriber():
     bus = EventBus(max_queue=10)
-    bus.subscribe()  # không ai đọc
-    # publish đồng bộ nên không có điểm await nào cho fail_after cắt ngang: đo thời gian trực tiếp.
+    bus.subscribe()  # nobody reads
+    # publish is synchronous, so fail_after has no await point to cut in: measure the time directly.
     start = time.perf_counter()
     for i in range(10_000):
         bus.publish(Event(EventType.LATENCY, {"i": i}))
@@ -82,5 +83,125 @@ def test_event_types_cover_contract():
         "content_replaced",
         "host_connection",
         "latency",
+        # feature 004 (specs/004-show-director/contracts/events.md §3)
+        "show_state",
+        "segment_started",
+        "segment_finished",
+        "segment_next",
+        "show_stats",
+        "show_error",
+        # feature 008 (specs/008-llm-provider-chain/contracts/events.md §2)
+        "llm_chain",
+        # feature 005 (specs/005-lipsync-livetalking/contracts/events.md §1)
+        "avatar_mode",
+        "lipsync_health",
     }
     assert {t.value for t in EventType} == expected
+
+
+def test_show_error_event_redacts_message():
+    secret = "AIza" + "Q" * 35
+    event = show_error_event(step="llm", kind="api_error", message=f"401 bad key {secret} GEMINI_API_KEY=abc123")
+    assert event.type is EventType.SHOW_ERROR
+    body = event.to_json()
+    assert body["type"] == "show_error"
+    assert secret not in body["message"]
+    assert "abc123" not in body["message"]
+    assert "***" in body["message"]
+    assert body["step"] == "llm"
+    assert body["kind"] == "api_error"
+    assert body["segment_id"] is None
+
+
+def test_show_error_event_keeps_segment_id():
+    event = show_error_event(step="tts", kind="timeout", message="TTS quá 5 s", segment_id="s1")
+    assert event.payload == {"segment_id": "s1", "step": "tts", "kind": "timeout", "message": "TTS quá 5 s"}
+
+
+# ---------- Feature 005 (specs/005-lipsync-livetalking/contracts/events.md §1, data-model §4, §6) ----------
+
+CHANGED_AT = datetime(2026, 11, 6, 10, 0, tzinfo=UTC)
+
+
+def test_avatar_mode_event_payload():
+    from ai_live.core.events import avatar_mode_event
+    from ai_live.core.models import AvatarModeState
+
+    state = AvatarModeState(
+        configured="livetalking",
+        active="static",
+        reason="render_errors",
+        consecutive_errors=2,
+        last_utterance_id="u9",
+        changed_at=CHANGED_AT,
+    )
+    event = avatar_mode_event(state)
+    assert event.type is EventType.AVATAR_MODE
+    # last_utterance_id is internal bookkeeping, not part of the event (events.md §1).
+    assert event.to_json() == {
+        "type": "avatar_mode",
+        "configured": "livetalking",
+        "active": "static",
+        "reason": "render_errors",
+        "consecutive_errors": 2,
+        "changed_at": CHANGED_AT.isoformat(),
+    }
+
+
+def test_avatar_mode_event_initial_state():
+    from ai_live.core.events import avatar_mode_event
+    from ai_live.core.models import AvatarModeState
+
+    body = avatar_mode_event(AvatarModeState(configured="static", active="static")).to_json()
+    assert body == {
+        "type": "avatar_mode",
+        "configured": "static",
+        "active": "static",
+        "reason": None,
+        "consecutive_errors": 0,
+        "changed_at": None,
+    }
+
+
+def test_lipsync_health_event_payload():
+    from ai_live.core.events import lipsync_health_event
+    from ai_live.core.models import LipsyncHealth
+
+    health = LipsyncHealth(
+        connected=True,
+        boot_id="b1",
+        fork_commit="abc123",
+        session_id=7,
+        vram_used_mb=2100,
+        infer_fps=31.5,
+        last_error=None,
+        updated_at=CHANGED_AT,
+    )
+    event = lipsync_health_event(health)
+    assert event.type is EventType.LIPSYNC_HEALTH
+    assert event.to_json() == {
+        "type": "lipsync_health",
+        "connected": True,
+        "boot_id": "b1",
+        "fork_commit": "abc123",
+        "session_id": 7,
+        "vram_used_mb": 2100,
+        "infer_fps": 31.5,
+        "last_error": None,
+        "updated_at": CHANGED_AT.isoformat(),
+    }
+
+
+def test_lipsync_health_event_redacts_error():
+    from ai_live.core.events import lipsync_health_event
+    from ai_live.core.models import LipsyncHealth
+
+    secret = "AIza" + "Q" * 35
+    health = LipsyncHealth(
+        connected=False, last_error=f"inference_failed: {secret} api_key=abc123", updated_at=CHANGED_AT
+    )
+    body = lipsync_health_event(health).to_json()
+    assert secret not in body["last_error"]
+    assert "abc123" not in body["last_error"]
+    assert body["last_error"].startswith("inference_failed")
+    assert body["boot_id"] is None

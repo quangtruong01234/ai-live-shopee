@@ -9,7 +9,7 @@ You are running the **tasks** step of the Spec-Driven workflow (see `docs/WORKFL
 Write task descriptions in Vietnamese; reply to the user in Vietnamese.
 
 ## Identify the feature
-Same as `/sdd.clarify`. Requires `spec.md` and `plan.md`. Also read `research.md`, `data-model.md`, `contracts/` and
+Same as `/sdd.clarify` (read the feature's card in `progress/FEATURES.md` first). Requires `spec.md` and `plan.md`. Also read `research.md`, `data-model.md`, `contracts/` and
 `quickstart.md` when present.
 
 ## Steps
@@ -22,9 +22,12 @@ Same as `/sdd.clarify`. Requires `spec.md` and `plan.md`. Also read `research.md
    - **Polish:** update docs, run the quickstart, clean test/lint, `/update-context`.
 3. Line format: `- [ ] T### [P?] [GPU?] [US#?] Description with a concrete file path`. IDs run continuously T001, T002...
    - Use `[P]` only when the task touches a different file and depends on no unfinished task.
-   - Use `[GPU]` for work that needs RunPod. Collect those under "Đợt GPU".
+   - Use `[GPU]` for work that needs a GPU (dev laptop first per ADR-023; RunPod only as a fallback with the user's cost
+     approval). Collect those under "Đợt GPU".
 4. Coverage check: every FR and SC in the spec must map to at least one task (test or implementation). Add tasks for gaps.
-5. Set the spec status and its row in `specs/README.md` to `Tasked`.
+5. Set the spec status to `Tasked`.
+6. Update `progress/` (`progress/README.md` §3): the row and card in `FEATURES.md` (`status`, `artifacts` + tasks link,
+   `tasks` = `0/N`, `analyze` = "chưa chạy trên bản tasks này"), `STATUS.md` `next_step`, one line in `LOG.md`.
 
 ## Do not
 - Write code. Create vague tasks ("finish X", "optimize").

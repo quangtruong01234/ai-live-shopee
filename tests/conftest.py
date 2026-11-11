@@ -1,4 +1,4 @@
-"""Fixture dùng chung: Settings test không cần mạng/key/GPU, backend anyio, đồng hồ giả."""
+"""Shared fixtures: test Settings needing no network/key/GPU, the anyio backend, a fake clock."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-# Biến có thể có sẵn trong máy dev; xóa để test không vô tình dùng key thật hay cấu hình cá nhân.
+# Variables a dev machine may already export; removed so tests never pick up a real key or personal config.
 _ENV_PREFIXES = (
     "APP_",
     "LOG_",
@@ -18,6 +18,8 @@ _ENV_PREFIXES = (
     "REPLY_",
     "GEMINI_",
     "GOOGLE_API_KEY",
+    "FREELLMAPI_",
+    "GROQ_",
     "LLM_",
     "FAKE_",
     "AI_LABEL_",
@@ -27,6 +29,7 @@ _ENV_PREFIXES = (
     "PRODUCT_",
     "CONTENT_",
     "SESSION_",
+    "VIENEU_",
 )
 
 
@@ -44,7 +47,7 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 def settings(tmp_path):
-    """Settings cho test: engine/TTS giả, renderer tĩnh, không có GEMINI_API_KEY, không đọc `.env` thật."""
+    """Test Settings: fake engine/TTS, static renderer, no GEMINI_API_KEY, the real `.env` is not read."""
     from ai_live.core.config import Settings
 
     return Settings(
@@ -58,7 +61,7 @@ def settings(tmp_path):
 
 
 class FakeClock:
-    """Đồng hồ giả thay cho `time.monotonic` trong test hết hạn (dedup, comment quá cũ)."""
+    """Fake clock standing in for `time.monotonic` in expiry tests (dedup, stale comments)."""
 
     def __init__(self, start: float = 1000.0) -> None:
         self.now = start

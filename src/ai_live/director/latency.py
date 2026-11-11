@@ -15,6 +15,7 @@ from ai_live.core.models import (
     P95_MIN_SAMPLES,
     LatencySummary,
     Milestone,
+    RenderTurnStats,
     StepStats,
     TurnOutcome,
     Utterance,
@@ -37,11 +38,16 @@ STEP_NAMES: tuple[str, ...] = tuple(STEPS)
 
 @dataclass(frozen=True)
 class TurnLatency:
-    """What the tracker keeps of a finished turn: outcome and step durations (seconds)."""
+    """What the tracker keeps of a finished turn: outcome, step durations (seconds) and, for a lip-sync turn,
+    the render figures (005 data-model §5; None on a static turn).
+    """
 
     utterance_id: str
     outcome: TurnOutcome
     durations: dict[str, float] = field(default_factory=dict)
+    render_fps: float | None = None
+    infer_fps: float | None = None
+    clips_used: list[str] | None = None
 
 
 def step_durations(marks: Mapping[Milestone, float]) -> dict[str, float]:
@@ -80,20 +86,36 @@ class LatencyTracker:
         """Record a milestone; only the first value counts (a milestone is when a step *starts*)."""
         self._open.setdefault(utterance_id, {}).setdefault(milestone, at)
 
-    def finish(self, utterance_id: str, outcome: TurnOutcome) -> TurnLatency | None:
+    def finish(
+        self, utterance_id: str, outcome: TurnOutcome, *, render: RenderTurnStats | None = None
+    ) -> TurnLatency | None:
         """Close a turn. `in_progress` is not a final outcome, so such a turn is dropped, not counted."""
         marks = self._open.pop(utterance_id, {})
         if outcome is TurnOutcome.IN_PROGRESS:
             return None
-        turn = TurnLatency(utterance_id, outcome, step_durations(marks))
+        turn = TurnLatency(
+            utterance_id,
+            outcome,
+            step_durations(marks),
+            render_fps=render.render_fps if render else None,
+            infer_fps=render.infer_fps if render else None,
+            clips_used=list(render.clips_used) if render else None,
+        )
         self._turns.append(turn)
         return turn
 
-    def record(self, utterance: Utterance) -> TurnLatency | None:
-        """Close a turn from a finished `Utterance` (its marks and outcome)."""
+    def record(self, utterance: Utterance, *, render: RenderTurnStats | None = None) -> TurnLatency | None:
+        """Close a turn from a finished `Utterance` (its marks and outcome) and the renderer's stats, if any.
+
+        A scripted sentence has no `comment_received`, so it is not a reply turn: it is left out (it goes to
+        `ShowStats` instead) and `latency_summary.json` keeps describing comment replies only (004 research R2).
+        """
+        if utterance.segment_id is not None:
+            self._open.pop(utterance.utterance_id, None)
+            return None
         for milestone, at in utterance.marks.items():
             self.mark(utterance.utterance_id, milestone, at)
-        return self.finish(utterance.utterance_id, utterance.outcome)
+        return self.finish(utterance.utterance_id, utterance.outcome, render=render)
 
     def summary(self, *, idle_only: bool = False) -> LatencySummary:
         completed = [t for t in self._turns if t.outcome is TurnOutcome.COMPLETED]
@@ -109,6 +131,7 @@ class LatencyTracker:
             idle_completed=len(idle),
             idle_threshold_s=self.idle_threshold_s,
             min_samples=self.min_samples,
+            render_fps=step_stats([t.render_fps for t in completed if t.render_fps is not None], self.min_samples),
         )
 
     def _is_idle(self, turn: TurnLatency) -> bool:

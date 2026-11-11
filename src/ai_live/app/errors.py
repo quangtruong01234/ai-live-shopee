@@ -1,4 +1,4 @@
-"""Lỗi HTTP dạng JSON chung `{"error", "message", "details"}` (contracts/api.md)."""
+"""Common JSON HTTP error body `{"error", "message", "details"}` (contracts/api.md)."""
 
 from __future__ import annotations
 
@@ -9,6 +9,13 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+# 004 `POST /api/show/start` refusals (contracts/api.md §2); the operator reads these on the control page.
+HOST_UNAVAILABLE_MESSAGE = "Màn hình host chưa sẵn sàng. Mở /host và bấm Bắt đầu."
+NO_CONTENT_MESSAGE = "Chưa nạp file nội dung sản phẩm hợp lệ."
+# 004 `POST /api/show/next` refusals (contracts/api.md §2).
+SHOW_NOT_RUNNING_MESSAGE = "Show chưa chạy."
+TOPIC_UNAVAILABLE_MESSAGE = "Sản phẩm này không có dữ liệu cho chủ đề đã chọn."
+
 _HTTP_CODES = {
     404: ("not_found", "Không tìm thấy"),
     405: ("method_not_allowed", "Phương thức không được hỗ trợ"),
@@ -16,7 +23,9 @@ _HTTP_CODES = {
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, error: str, message: str, details: list[Any] | None = None) -> None:
+    def __init__(
+        self, status: int, error: str, message: str, details: list[Any] | dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.error = error
@@ -24,7 +33,9 @@ class ApiError(Exception):
         self.details = details or []
 
 
-def error_response(status: int, error: str, message: str, details: list[Any] | None = None) -> JSONResponse:
+def error_response(
+    status: int, error: str, message: str, details: list[Any] | dict[str, Any] | None = None
+) -> JSONResponse:
     return JSONResponse({"error": error, "message": message, "details": details or []}, status_code=status)
 
 
@@ -35,7 +46,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError) -> JSONResponse:
-        # Không trả lại `input`: body có thể chứa nội dung người xem, chỉ cần vị trí và lý do lỗi.
+        # `input` is not echoed back: the body may hold viewer text; the location and reason are enough.
         details = [
             {"loc": list(e.get("loc", ())), "msg": e.get("msg", ""), "type": e.get("type", "")} for e in exc.errors()
         ]

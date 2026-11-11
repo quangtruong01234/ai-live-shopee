@@ -16,11 +16,11 @@ Delete sections that do not apply.
 
 ## Bối cảnh kỹ thuật
 
-- **Ngôn ngữ / phiên bản:** Python 3.10 (uv)
+- **Ngôn ngữ / phiên bản:** Python 3.12 (uv, `.python-version`, ADR-020)
 - **Phụ thuộc chính:** [gói đang dùng] · **Phụ thuộc MỚI cần duyệt:** [tên gói, lý do] hoặc "không có"
 - **Lưu trữ:** [JSON / SQLite / không có]
 - **Kiểm thử:** [pytest; mock nào; test nào cần API thật hoặc GPU]
-- **Nơi chạy:** [laptop `AVATAR_MODE=static` / RunPod `livetalking` / cả hai]
+- **Nơi chạy:** [laptop `AVATAR_MODE=static` / GPU laptop lip-sync (ADR-023) / RunPod dự phòng, cần duyệt chi phí]
 - **Adapter liên quan:** [CommentSource / CommentQueue / ProductStore / ReplyEngine / TTSEngine / AvatarRenderer / OutputSink]
 - **Mục tiêu hiệu năng:** [ví dụ: câu đầu từ LLM ≤ 1.5 s]
 - **Ràng buộc khác:** [...]
@@ -35,10 +35,10 @@ Delete sections that do not apply.
 | II. Đồng ý và bảo mật | | |
 | III. Trả lời có căn cứ | | |
 | IV. Adapter trước | | |
-| V. Test trước | | |
-| VI. Ngân sách độ trễ | | |
+| V. Test trước (GPU: laptop trước, RunPod dự phòng) | | |
+| VI. Ngân sách độ trễ (kịch bản: câu đầu ≤ 5 s, lặng p95 ≤ 1,5 s; comment < 5 s p95) | | |
 | VII. Đơn giản trước (không hạ tầng hay abstraction thừa, dependency mới có ADR) | | |
-| VIII. Quan sát được | | |
+| VIII. Quan sát được (mốc `utterance_id`; câu kịch bản có `segment_id`, `segment_requested`) | | |
 | IX. Ngôn ngữ và tài liệu | | |
 
 ## Ảnh hưởng ngân sách độ trễ
@@ -77,7 +77,7 @@ Với mỗi ẩn số (NEEDS CLARIFICATION còn lại, lựa chọn thư viện,
 - **data-model.md:** thực thể, trường, ràng buộc kiểm tra và chuyển trạng thái, lấy từ "Thực thể chính" của spec.
 - **contracts/:** Protocol của adapter, endpoint HTTP/WebSocket, schema sự kiện. Phải khớp `docs/ARCHITECTURE.md` §3;
   nếu khác thì nêu rõ và đề xuất ADR.
-- **quickstart.md:** các bước chạy và kiểm chứng từng user story bằng tay, ghi rõ bước nào cần GPU/RunPod.
+- **quickstart.md:** các bước chạy và kiểm chứng từng user story bằng tay, ghi rõ bước nào cần GPU (laptop trước, RunPod dự phòng).
 
 ## ADR cần ghi
 

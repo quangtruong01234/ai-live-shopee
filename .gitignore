@@ -41,6 +41,7 @@ checkpoints/
 assets/avatars/
 media/
 recordings/
+out/
 backup_videos/
 *.mp4
 *.mov
@@ -73,6 +74,7 @@ Thumbs.db
 # ---------- Claude Code ----------
 .claude/settings.local.json
 
-# ---------- Dữ liệu phiên và kết quả chấm (feature 001) ----------
+# ---------- Dữ liệu phiên và kết quả chấm (feature 001, 004) ----------
 data/sessions/
 data/eval/runs/
+data/eval/script_runs/

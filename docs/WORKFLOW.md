@@ -22,16 +22,19 @@ flowchart LR
 | Bước | Lệnh | Đầu ra | Người dùng cần làm |
 |------|------|--------|---------------------|
 | 0 | `/sdd.constitution` | `.specify/memory/constitution.md` | Duyệt khi có thay đổi (hiếm) |
-| 1 | `/sdd.specify <mô tả>` | `specs/NNN-slug/spec.md` (+ branch nếu có git) | Đọc spec: đúng ý chưa, đúng phạm vi chưa |
+| 1 | `/sdd.specify <mô tả>` | `specs/NNN-slug/spec.md` + thẻ mới trong `progress/FEATURES.md` | Đọc spec: đúng ý chưa, đúng phạm vi chưa |
 | 2 | `/sdd.clarify` | spec được cập nhật, có mục "Làm rõ" | Trả lời tối đa 5 câu |
 | 3 | `/sdd.plan [ghi chú kỹ thuật]` | `plan.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md` | **Duyệt dependency mới và ADR đề xuất** |
 | 4 | `/sdd.tasks` | `tasks.md` | Xem phạm vi MVP |
 | 5 | `/sdd.analyze` | Báo cáo (không sửa file) | Quyết định sửa hay bỏ qua từng vấn đề |
 | 6 | `/sdd.implement [US1 \| T001-T010]` | Code + test, tasks được đánh dấu `[x]` | Kiểm chứng ở mỗi checkpoint |
 | 6′ | `/sdd.dispatch [US3 \| T071-T079]` | Như bước 6, nhưng chia task cho các sub-agent `ai-*` chạy song song (mục 2b) | Như bước 6 |
-| 7 | `/update-context` | `CLAUDE.md`, `DECISIONS.md`, `ROADMAP.md` | Đọc tóm tắt |
+| 7 | `/update-context` | `CLAUDE.md`, `DECISIONS.md`, `ROADMAP.md`, đối chiếu `progress/` | Đọc tóm tắt |
 
 **Quy tắc vàng:** mỗi bước kết thúc bằng **dừng lại để người dùng duyệt**. AI không tự chạy bước sau.
+
+**Tiến độ (ADR-028):** mọi lệnh đọc `progress/STATUS.md` và thẻ feature trong `progress/FEATURES.md` trước, cuối lệnh cập nhật
+`progress/` (trạng thái, câu hỏi mở, một dòng nhật ký). Giao thức và bảng "khi đổi X thì rà Y" ở `progress/README.md`.
 
 ## 2. Khi nào được đi đường tắt
 
@@ -58,19 +61,21 @@ luôn đi liền nhau, chỉ được sửa file của mình, nên các agent ch
 | `ai-qa` | Kiểm độ phủ test, contract test cho adapter, bộ câu hỏi chấm, chạy kiểm toàn bộ cuối mỗi đợt | `tests/contract/`, `data/eval/`, fixture dùng chung |
 
 - Agent cần sửa file không thuộc mình thì không sửa, mà ghi vào mục **Handoff** của báo cáo; phiên chính chuyển sang agent chủ ở đợt sau.
-- Chỉ phiên chính tick `tasks.md` và sửa `docs/`. Khi mọi agent trong đợt đã báo cáo, phiên chính gọi `ai-qa` ở chế độ
+- Agent đọc thẻ feature trong `progress/FEATURES.md` thay vì đi dò `docs/`. Chỉ phiên chính tick `tasks.md`, sửa `docs/` và `progress/`. Khi mọi agent trong đợt đã báo cáo, phiên chính gọi `ai-qa` ở chế độ
   `wave-check` để chạy toàn bộ `pytest` + `ruff`. Task chỉ được tick khi kết quả xanh.
 - Quy tắc vàng vẫn giữ: `/sdd.dispatch` dừng ở checkpoint của phase như `/sdd.implement`.
-- Chưa dùng `isolation: worktree` vì repo chưa có commit nào (worktree sẽ rỗng). TODO: sau commit đầu tiên, có nên chạy agent trong worktree riêng không?
+- Chưa dùng `isolation: worktree`. TODO: repo đã có commit đầu tiên (198a6d4), có nên chạy agent trong worktree riêng không?
 
 ## 3. Quy ước
 
-- **Feature ID:** `NNN-slug`, ví dụ `001-local-reply-pipeline`. Đánh số tăng dần, slug tiếng Anh kebab-case. Branch git trùng tên.
-- **Trạng thái spec:** `Draft → Clarified → Planned → Tasked → In progress → Done`. Ghi ở đầu `spec.md` và trong `specs/README.md`.
+- **Feature ID:** `NNN-slug`, ví dụ `001-local-reply-pipeline`. Đánh số tăng dần, slug tiếng Anh kebab-case.
+- **Branch:** làm thẳng trên `main`, không tách branch theo feature (ADR-027). Commit chỉ khi người dùng yêu cầu.
+- **Trạng thái spec:** `Draft → Clarified → Planned → Tasked → In progress → Done`. Ghi ở đầu `spec.md` và trong `progress/FEATURES.md`.
 - **Đánh dấu chưa rõ:** trong spec dùng `[NEEDS CLARIFICATION: câu hỏi]`; ở các doc khác dùng `TODO: câu hỏi`.
 - **Định danh trong spec:** user story `US1..`, yêu cầu `FR-001..`, tiêu chí `SC-001..`, task `T001..`.
-- **Đánh dấu task:** `[P]` chạy song song được, `[GPU]` cần RunPod, `[US#]` thuộc story nào. `[x]` là xong, `[~]` là chờ GPU.
-- **Việc GPU:** gom các task `[GPU]` của nhiều feature để bật RunPod một lần (`docs/RUNPOD.md`).
+- **Đánh dấu task:** `[P]` chạy song song được, `[GPU]` cần GPU (GPU laptop trước theo ADR-023, RunPod dự phòng), `[US#]` thuộc story nào. `[x]` là xong, `[~]` là chờ GPU.
+- **Việc GPU:** chạy trên GPU laptop trước (hiến pháp Điều V, ADR-023). Chỉ khi laptop không đủ mới gom các task `[GPU]` của nhiều
+  feature để bật RunPod một lần, sau khi người dùng duyệt chi phí (`docs/RUNPOD.md`).
 - **Ngôn ngữ (ADR-022):** spec, plan và tasks viết tiếng Việt. Tên file, ID, định danh, comment và docstring trong code dùng tiếng Anh.
   File context AI (`CLAUDE.md`, `.claude/commands/`, hiến pháp) viết tiếng Anh.
 
@@ -84,7 +89,7 @@ luôn đi liền nhau, chỉ được sửa file của mình, nên các agent ch
 | `docs/ARCHITECTURE.md` | Interface chung; `contracts/` của feature phải khớp hoặc đề xuất ADR để đổi |
 | `docs/DECISIONS.md` | `/sdd.plan` thêm ADR `Đề xuất`; người dùng duyệt thì chuyển `Đã chốt` |
 | `docs/RISKS.md` | `/sdd.plan` thêm rủi ro mới |
-| `specs/README.md` | Danh mục feature và trạng thái |
+| `progress/` | Trung tâm tiến độ: trạng thái hiện tại, sổ feature, câu hỏi chờ, nhật ký (ADR-028). `specs/README.md` chỉ trỏ sang đây |
 
 ## 5. Nếu muốn chuyển sang spec-kit CLI chính thức
 

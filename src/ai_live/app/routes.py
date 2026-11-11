@@ -1,25 +1,45 @@
-"""App HTTP routes (contracts/api.md §1–2)."""
+"""App HTTP routes (001 contracts/api.md §1–2; 004 contracts/api.md §2–4; 008 contracts/api.md §1)."""
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
 import html
+import io
 import logging
 import time
+import wave
 from pathlib import Path
 from typing import Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ai_live.app.context import AppContext, build_state
-from ai_live.app.errors import ApiError
+from ai_live.app.errors import (
+    HOST_UNAVAILABLE_MESSAGE,
+    NO_CONTENT_MESSAGE,
+    SHOW_NOT_RUNNING_MESSAGE,
+    TOPIC_UNAVAILABLE_MESSAGE,
+    ApiError,
+)
+from ai_live.core.events import lipsync_health_event
 from ai_live.core.logging import log_event
-from ai_live.core.protocols import RendererUnavailable
-from ai_live.director.show_director import FAULT_MODES, FAULT_STEPS, DirectorBusy
+from ai_live.core.models import AvatarModeState, LipsyncHealth, Topic
+from ai_live.core.protocols import RendererError, RendererUnavailable, RenderStatsSource
+from ai_live.director.show_director import (
+    ENTRY_FAULT_MODES,
+    FAULT_MODES,
+    FAULT_STEPS,
+    DirectorBusy,
+    HostUnavailable,
+    NoContent,
+    ShowDirector,
+    ShowNotRunning,
+    TopicUnavailable,
+)
 from ai_live.products.models import ContentLoadError
 
 logger = logging.getLogger("ai_live.app")
@@ -27,6 +47,10 @@ logger = logging.getLogger("ai_live.app")
 STATIC_DIR = Path(__file__).parent / "static"
 LABEL_POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
 DEBUG_TEXT_MAX = 300
+# 005 speak-audio (contracts/api.md §1): about 160 s of 16 kHz PCM16 mono.
+SPEAK_AUDIO_MAX_BYTES = 5 * 1024 * 1024
+SPEAK_AUDIO_RATE = 16000
+BAD_AUDIO_MESSAGE = "File phải là WAV PCM 16-bit, mono, 16 kHz. Đổi bằng lệnh trong quickstart bước 6."
 # Loader issue codes that are not about the content itself but about the upload (contracts/api.md §2).
 _UPLOAD_STATUS = {"too_large": (413, "content_too_large"), "not_docx": (415, "unsupported_media_type")}
 
@@ -47,10 +71,38 @@ class SpeakIn(BaseModel):
     text: str = Field(min_length=1, max_length=DEBUG_TEXT_MAX)
 
 
+class NextIn(BaseModel):
+    """`POST /api/show/next`: at least one of the two fields (contracts/api.md §2)."""
+
+    product_id: str | None = None
+    topic: Topic | None = None
+
+    @model_validator(mode="after")
+    def _one_field_set(self) -> NextIn:
+        if self.product_id is None and self.topic is None:
+            raise ValueError("cần product_id hoặc topic")
+        return self
+
+
+# Step-wide modes first, then the 008 entry-only ones; `timeout` belongs to both and is listed once.
+ALL_FAULT_MODES = tuple(dict.fromkeys((*FAULT_MODES, *ENTRY_FAULT_MODES)))
+
+
 class FaultIn(BaseModel):
+    """`POST /api/debug/fault`: a step-wide fault (004) or, with `entry`, a fault of one chain entry (008 FR-016)."""
+
     step: Literal[FAULT_STEPS]  # type: ignore[valid-type]
-    mode: Literal[FAULT_MODES]  # type: ignore[valid-type]
+    mode: Literal[ALL_FAULT_MODES]  # type: ignore[valid-type]
     count: int = Field(default=1, ge=1, le=100)
+    entry: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _mode_fits_the_form(self) -> FaultIn:
+        if self.entry is None and self.mode not in FAULT_MODES:
+            raise ValueError(f"mode {self.mode} cần chọn mục model (entry)")
+        if self.entry is not None and (self.step != "llm" or self.mode not in ENTRY_FAULT_MODES):
+            raise ValueError("lỗi theo mục model chỉ dùng với step llm và mode theo mục")
+        return self
 
 
 # ---------- Pages ----------
@@ -72,7 +124,7 @@ async def host_page(request: Request) -> HTMLResponse:
     if position not in LABEL_POSITIONS:
         log_event(logger, "ai_label_position_invalid", logging.WARNING, value=position, used="top-right")
         position = "top-right"
-    avatar_src = "/avatar-image" if settings.avatar_static_image.is_file() else "/static/avatar-placeholder.svg"
+    avatar_src = "/avatar-image" if _avatar_image(_ctx(request)).is_file() else "/static/avatar-placeholder.svg"
     page = (
         (STATIC_DIR / "host.html")
         .read_text(encoding="utf-8")
@@ -89,9 +141,14 @@ async def raw_host_template() -> RedirectResponse:
     return RedirectResponse("/host")
 
 
+def _avatar_image(ctx: AppContext) -> Path:
+    # 005: the character's own face in `livetalking`, also the picture shown after a fallback (FR-022).
+    return ctx.avatar_image if ctx.avatar_image is not None else ctx.settings.avatar_static_image
+
+
 @router.get("/avatar-image", include_in_schema=False)
 async def avatar_image(request: Request) -> FileResponse:
-    path = _ctx(request).settings.avatar_static_image
+    path = _avatar_image(_ctx(request))
     if not path.is_file():
         raise ApiError(404, "not_found", "Chưa có ảnh avatar; trang host dùng ảnh minh họa")
     return FileResponse(path)
@@ -114,19 +171,72 @@ def _control_command(command: str) -> float:
     return t_mono
 
 
+def _with_show_state(director: ShowDirector, body: dict) -> dict:
+    """`show_state` is in the body only while a show is on (contracts/api.md §3)."""
+    if director.show_active:
+        body["show_state"] = director.show_state
+    return body
+
+
 @router.post("/api/pause")
 async def pause(request: Request) -> dict:
-    return {"state": _ctx(request).director.pause(_control_command("pause"))}
+    director = _ctx(request).director
+    return _with_show_state(director, {"state": director.pause(_control_command("pause"))})
 
 
 @router.post("/api/resume")
 async def resume(request: Request) -> dict:
-    return {"state": _ctx(request).director.resume(_control_command("resume"))}
+    director = _ctx(request).director
+    return _with_show_state(director, {"state": director.resume(_control_command("resume"))})
 
 
 @router.post("/api/skip")
 async def skip(request: Request) -> dict:
-    return {"skipped_utterance_id": await _ctx(request).director.skip(_control_command("skip"))}
+    """Skip the comment answer speaking now, else the rest of the scripted segment (FR-016)."""
+    utterance_id, segment_id = await _ctx(request).director.skip_current(_control_command("skip"))
+    body: dict = {"skipped_utterance_id": utterance_id}
+    if segment_id is not None:
+        body["skipped_segment_id"] = segment_id
+    return body
+
+
+@router.post("/api/show/end")
+async def show_end(request: Request) -> dict:
+    """Say the closing and end the show (FR-017); idempotent when there is no show or it already ended."""
+    show_id, state = _ctx(request).director.end_show(_control_command("show_end"))
+    return {"show_id": show_id, "state": state}
+
+
+@router.post("/api/show/start")
+async def show_start(request: Request) -> dict:
+    """Start the scripted show; a second press returns the running show (`already_running`)."""
+    director = _ctx(request).director
+    try:
+        show, already_running = await director.start_show(_control_command("show_start"))
+    except HostUnavailable as exc:
+        raise ApiError(409, "host_unavailable", HOST_UNAVAILABLE_MESSAGE) from exc
+    except NoContent as exc:
+        raise ApiError(409, "no_content", NO_CONTENT_MESSAGE) from exc
+    return {"show_id": show.show_id, "state": show.state.value, "already_running": already_running}
+
+
+@router.post("/api/show/next")
+async def show_next(body: NextIn, request: Request) -> dict:
+    """Choose the next segment (FR-018): the prepared one is discarded, the one speaking finishes first."""
+    t_mono = _control_command("show_next")
+    try:
+        slot = _ctx(request).director.choose_next(body.product_id, body.topic, t_mono)
+    except ShowNotRunning as exc:
+        raise ApiError(409, "show_not_running", SHOW_NOT_RUNNING_MESSAGE) from exc
+    except TopicUnavailable as exc:
+        raise ApiError(422, "topic_unavailable", TOPIC_UNAVAILABLE_MESSAGE) from exc
+    return {"product_id": slot.product_id, "topic": slot.topic.value, "origin": slot.origin.value}
+
+
+@router.get("/api/show")
+async def get_show(request: Request) -> dict | None:
+    """`ShowSnapshot` (contracts/api.md §4); null before the first start, like `state.show`."""
+    return _ctx(request).director.show_snapshot()
 
 
 @router.put("/api/content")
@@ -155,6 +265,8 @@ async def put_content(request: Request) -> dict:
             raise ApiError(status, error, exc.issues[0].message, details) from exc
         raise ApiError(400, "content_invalid", f"File nội dung có {len(exc.issues)} lỗi, chưa nạp", details) from exc
     ctx.store.install(catalog)
+    # A running show follows at once: the segment speaking finishes, the prepared one is redone (contracts/api.md §3).
+    ctx.director.on_catalog_replaced(catalog)
     log_event(logger, "content_replaced", source=source_name, version=catalog.version)
     return {
         "version": catalog.version,
@@ -173,10 +285,90 @@ async def get_latency(request: Request, idle_only: bool = False) -> dict:
     return _ctx(request).director.latency.summary(idle_only=idle_only).to_json()
 
 
+@router.get("/api/host-config")
+async def host_config(request: Request) -> dict:
+    """What the host page needs at load: which picture to show, where the fork's WebRTC is (005 contracts/api.md §3)."""
+    ctx = _ctx(request)
+    settings = ctx.settings
+    mode = getattr(ctx.renderer, "mode", None)
+    return {
+        "mode": settings.avatar_mode,
+        "active": mode.active if mode is not None else settings.avatar_mode,
+        "livetalking_url": settings.livetalking_url,
+        "ai_label": {"text": settings.ai_label_text, "position": settings.ai_label_position},
+    }
+
+
+def _avatar_mode(ctx: AppContext) -> AvatarModeState:
+    """`SwitchingRenderer`'s state; a `static` session has no switch, so it is always the configured still image."""
+    mode = getattr(ctx.renderer, "mode", None)
+    return mode if isinstance(mode, AvatarModeState) else AvatarModeState(configured="static", active="static")
+
+
+def _lipsync_health(ctx: AppContext) -> LipsyncHealth | None:
+    health = getattr(getattr(ctx.renderer, "lipsync", None), "health", None)
+    return health if isinstance(health, LipsyncHealth) else None
+
+
+@router.get("/api/avatar")
+async def get_avatar(request: Request) -> dict:
+    """Which picture the viewers see, the character and the fork's last health (005 contracts/api.md §1)."""
+    ctx = _ctx(request)
+    character = ctx.character
+    health = _lipsync_health(ctx)
+    return {
+        "mode": _avatar_mode(ctx).to_json(),
+        "character": None
+        if character is None
+        else {
+            "character_id": character.character_id,
+            "customer_id": character.customer_id,
+            "clips": {kind: len(character.clips_of(kind)) for kind in ("idle", "talk")},
+        },
+        # Same payload as the `lipsync_health` event, so the fork's error text is redacted here too.
+        "lipsync": lipsync_health_event(health).payload if health is not None else None,
+    }
+
+
+@router.post("/api/avatar/lipsync")
+async def enable_lipsync(request: Request) -> dict:
+    """Operator switch back to the lip-synced character after a fallback; applies from the next turn (FR-022)."""
+    ctx = _ctx(request)
+    enable = getattr(ctx.renderer, "enable_lipsync", None)
+    try:
+        if enable is None:
+            raise ValueError("avatar mode is configured as static")
+        state = await enable()
+    except ValueError as exc:
+        raise ApiError(
+            409,
+            "not_lipsync_mode",
+            "Phiên đang chạy chế độ ảnh tĩnh theo cấu hình, không có nhân vật nhép miệng để bật lại.",
+        ) from exc
+    return state.to_json()
+
+
 @router.get("/health")
 async def health(request: Request) -> dict:
     ctx = _ctx(request)
-    return {"status": "ok", "host_connected": ctx.renderer.host_ready, "catalog_version": ctx.store.catalog.version}
+    mode = _avatar_mode(ctx)
+    lipsync = _lipsync_health(ctx)
+    body: dict = {
+        "status": "ok",
+        "host_connected": ctx.renderer.host_ready,
+        "catalog_version": ctx.store.catalog.version,
+        "reply_engine": ctx.settings.reply_engine,
+        "avatar": {
+            "configured": mode.configured,
+            "active": mode.active,
+            "lipsync_connected": lipsync is not None and lipsync.connected,
+        },
+    }
+    if ctx.chain is not None:
+        # Still 200 with no entry ready: the show runs on the product text (008 edge case), so a monitor must not
+        # restart the app. A rest past its `retry_at` already reads as ready in the snapshot.
+        body["llm_ready"] = any(entry["status"] == "ready" for entry in ctx.chain.snapshot()["entries"])
+    return body
 
 
 # ---------- Debug (registered only when APP_ENV=dev) ----------
@@ -189,6 +381,7 @@ async def debug_speak(body: SpeakIn, request: Request) -> dict:
     try:
         utterance_id = await ctx.director.speak_text(body.text)
     except DirectorBusy as exc:
+        # Also while a show runs: the debug line would cut into the script (004 contracts/api.md §2).
         raise ApiError(409, "busy", "Đang có lượt nói, thử lại sau khi host nói xong") from exc
     except RendererUnavailable as exc:
         raise ApiError(503, "host_unavailable", str(exc)) from exc
@@ -197,8 +390,73 @@ async def debug_speak(body: SpeakIn, request: Request) -> dict:
     return {"utterance_id": utterance_id}
 
 
+def _read_wav(data: bytes) -> tuple[bytes, float]:
+    """PCM frames and duration of a 16 kHz PCM16 mono WAV; anything else is `422 bad_audio` with what was read."""
+    if len(data) > SPEAK_AUDIO_MAX_BYTES:
+        raise ApiError(422, "bad_audio", f"{BAD_AUDIO_MESSAGE} File tối đa 5 MB.", {"size_bytes": len(data)})
+    try:
+        with wave.open(io.BytesIO(data), "rb") as w:
+            fmt = {
+                "sample_rate": w.getframerate(),
+                "channels": w.getnchannels(),
+                "sample_width_bits": w.getsampwidth() * 8,
+            }
+            frames = w.readframes(w.getnframes())
+    except (wave.Error, EOFError, RuntimeError, ValueError) as exc:  # a broken RIFF header can raise any of these
+        raise ApiError(422, "bad_audio", BAD_AUDIO_MESSAGE, {"reason": "not_wav"}) from exc
+    if fmt != {"sample_rate": SPEAK_AUDIO_RATE, "channels": 1, "sample_width_bits": 16} or not frames:
+        raise ApiError(422, "bad_audio", BAD_AUDIO_MESSAGE, fmt)
+    return frames, len(frames) / 2 / SPEAK_AUDIO_RATE
+
+
+@debug_router.post("/api/debug/speak-audio")
+async def debug_speak_audio(request: Request) -> dict:
+    """Play a ready-made WAV through the active renderer (005 FR-011): judge lip-sync without the LLM or TTS.
+
+    Raw WAV body plus an `X-Filename` header (the subtitle), not multipart: no extra dependency for one debug form.
+    Nothing is written to disk and the audio is never logged.
+    """
+    ctx = _ctx(request)
+    pcm, duration_s = _read_wav(await request.body())
+    name = unquote(request.headers.get("x-filename", "")).strip()[:DEBUG_TEXT_MAX] or "speak-audio.wav"
+    started = time.monotonic()
+    try:
+        utterance_id = await ctx.director.speak_audio(pcm, SPEAK_AUDIO_RATE, name)
+    except DirectorBusy as exc:
+        raise ApiError(409, "busy", "Đang có lượt nói, tạm dừng show rồi thử lại.") from exc
+    except RendererError as exc:
+        raise ApiError(503, exc.kind, str(exc)) from exc
+    except RendererUnavailable as exc:
+        raise ApiError(503, "host_unavailable", str(exc)) from exc
+    except TimeoutError as exc:
+        raise ApiError(503, "host_unavailable", "Màn hình host không phản hồi (hết giờ chờ ack)") from exc
+    first = ctx.renderer.first_playback_at(utterance_id)
+    stats = ctx.renderer.render_stats(utterance_id) if isinstance(ctx.renderer, RenderStatsSource) else None
+    return {
+        "utterance_id": utterance_id,
+        "duration_s": round(duration_s, 3),
+        "first_frame_s": round(first - started, 3) if first is not None else None,
+        "render_fps": round(stats.render_fps, 1) if stats is not None and stats.render_fps is not None else None,
+    }
+
+
 @debug_router.post("/api/debug/fault")
 async def debug_fault(body: FaultIn, request: Request) -> dict:
-    """Make the next `count` turns fail at `step` (quickstart US4, SC-005)."""
-    _ctx(request).director.inject_fault(body.step, body.mode, body.count)
-    return {"step": body.step, "mode": body.mode, "count": body.count}
+    """Make the next `count` turns fail at `step` (quickstart US4, SC-005), or the next `count` tries of one entry."""
+    ctx = _ctx(request)
+    if body.entry is None:
+        ctx.director.inject_fault(body.step, body.mode, body.count)
+        return {"step": body.step, "mode": body.mode, "count": body.count}
+    if ctx.settings.reply_engine != "chain":
+        raise ApiError(422, "chain_not_active", "Lỗi theo mục model chỉ dùng được khi REPLY_ENGINE=chain")
+    labels = [entry.label for entry in ctx.settings.llm_chain]
+    if body.entry not in labels:
+        raise ApiError(422, "unknown_entry", f"Không có mục '{body.entry}' trong LLM_CHAIN (có: {', '.join(labels)})")
+    ctx.director.inject_fault(body.step, body.mode, body.count, entry=body.entry)
+    return {
+        "step": body.step,
+        "mode": body.mode,
+        "count": body.count,
+        "entry": body.entry,
+        "pending": ctx.director.faults.pending_entry(body.entry),
+    }

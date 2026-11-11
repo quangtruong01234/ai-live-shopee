@@ -9,15 +9,16 @@ Thay âm "bíp" của `FakeTTS` bằng giọng nữ tiếng Việt thật, giọ
 `TTS_PROVIDER`: **`vieneu`** (VieNeu-TTS v3 Turbo chạy CPU/ONNX trên laptop, không tranh VRAM với lip-sync) và **`gemini`** (Gemini TTS
 free tier, dùng lại SDK `google-genai` và key đã có). Cả hai stream tiếng PCM16 mono 16 kHz theo từng câu. Một lớp bọc `SpeechTTS` do
 `create_tts()` trả về chuẩn hóa chữ trước khi đọc (số, giá, khoảng giá, %, đơn vị, viết tắt, theo cách nói miền Nam), đếm ký tự đã dùng
-và tạm ngừng gọi sau lỗi hết hạn mức, nên **lõi pipeline của 001 không phải sửa** và phụ đề vẫn giữ chữ gốc. Sau khi so sánh hai nguồn
-(SC-006), nguồn mặc định được chốt bằng ADR.
+và tạm ngừng gọi sau lỗi hết hạn mức, nên **lõi pipeline của 001 không phải sửa** và phụ đề vẫn giữ chữ gốc. Nguồn mặc định là
+`vieneu`, `gemini` dự phòng (người dùng chọn 2026-11-07, ADR-024); so sánh hai nguồn (SC-006) vẫn chạy để xác nhận.
 
 ## Bối cảnh kỹ thuật
 
 - **Ngôn ngữ / phiên bản:** Python 3.12 (uv, `.python-version`)
 - **Phụ thuộc chính:** FastAPI, pydantic-settings, google-genai 2.34.0 (ADR-018, đã cài) · **Phụ thuộc MỚI cần duyệt:**
   - `vieneu` (Apache-2.0), cài bản CPU/ONNX, kéo theo `onnxruntime` và `numpy`. Lý do: nguồn giọng (a) chạy trên laptop (FR-003). ADR-024.
-  - Tải model VieNeu-TTS v3 Turbo từ Hugging Face vào cache ngoài repo. Dung lượng: TODO (research R1). Cần người dùng duyệt.
+  - Tải model VieNeu-TTS v3 Turbo từ Hugging Face vào cache ngoài repo. Dung lượng: 581 MB, ở thư mục `VIENEU_MODEL_CACHE`
+    (mặc định `~/.cache/ai-live/hf`, research R1). Đã duyệt 2026-11-07.
   - Gemini TTS: **không** thêm dependency.
 - **Lưu trữ:** không có mới; thêm file `tts_usage.json` trong thư mục phiên (đã gitignore) và `data/rules/tts_abbreviations.json` (trong git).
 - **Kiểm thử:** pytest. Test mặc định dùng engine giả, `Vieneu` giả, client Gemini giả; không mạng, không key, không model.
@@ -40,12 +41,12 @@ và tạm ngừng gọi sau lỗi hết hạn mức, nên **lõi pipeline của 
 | IV. Adapter trước | Đạt | Mỗi nguồn giọng là một adapter, chọn bằng `TTS_PROVIDER`; lõi pipeline không sửa. Chạy riêng được qua CLI `say` / `normalize` và `/api/debug/speak`. |
 | V. Test trước | Đạt | Chuẩn hóa, lớp bọc, hai adapter đều có test viết trước với đối tượng giả. Ca gọi thật có marker `live_tts`. Không có việc GPU. |
 | VI. Ngân sách độ trễ | Đạt | Ngân sách 1,0 s giữ nguyên (bảng dưới). Việc nặng CPU của VieNeu chạy trong luồng riêng; nạp model lúc mở app (warm-up), không ở lượt đầu. |
-| VII. Đơn giản trước | Đạt (cần duyệt) | Một dependency mới (`vieneu`) có ADR-024 chờ duyệt. Hai adapter thật nên lớp bọc chung là hợp lệ. Không process riêng, không hàng đợi ngoài. Chuẩn hóa tự viết thay vì thêm thư viện. |
+| VII. Đơn giản trước | Đạt | Một dependency mới (`vieneu`) có ADR-024 (người dùng duyệt 2026-11-07). Hai adapter thật nên lớp bọc chung là hợp lệ. Không process riêng, không hàng đợi ngoài. Chuẩn hóa tự viết thay vì thêm thư viện. |
 | VIII. Quan sát được | Đạt | Mốc `tts_first_chunk` như 001; log `tts_ready`, `tts_quota_exhausted`, `tts_usage`; `kind` lỗi vào `errors.jsonl`; thời gian chờ và nghỉ khi hết hạn mức giữ phiên chạy. |
 | IX. Ngôn ngữ và tài liệu | Đạt | Code và comment tiếng Anh; thông báo lỗi và chữ đọc tiếng Việt. File đang có comment tiếng Việt (`tts/factory.py`, `tts/fake_tts.py`, `tts/__main__.py`) được dịch khi sửa (ADR-022). Chỗ chưa chắc ghi `TODO:`. |
 
-Ghi chú ngoài cổng: Điều V còn ghi việc GPU "chạy theo đợt trên RunPod", lệch với ADR-023. Không ảnh hưởng 003 (không có việc GPU),
-nhưng cần sửa Hiến pháp trước `/sdd.plan 005`.
+Ghi chú ngoài cổng: Điều V đã sửa theo ADR-023 ở hiến pháp 1.2.0 (ADR-029, 2026-11-01): việc GPU chạy GPU laptop trước, RunPod dự
+phòng. Không ảnh hưởng 003 (không có việc GPU). Điều VI 1.2.0 giữ mục tiêu comment < 5 giây p95, nên ngân sách 1,0 s của TTS không đổi.
 
 ## Ảnh hưởng ngân sách độ trễ
 
@@ -94,13 +95,13 @@ tests/unit/test_gemini_tts.py        # mới: client giả (base64, 429, chỉ g
 tests/unit/test_tts_factory.py       # mới
 tests/unit/test_config.py            # sửa theo biến mới
 tests/integration/test_tts_live.py   # mới, marker live_tts
-docs/ARCHITECTURE.md, docs/VENDORS.md # sửa khi ADR-024, ADR-025 được chốt
+docs/ARCHITECTURE.md, docs/VENDORS.md # sửa theo ADR-024, ADR-025 (đã chốt 2026-11-07)
 ```
 
 ## Phase 0: Nghiên cứu → [`research.md`](./research.md)
 
 - R1 VieNeu CPU/ONNX là nguồn (a) · R2 Gemini TTS free tier là nguồn (b) · R3 chuẩn hóa tự viết · R4 lớp bọc chung · R5 PCM16 16 kHz
-  · R6 hủy giữa chừng, luồng riêng · R7 `warm_up()` · R8 `TTSEngineError` · R9 giữ `TTS_TIMEOUT_S` · R10 kiểm thử.
+  · R6 hủy giữa chừng, luồng riêng · R7 `warm_up()` · R8 `TTSEngineError` · R9 `TTS_TIMEOUT_S` cho mỗi lần chờ chunk (ADR-049) · R10 kiểm thử.
 
 ## Phase 1: Thiết kế
 
@@ -111,9 +112,10 @@ docs/ARCHITECTURE.md, docs/VENDORS.md # sửa khi ADR-024, ADR-025 được ch�
 
 ## ADR cần ghi
 
-- **ADR-024 (Đề xuất):** hai nguồn giọng miễn phí VieNeu-TTS (CPU/ONNX, local) và Gemini TTS (free tier), thêm dependency `vieneu`,
-  bỏ `elevenlabs`/`oss` khỏi cấu hình, thêm `warm_up()` vào `TTSEngine`. Nguồn mặc định chốt sau SC-006 (ghi thêm vào ADR này).
-- **ADR-025 (Đề xuất):** hợp đồng tiếng PCM16 mono 16 kHz cho mọi TTS; chuẩn hóa chữ tự viết theo cách đọc miền Nam, áp dụng trong lớp
+- **ADR-024 (Đã chốt 2026-11-07):** hai nguồn giọng miễn phí VieNeu-TTS (CPU/ONNX, local) và Gemini TTS (free tier), thêm dependency `vieneu`,
+  bỏ `elevenlabs`/`oss` khỏi cấu hình, thêm `warm_up()` vào `TTSEngine`. Nguồn mặc định `vieneu`, `gemini` dự phòng (người dùng
+  chọn 2026-11-07); SC-006 xác nhận lại.
+- **ADR-025 (Đã chốt 2026-11-07):** hợp đồng tiếng PCM16 mono 16 kHz cho mọi TTS; chuẩn hóa chữ tự viết theo cách đọc miền Nam, áp dụng trong lớp
   bọc trước mọi nguồn giọng.
 
 ## Rủi ro mới

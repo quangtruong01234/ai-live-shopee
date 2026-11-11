@@ -5,11 +5,13 @@ argument-hint: "[feature NNN or slug (optional)]"
 
 Input: $ARGUMENTS
 
-You are running the **analyze** step of the Spec-Driven workflow. This step is **READ-ONLY: do not edit any file.**
+You are running the **analyze** step of the Spec-Driven workflow. This step is **READ-ONLY: do not edit any file**, with one
+exception: at the end, record the verdict in the `analyze` key of the feature's card in `progress/FEATURES.md`
+(date, verdict, counts per severity) and add one line to `progress/LOG.md`, so `/sdd.implement` can see it.
 Write the report in Vietnamese.
 
 ## Identify the feature
-Same as `/sdd.clarify`. Requires `spec.md`, `plan.md` and `tasks.md`.
+Same as `/sdd.clarify` (read the feature's card in `progress/FEATURES.md` first). Requires `spec.md`, `plan.md` and `tasks.md`.
 
 ## Checks
 1. **Constitution violations** (`.specify/memory/constitution.md`): every violation not listed in "Theo dõi độ phức tạp" is **CRITICAL**.

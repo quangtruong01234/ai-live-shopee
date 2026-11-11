@@ -65,6 +65,7 @@ body.host { background: #000; overflow: hidden; }
 .control header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .control h1 { font-size: 1.3rem; margin: 0; }
 .control h2 { font-size: 1rem; margin: 0 0 8px; }
+.control h3 { font-size: 0.9rem; margin: 12px 0 6px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
 .panel.wide { grid-column: 1 / -1; }
@@ -73,9 +74,13 @@ body.host { background: #000; overflow: hidden; }
 .badge.bad { background: var(--err-bg); color: var(--err-ink); }
 .banner { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); }
 .banner a { color: inherit; }
+.banner.danger { background: var(--err-bg); color: var(--err-ink); }
+.banner .list { margin: 6px 0 0; }
 .session-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .session-controls button { font: inherit; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; cursor: pointer; }
 .session-controls button:disabled { opacity: .5; cursor: default; }
+.session-controls select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; }
+.session-controls select:disabled { opacity: .5; }
 #skip-btn { border-color: var(--err-ink); color: var(--err-ink); }
 
 form.comment { display: grid; grid-template-columns: 1fr; gap: 8px; }
@@ -105,3 +110,5 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .latency tr.idle td { color: var(--muted); font-style: italic; }
 .latency .note { color: var(--muted); font-weight: normal; }
 .latency-meta { margin-top: 8px; color: var(--muted); font-size: .85rem; }
+.latency.llm-entries th, .latency.llm-entries td { text-align: left; }
+.latency.llm-entries tr.resting td { color: var(--err-ink); }

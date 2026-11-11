@@ -9,24 +9,29 @@
 |--------------------------|------|----------|----------|
 | `tts_provider` (`TTS_PROVIDER`) | `Literal["fake", "vieneu", "gemini"]` | `fake` | Giá trị khác → lỗi cấu hình lúc mở app. Bỏ `elevenlabs`, `oss` (chưa có adapter, ADR-024) |
 | `tts_sample_rate` (`TTS_SAMPLE_RATE`) | `int` | `16000` | > 0. Hợp đồng chung là 16000 (ADR-025) |
-| `tts_timeout_s` (`TTS_TIMEOUT_S`) | `float` | `5` | > 0 (đã có từ 001) |
+| `tts_timeout_s` (`TTS_TIMEOUT_S`) | `float` | `5` | > 0 (đã có từ 001). Áp cho mỗi lần chờ chunk, không cho cả câu (ADR-049) |
 | `tts_quota_cooldown_s` (`TTS_QUOTA_COOLDOWN_S`) | `float` | `60` | ≥ 0. Thời gian từ chối ngay sau lỗi hết hạn mức |
-| `vieneu_voice` (`VIENEU_VOICE`) | `str` | `Thục Đoan` (tạm, chốt sau khi nghe) | Không rỗng; tên không có trong danh sách giọng của model → `config_error` lúc warm-up |
-| `vieneu_cpu_threads` (`VIENEU_CPU_THREADS`) | `int` | `4` (tạm) | ≥ 1. TODO: đo rồi chốt (research R1) |
+| `vieneu_voice` (`VIENEU_VOICE`) | `str` | `Thùy Dung` (người dùng chọn ở T049: đọc rõ nhất, research R1) | Không rỗng; tên không có trong danh sách giọng của model → `config_error` lúc warm-up |
+| `vieneu_ref_audio` (`VIENEU_REF_AUDIO`) | `Path \| None` | trống (`None`) | Tùy chọn (FR-002). File WAV PCM16 ngắn do chính giọng `VIENEU_VOICE` đọc, ngoài repo (mở `~`); chuỗi rỗng → `None`. Warm-up đọc file, cắt tối đa 8 s, mã hóa một lần thành mã âm thanh và ghép với vân giọng của `VIENEU_VOICE`; thiếu file, sai định dạng, hoặc bản `vieneu` không còn hàm mã hóa → `config_error`. Thêm 2026-11-09 (T049, research R1) |
+| `vieneu_cpu_threads` (`VIENEU_CPU_THREADS`) | `int` | `4` | ≥ 1. Đo 2 / 4 / 6 ở T049, giữ 4 (research R1) |
+| `vieneu_model_cache` (`VIENEU_MODEL_CACHE`) | `Path` | `~/.cache/ai-live/hf` (mở `~`) | Thư mục cache model riêng, không symlink, ngoài repo. Adapter đặt `HF_HUB_CACHE` và `HF_HUB_DISABLE_SYMLINKS=1` trước khi import `vieneu` (research R1). Thêm lúc `/sdd.implement` T002 (2026-11-07, người dùng duyệt) |
 | `gemini_tts_model` (`GEMINI_TTS_MODEL`) | `str` | `gemini-3.8-flash-tts` | Không rỗng |
 | `gemini_tts_voice` (`GEMINI_TTS_VOICE`) | `str` | `Leda` (tạm, chốt sau khi nghe) | Không rỗng |
 | `gemini_api_key` (`GEMINI_API_KEY`) | `SecretStr` | (đã có từ 001) | Bắt buộc khi `TTS_PROVIDER=gemini`; thiếu → lỗi cấu hình lúc mở app. Không log (FR-016) |
 | `fake_tts_delay_ms` (`FAKE_TTS_DELAY_MS`) | `int` | `0` | (đã có từ 001) |
+| `tts_abbreviations_path` (`TTS_ABBREVIATIONS_PATH`) | `Path` | `data/rules/tts_abbreviations.json` | File phải tồn tại và hợp lệ (§3); lỗi → lỗi cấu hình lúc mở app. Thêm lúc `/sdd.tasks` (2026-11-07), theo cách 001 khai đường dẫn file luật |
 
 - Giá trị "tạm" là mặc định ban đầu để chạy được; giọng chính thức chốt cùng ADR chọn nguồn mặc định sau SC-006.
 - Biến bỏ khỏi `.env.example`: `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID`, `OSS_TTS_MODEL_PATH`
   (không có adapter; thêm lại cùng adapter nếu sau này dùng).
-- Đường dẫn model VieNeu: dùng cache mặc định của thư viện (ngoài repo). TODO: xác nhận thư mục cache sau khi cài (research R1).
+- Đường dẫn model VieNeu: thư mục `VIENEU_MODEL_CACHE` (ngoài repo, 581 MB), không dùng cache mặc định của Hugging Face vì
+  `onnxruntime` 1.31 không nạp được model từ cache symlink (research R1).
 
 ## 2. Giọng của AI host
 
-Không thành bảng dữ liệu riêng ở bản này. Một giọng = cặp (`TTS_PROVIDER`, `VIENEU_VOICE` hoặc `GEMINI_TTS_VOICE`) trong `.env` của máy
-chạy phiên cho **một** khách (FR-002, Điều I).
+Không thành bảng dữ liệu riêng ở bản này. Một giọng = (`TTS_PROVIDER`, `VIENEU_VOICE` kèm `VIENEU_REF_AUDIO` nếu có, hoặc
+`GEMINI_TTS_VOICE`) trong `.env` của máy chạy phiên cho **một** khách (FR-002, Điều I). File đoạn mẫu là một phần của giọng: lưu ngoài
+git, sao lưu cùng hồ sơ khách, chép sang máy chạy phiên.
 - Ràng buộc "một giọng chỉ cho một khách" ở demo được giữ bằng quy trình: mỗi khách một file `.env`, ghi tên giọng đã chọn vào hồ sơ
   khách (ngoài git). TODO: khi có khách thứ hai (mốc Multi-customer), cần sổ đăng ký AI host chặn bằng code (RISKS P4).
 
@@ -39,13 +44,13 @@ Không bao giờ đổi giá trị số (Điều III).
 |---|---------|---------|--------|
 | 1 | Bỏ link (`http…`, `www.…`) và emoji/ký tự biểu tượng | `Xem 👉 https://x.vn` | `Xem` |
 | 2 | Viết tắt từ `data/rules/tts_abbreviations.json` (khớp nguyên từ, không phân biệt hoa thường) | `SP`, `KM` | `sản phẩm`, `khuyến mãi` |
-| 3 | Size chữ: `size` + `S`/`M`/`L`/`XL`/`XXL` | `size M` | `sai em` (TODO: nghe thử) |
+| 3 | Size chữ: `size` + `S`/`M`/`L`/`XL`/`XXL` | `size M` | `sai em` (người dùng nghe, xác nhận 2026-11-09) |
 | 4 | Khoảng giá/số: `A–B`, `A-B`, `A ~ B` khi hai đầu là số (có hoặc không đơn vị) | `259.000đ–439.000đ` | `từ hai trăm năm mươi chín ngàn đồng đến bốn trăm ba mươi chín ngàn đồng` |
 | 5 | Giá tiền: số + `đ` / `đồng` / `VND` / `vnđ` | `259.000đ` | `hai trăm năm mươi chín ngàn đồng` |
 | 6 | Số + `k` (ngàn) | `250k` | `hai trăm năm mươi ngàn` |
 | 7 | Phần trăm | `15%`, `0,5%` | `mười lăm phần trăm`, `không phẩy năm phần trăm` |
 | 8 | Đơn vị đo sau số: `ml`, `l`/`L`, `g`, `kg`, `cm`, `m` | `1,5L`, `500ml`, `2kg` | `một phẩy năm lít`, `năm trăm mi li lít`, `hai ki lô gam` |
-| 9 | Dãy số đọc từng chữ số: bắt đầu bằng `0` và dài ≥ 4 chữ số, hoặc ≥ 9 chữ số liền, hoặc từ lẫn chữ và số (mã) | `0909123456`, `GIAM50K` | `không chín không chín một hai ba bốn năm sáu`, `giê i a em năm không ca` (TODO: nghe thử cách đọc chữ cái) |
+| 9 | Dãy số đọc từng chữ số: bắt đầu bằng `0` và dài ≥ 4 chữ số, hoặc ≥ 9 chữ số liền, hoặc từ lẫn chữ và số (mã) | `0909123456`, `GIAM50K` | `không chín không chín một hai ba bốn năm sáu`, `giê i a em năm không ca` (người dùng nghe, xác nhận 2026-11-09) |
 | 10 | Số còn lại | `1.250.000`, `3,75` | `một triệu hai trăm năm mươi ngàn`, `ba phẩy bảy mươi lăm` |
 
 **Đọc số (miền Nam, FR-007):**

@@ -57,7 +57,7 @@ dạng key Google `AIza...`. Nội dung comment chỉ log ở mức DEBUG (dữ 
 | `turn_started` | `{utterance_id, comment_id, author, text}` |
 | `sentence` | `{utterance_id, seq, text}` (câu đã qua guard, sắp phát) |
 | `guard_blocked` | `{utterance_id, reason}` |
-| `turn_finished` | `{utterance_id, outcome, error_step?, total_s?}` |
+| `turn_finished` | `{utterance_id, outcome, error_step?, error_kind?, error_message?, total_s?}` (`error_kind`, `error_message` chỉ có khi `outcome=error`, thêm bởi 003 T043; `error_message` đã che khóa) |
 | `session_state` | `{state: "running" \| "paused"}` |
 | `content_replaced` | `{version, products: [{id, name, is_primary}]}` |
 | `host_connection` | `{connected: bool}` |

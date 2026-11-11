@@ -4,17 +4,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
 
-from ai_live.avatar.static_renderer import StaticRenderer
+from ai_live.avatar.static_renderer import HostConnection
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
 from ai_live.comments.intake import CommentIntake
 from ai_live.comments.mock_source import MockSource
 from ai_live.core.config import Settings
 from ai_live.core.events import EventBus
+from ai_live.core.protocols import AvatarRenderer
 from ai_live.director.session_log import SessionLog
 from ai_live.director.show_director import ShowDirector
 from ai_live.products.store import DocxProductStore
+
+if TYPE_CHECKING:
+    from ai_live.avatar.character import AvatarCharacter
+    from ai_live.brain.chain_engine import ChainReplyEngine
+
+
+class HostRenderer(AvatarRenderer, Protocol):
+    """What the host page attaches to over `/ws/host`: `StaticRenderer` or `SwitchingRenderer` (005 adapters.md §6)."""
+
+    async def attach(self, conn: HostConnection) -> None: ...
+    def detach(self, conn: HostConnection) -> None: ...
+    def handle_message(self, conn: HostConnection, message: dict[str, Any]) -> None: ...
+    @property
+    def host_ready(self) -> bool: ...
 
 
 @dataclass
@@ -26,9 +42,15 @@ class AppContext:
     queue: InMemoryCommentQueue
     source: MockSource
     intake: CommentIntake
-    renderer: StaticRenderer
+    renderer: HostRenderer
     director: ShowDirector
     session_log: SessionLog | None = None
+    # 008: the reply engine when it is the model chain, for `llm_chain` and `/health`; None on any other engine.
+    chain: ChainReplyEngine | None = None
+    # 005: the still image `/avatar-image` serves: the character's face in `livetalking`; None = `AVATAR_STATIC_IMAGE`.
+    avatar_image: Path | None = None
+    # 005: the lip-sync character this session runs, for `GET /api/avatar`; None in `static`.
+    character: AvatarCharacter | None = None
 
 
 def now_iso() -> str:
@@ -59,4 +81,8 @@ def build_state(ctx: AppContext) -> dict[str, Any]:
             "source_name": catalog.source_name,
             "products": [{"id": p.id, "name": p.name, "is_primary": p.is_primary} for p in catalog.products],
         },
+        # 004: `ShowSnapshot`, or null before the first "Bắt đầu show" (contracts/api.md §4).
+        "show": ctx.director.show_snapshot(),
+        # 008: `ChainSnapshot`, or null when the reply engine is not the chain (contracts/api.md §1).
+        "llm_chain": dict(ctx.chain.snapshot()) if ctx.chain is not None else None,
     }

@@ -36,19 +36,29 @@ class FakeTTS:            # đã có (001). Thêm `async def warm_up(self) -> No
 
 
 class VieneuTTS:          # MỚI, ai_live/tts/vieneu_tts.py. Import `vieneu` và `numpy` bên trong (chỉ khi TTS_PROVIDER=vieneu).
-    def __init__(self, *, voice: str, cpu_threads: int, sample_rate: int = 16000) -> None: ...
-    async def warm_up(self) -> None: ...                     # asyncio.to_thread: nạp Vieneu(backend="onnx"), kiểm tên giọng, đọc thử "Dạ."
+    def __init__(self, *, voice: str, cpu_threads: int, model_cache: Path, sample_rate: int = 16000,
+                 ref_audio: Path | None = None) -> None: ...
+    async def warm_up(self) -> None: ...                     # asyncio.to_thread: đặt môi trường cache (dưới), nạp Vieneu(backend="onnx"), kiểm tên giọng, [đoạn mẫu], đọc thử "Dạ."
+    # Đoạn mẫu (FR-002, research R1), chỉ khi ref_audio khác None: đọc WAV PCM16 (stdlib `wave`, trộn về mono, cắt 8 s) →
+    # codes = model.engine._encode_ref_wav(wav, sr) (bộ mã hóa đã có trong cache, không tải gì thêm) → giọng dùng cho mọi câu là
+    # {"speaker_emb": model.get_preset_voice(voice)["speaker_emb"], "codes": codes}. Không dùng encode_reference()/ref_audio= của
+    # thư viện: cần tải thêm speaker_encoder.onnx. Thiếu file, WAV không đọc được, hoặc engine không có _encode_ref_wav → config_error.
+    # Trước lần import `vieneu` đầu tiên: os.environ["HF_HUB_CACHE"] = str(model_cache), os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+    # (onnxruntime 1.31 không nạp model từ cache symlink, research R1). Nếu `huggingface_hub` đã được import trước đó (đã đọc cấu
+    # hình cache cũ) → TTSEngineError("config_error", ...).
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
-    # Luồng phụ chạy infer_stream(text, voice=...) → float32 48 kHz → int16 → 16 kHz → loop.call_soon_threadsafe(queue.put_nowait, ...)
+    # Luồng phụ chạy infer_stream(text, voice=<tên giọng hoặc dict ở trên>) → float32 48 kHz → int16 → 16 kHz → loop.call_soon_threadsafe(queue.put_nowait, ...)
 
 
 class GeminiTTS:          # MỚI, ai_live/tts/gemini_tts.py. Dùng google-genai đã có (ADR-018).
     def __init__(self, *, client: "genai.Client", model: str, voice: str, sample_rate: int = 16000) -> None: ...
     async def warm_up(self) -> None: ...                     # không gọi API (không tốn hạn mức)
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
-    # client.aio.interactions.create(model=..., input=text, response_format={"type": "audio", "mime_type": "audio/l16",
-    #   "sample_rate": sample_rate}, generation_config={"speech_config": [{"voice": voice}]}, stream=True)
-    # → sự kiện step.delta có delta.type == "audio" → base64.b64decode(delta.data)
+    # client.aio.interactions.create(model=..., input=[{"type": "user_input", "content": [{"type": "text", "text": text}]}],
+    #   response_format={"type": "audio"}, generation_config={"speech_config": [{"voice": voice}]}, stream=True)
+    # → sự kiện step.delta có delta.type == "audio" → base64.b64decode(delta.data) → PCM l16 24 kHz → hạ về sample_rate (R5)
+    # (Sửa ở T044, 2026-11-09: API trả HTTP 400 khi xin "sample_rate": 16000; `input` theo dạng có cấu trúc của docs chính thức.
+    #  delta.mime_type khác audio/l16 hoặc tần số không đổi được về sample_rate → TTSEngineError("config_error", ...).)
     # Chỉ gửi `text` (đã chuẩn hóa) và câu chỉ dẫn giọng cố định; không gửi session_id, utterance_id, tên khách hay metadata khác.
     # APIError code 429 → TTSEngineError("quota_exhausted", "Hết hạn mức giọng nói (Gemini TTS, gói miễn phí)..."); khác → "api_error".
 
@@ -83,7 +93,8 @@ def normalize_for_speech(text: str, abbreviations: Mapping[str, str]) -> str: ..
 ```python
 def create_tts(settings: Settings) -> SpeechTTS: ...
 # fake   → SpeechTTS(FakeTTS(...))
-# vieneu → SpeechTTS(VieneuTTS(voice=settings.vieneu_voice, cpu_threads=settings.vieneu_cpu_threads, ...))
+# vieneu → SpeechTTS(VieneuTTS(voice=settings.vieneu_voice, cpu_threads=settings.vieneu_cpu_threads, model_cache=settings.vieneu_model_cache,
+#                              ref_audio=settings.vieneu_ref_audio))
 # gemini → SpeechTTS(GeminiTTS(client=genai.Client(api_key=...), model=settings.gemini_tts_model, voice=settings.gemini_tts_voice))
 # Thiếu `vieneu` chưa cài, hoặc thiếu GEMINI_API_KEY → TTSConfigError với thông báo tiếng Việt chỉ cách sửa.
 ```
@@ -92,8 +103,8 @@ def create_tts(settings: Settings) -> SpeechTTS: ...
 
 | Điểm | ARCHITECTURE §3 hiện tại | Feature này | Xử lý |
 |------|--------------------------|-------------|-------|
-| `sample_rate` | `TODO: thống nhất 16 kHz mono PCM16 theo yêu cầu của lip-sync?` | Chốt 16 kHz mono PCM16 | ADR-025 đề xuất; sửa §3 khi ADR được chốt |
-| Implementations | "OSS model (TODO: chọn), ElevenLabs, FakeTTS" | `VieneuTTS`, `GeminiTTS`, `FakeTTS` (+ lớp bọc `SpeechTTS`) | ADR-024 đề xuất; sửa §3 khi chốt |
+| `sample_rate` | `TODO: thống nhất 16 kHz mono PCM16 theo yêu cầu của lip-sync?` | Chốt 16 kHz mono PCM16 | ADR-025 (đã chốt 2026-11-07); sửa §3 ở task Polish |
+| Implementations | "OSS model (TODO: chọn), ElevenLabs, FakeTTS" | `VieneuTTS`, `GeminiTTS`, `FakeTTS` (+ lớp bọc `SpeechTTS`) | ADR-024 (đã chốt 2026-11-07); sửa §3 ở task Polish |
 | `warm_up()` | Không có | Thêm vào Protocol | Ghi trong ADR-024; sửa §3 |
 | `TTSEngineError` | Không có | Thêm, giống `ReplyEngineError` | Sửa §3 |
 | ElevenLabs | Có trong danh sách | Bỏ khỏi cấu hình (không có adapter) | ADR-024 ghi lý do; `docs/VENDORS.md` vẫn giữ làm ứng viên |

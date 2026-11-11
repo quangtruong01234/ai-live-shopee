@@ -10,8 +10,6 @@ import asyncio
 import anyio
 import pytest
 
-from ai_live.core.protocols import RendererUnavailable
-
 pytestmark = pytest.mark.anyio
 
 SAMPLE_RATE = 16000
@@ -34,7 +32,7 @@ async def test_speak_without_host_raises_renderer_unavailable(renderer_harness):
     renderer = renderer_harness.make()
     await renderer.start()
     with anyio.fail_after(2):
-        with pytest.raises(RendererUnavailable):
+        with pytest.raises(renderer_harness.unavailable_error):
             await renderer.speak("u1", "Dạ chào bạn.", _pcm(), SAMPLE_RATE)
     assert not renderer.is_speaking
     assert renderer.first_playback_at("u1") is None

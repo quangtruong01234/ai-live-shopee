@@ -19,23 +19,66 @@
   - VietTTS và các model TTS tiếng Việt mã nguồn mở khác: chưa thấy giọng nữ miền Nam có sẵn kèm license thương mại rõ như VieNeu;
     không đào sâu (Điều VII, chỉ cần một nguồn chạy laptop).
 - **Nguồn:** https://github.com/pnnbao97/VieNeu-TTS · https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo · https://pypi.org/project/vieneu/
+- **Kết quả cài và chạy thử (T001, T002, 2026-11-07, `vieneu` 3.8.3, `onnxruntime` 1.31.1, `huggingface-hub` 2.4.0):**
+  - Cây phụ thuộc không có `torch` hay gói GPU. Ngoài `onnxruntime`, `numpy`, gói còn kéo theo `gradio`, `librosa` (kèm `numba`,
+    `scikit-learn`, `scipy`), `pandas`, `huggingface-hub`, `sea-g2p`, `soundfile`, `soxr`, `tokenizers`, `kaldi-native-fbank`
+    (ADR-024 chỉ ghi `onnxruntime`, `numpy`).
+  - Chữ ký: `Vieneu(mode="v3turbo", backend="onnx", threads=0, onnx_dir=None, precision="fp32", ...)`;
+    `infer_stream(text, voice=None, ..., max_chars=256, apply_watermark=True)` sinh ra `numpy.ndarray` **float32, 48 kHz**
+    (`tts.sample_rate == 48000`, không chọn được tần số khác) → adapter tự hạ xuống 16 kHz như R5. Có `tts.close()`.
+  - Giọng có sẵn: 25 giọng; giọng mặc định của thư viện là `Hải Đăng` (nam, Bắc). Có `Thục Đoan` (nữ, Nam, phong cách kể chuyện).
+    Giọng nữ miền Nam: `Thùy Dung` (tin tức), `Thục Đoan`, `Mỹ Duyên`, `Kim Thanh` (đọc truyện). Tên sai → `ValueError`.
+  - **Giọng mặc định (T049, 2026-11-09): `Thùy Dung`.** Người dùng nghe q07 giọng `Thục Đoan` thấy "nắng" thành "nứng" (nguy hiểm
+    với livestream kem chống nắng). G2P của `sea_g2p` đúng (`nắng` → `nˈaɜŋ`, `nứng` → `nˈyɜŋ`) nên lỗi nằm ở bước sinh tiếng. Nghe
+    câu q07 đọc lại nhiều lần (`out/t049/nang_test/`): `Thục Đoan` mặc định, temperature 0,4 / top_k 10, 0,2 / top_k 5; `Mỹ Duyên`,
+    `Kim Thanh`, `Thùy Dung` mặc định. Người dùng chọn `Thùy Dung`: nghe rõ nhất. Giữ tham số lấy mẫu mặc định của thư viện
+    (temperature 0,8, top_k 25), không thêm biến cấu hình.
+  - **Đoạn mẫu `VIENEU_REF_AUDIO` (T049, 2026-11-09):** người dùng chọn lần đọc `D_ThuyDung_lan2` (2,4 s, PCM16 16 kHz) làm chất
+    giọng cố định. Cách chính thức của thư viện (`ref_audio=` / `encode_reference()`) cần `speaker_encoder.onnx` chưa có trong cache
+    (phải tải, cần ADR) nên không dùng. Thay vào đó giữ vân giọng có sẵn (`speaker_emb` của `Thùy Dung`) và mã hóa đoạn mẫu bằng
+    bộ mã hóa MOSS đã có trong cache (`engine._encode_ref_wav`), truyền `voice={"speaker_emb", "codes"}`. Đo offline
+    (`HF_HUB_OFFLINE=1`): mã hóa 2,4 s một lần lúc warm-up, ra 30 × 16 mã; đoạn tiếng đầu mỗi câu 0,28–0,54 s (10 câu trả lời mẫu).
+    Người dùng nghe `out/t049/ref_lan2/`: ổn, kể cả "nắng".
+    - Rủi ro: `_encode_ref_wav` là hàm nội bộ, có thể đổi khi nâng `vieneu` → adapter kiểm có hàm, thiếu thì `config_error` rõ ràng;
+      test chạy với model giả. File đoạn mẫu nằm ngoài git (`~/.cache/ai-live/voices/`), phải sao lưu cùng hồ sơ khách.
+  - Watermark tiếng: chỉ bật khi cài thêm `resemble-perth` (`vieneu[watermark]`); bản đang cài không có, `apply_watermark` không làm gì.
+  - Tự chuẩn hóa chữ bên trong: **có** (`sea_g2p.Normalizer`, gọi trong `infer_stream`, không tắt được). Chữ của mình đã chuẩn hóa
+    nên nó gần như không đổi gì; kiểm tra bằng tai ở T034.
+  - Số luồng: `threads=0` → mặc định của engine, máy này ra 6 luồng intra-op (máy có 12 luồng logic). `VIENEU_CPU_THREADS` truyền vào
+    `threads`.
+  - Gọi song song: trên CPU/ONNX thư viện tự nói "one call at a time" (engine có `threading.RLock`). Giữ khóa trong adapter như plan.
+  - Dung lượng model: 581 MB (backbone ONNX fp32 454 MB + codec MOSS-Audio-Tokenizer-Nano-ONNX 87 MB + file phụ).
+  - Đo nhanh trên laptop (chạy riêng, giọng `Thục Đoan`, 6 luồng): nạp model 5,4 s (đã có cache; lần đầu kèm tải ~40 s); câu 16 ký tự
+    → đoạn tiếng đầu 0,36 s, hệ số thời gian thực 0,76; câu 107 ký tự → đoạn đầu 0,41 s, đọc xong 3,96 s cho 5,92 s tiếng (0,67).
+- **Vấn đề khi nạp (từng chặn T002, đã gỡ):** với cache mặc định, `onnxruntime` 1.31 từ chối nạp: *"External data path escapes model directory"*.
+  `huggingface-hub` 2.x lưu file trong `blobs/<2 ký tự>/<hash>` và để symlink trong `snapshots/`. ONNX lần theo symlink tới thư mục
+  `blobs/..` thật, nên file trọng số đi kèm (`*.data`) nằm ở thư mục khác và bị chặn. Truyền `onnx_dir` chỉ sửa được phần backbone,
+  vì `V3TurboVieNeuTTS` không chuyển `codec_dir` xuống engine. Đặt `HF_HUB_DISABLE_SYMLINKS=1` cùng `HF_HUB_CACHE` trỏ tới một thư mục
+  cache riêng (đường dẫn ngắn, Windows giới hạn 260 ký tự) thì nạp và đọc được (số đo ở trên). Đã thử trên
+  `C:\Users\<user>\.cache\hf_nosym`, ngoài repo.
+  **Cách chốt (người dùng duyệt 2026-11-07):** biến `VIENEU_MODEL_CACHE` (mặc định `~/.cache/ai-live/hf`, data-model §1). Adapter đặt
+  `HF_HUB_CACHE` và `HF_HUB_DISABLE_SYMLINKS=1` trong `os.environ` ngay trước lần import `vieneu` đầu tiên; app không import
+  `huggingface_hub` ở chỗ khác (đã kiểm), còn nếu đã import thì báo `config_error`. Đã bỏ: tự đặt biến trong cửa sổ lệnh (dễ quên),
+  hạ `onnxruntime` (mất lớp kiểm tra an toàn, cần ADR). Bản tải lần đầu ở cache mặc định đã xóa; model hiện ở
+  `~/.cache/ai-live/hf`, đo lại sau khi chuyển: nạp 6,1 s, đoạn tiếng đầu 0,32–0,33 s.
 - **TODO:**
-  - Tốc độ thật trên CPU laptop này (12 luồng logic): thời gian đến đoạn tiếng đầu và hệ số thời gian thực, khi chạy riêng và khi
-    chạy cùng lip-sync. Đo ở SC-006.
-  - Dung lượng model tải về là bao nhiêu? Tải vào thư mục nào (mặc định là cache Hugging Face trong thư mục người dùng, ngoài repo)?
-  - Số luồng CPU cho ONNX: để mặc định hay giới hạn (để chừa CPU cho app và lip-sync)? Đặt bằng `VIENEU_CPU_THREADS`, đo rồi chốt.
-  - Đối tượng `Vieneu` có gọi song song từ nhiều luồng được không? Plan giả định **không**: adapter chỉ cho một câu tổng hợp tại một
-    thời điểm (khóa), đúng với ShowDirector vốn tạo tiếng tuần tự từng câu.
-  - VieNeu có tự chuẩn hóa văn bản bên trong không? Nếu có, kiểm tra nó không đổi chữ mình đã chuẩn hóa (ví dụ "ngàn").
-  - Có cho chọn tần số lấy mẫu đầu ra không? Nếu không thì adapter tự hạ từ 48 kHz xuống 16 kHz (R5).
+  - Tốc độ khi chạy cùng lip-sync. Đo ở SC-006 (T050).
+- **`VIENEU_CPU_THREADS` (T049, 2026-11-09): giữ 4.** Đo 2 / 4 / 6 luồng ở mục "Kết quả SC-003 / SC-006" cuối file: 6 luồng
+  chỉ nhanh hơn 4 luồng ~0,015 s (p95), 2 luồng chậm hơn ~0,11 s. Giữ 4 để chừa CPU cho app và lip-sync (RISKS G7); đo lại khi chạy
+  cùng 005 (T050).
 
 ## R2. Nguồn giọng (b) dịch vụ ngoài miễn phí: Gemini TTS, free tier
 
 - **Quyết định:** Adapter `gemini` gọi model Gemini TTS (mặc định `gemini-3.8-flash-tts`, thử thêm `gemini-3.8-flash-lite-tts`) qua SDK
   `google-genai` đã cài (ADR-018), chế độ async streaming: `client.aio.interactions.create(..., stream=True)`, đọc các sự kiện
-  `step.delta` có `delta.type == "audio"`, giải base64 `delta.data`. Yêu cầu đầu ra `response_format={"type": "audio",
-  "mime_type": "audio/l16", "sample_rate": 16000}`, giọng chọn qua `generation_config={"speech_config": [{"voice": "<tên>"}]}`.
-  Dùng lại `GEMINI_API_KEY`. Chỉ gửi chữ đã chuẩn hóa của câu cần đọc (FR-003 b).
+  `step.delta` có `delta.type == "audio"`, giải base64 `delta.data`. Yêu cầu đầu ra `response_format={"type": "audio"}` (API trả
+  PCM `audio/l16` 24 kHz), adapter tự hạ 24 → 16 kHz như R5. Câu gửi đi theo dạng có cấu trúc của docs:
+  `input=[{"type": "user_input", "content": [{"type": "text", "text": "<câu>"}]}]`. Giọng chọn qua
+  `generation_config={"speech_config": [{"voice": "<tên>"}]}`. Dùng lại `GEMINI_API_KEY`. Chỉ gửi chữ đã chuẩn hóa của câu cần đọc
+  (FR-003 b).
+- **Đã đo ở T044 (2026-11-09):** xin `"mime_type": "audio/l16", "sample_rate": 16000` bị trả HTTP 400 "Request contains an invalid
+  argument" (thử cả `input` dạng chuỗi lẫn dạng có cấu trúc). Bỏ hai trường đó thì API trả `audio/l16` 24 kHz. Chưa thử `input` dạng
+  chuỗi với `{"type": "audio"}` (mỗi lần thử tốn một request), nên giữ dạng có cấu trúc như docs.
 - **Lý do:**
   - Có free tier (không tính tiền ở gói miễn phí), hỗ trợ tiếng Việt, có stream tiếng.
   - **Không thêm dependency** và không thêm tài khoản/khóa mới: SDK và key đã có từ feature 001.
@@ -52,15 +95,16 @@
   - FPT.AI: 100 nghìn ký tự mỗi tháng nhưng trả về đường dẫn file sau khi xử lý xong (không stream, docs/VENDORS.md), nên câu đầu đến chậm.
 - **Nguồn:** https://ai.google.dev/gemini-api/docs/speech-generation · https://ai.google.dev/gemini-api/docs/pricing ·
   https://ai.google.dev/gemini-api/docs/rate-limits · https://azure.microsoft.com/en-us/pricing/details/speech/
+- **Giới hạn free tier của `gemini-3.8-flash-tts`:** 3 RPM, 10K TPM, 10 RPD (gói miễn phí, project `AIStreamming`, người dùng xem AI Studio 2026-11-10, T048; dùng cao nhất 28 ngày: 2 RPM, 58 TPM, 7 RPD). Mỗi câu là một request; phiên 30 phút cần khoảng
+  100–200 request (T051 dùng 84 request cho 60 comment; show liên tục của 004 ước 250–450 câu). 10 RPD chỉ đủ khoảng 3–5 phút
+  phát, 3 RPM chậm hơn nhịp câu của host. Kết luận: Gemini TTS free tier chỉ dùng để thử `say` và so sánh ngắn, **không** thay được
+  VieNeu cho cả phiên; nếu VieNeu hỏng giữa phiên thì Gemini chỉ cầm cự vài câu rồi lớp bọc báo "Hết hạn mức giọng nói" (RISKS Q12).
 - **TODO:**
-  - **Giới hạn free tier của model TTS (RPM, RPD)** chỉ xem được trong AI Studio. Mỗi câu là một request; phiên 30 phút có thể cần khoảng
-    100–200 request. Nếu RPD thấp hơn mức này, Gemini TTS chỉ dùng để so sánh (SC-006) và thử ngắn, không chạy hết phiên 30 phút
-    (rủi ro mới Q12). Người dùng mở AI Studio xem giúp.
-  - Gemini có trả đúng 16 kHz như yêu cầu không, hay luôn trả 24 kHz? Xác minh bằng test `live_tts`. Nếu luôn 24 kHz thì adapter hạ
-    tần số như R5.
   - Giọng Gemini đọc tiếng Việt theo giọng miền nào? Có chỉnh được bằng câu chỉ dẫn phong cách (`annotations` kiểu `speech_metadata`)
     không? Nghe thử ở SC-006. Câu chỉ dẫn phong cách chỉ chứa yêu cầu giọng đọc, không chứa thông tin phiên hay người xem.
-  - Thời gian đến đoạn tiếng đầu tiên từ Việt Nam: đo ở SC-006.
+  - Thời gian đến đoạn tiếng đầu tiên từ Việt Nam: đo ở SC-006. Một lần đo ở T044 (2026-11-09, `gemini-3.8-flash-tts`, giọng Leda,
+    câu 39 ký tự): đoạn đầu 4,0 s, xong cả câu 6,5 s cho 2,9 s tiếng. Đoạn đầu 4 s chậm hơn nhiều so với VieNeu (0,26 s) và có thể
+    làm lặng giữa câu vượt 1,5 s (Điều VI) nếu câu sau chỉ bắt đầu gọi khi câu trước phát xong; cần đo thêm ở SC-006.
 
 ## R3. Chuẩn hóa chữ trước khi đọc: tự viết, không thêm thư viện
 
@@ -97,10 +141,11 @@
 ## R5. Định dạng tiếng ra: PCM16 mono 16 kHz cố định
 
 - **Quyết định:** Mọi adapter trả PCM16 little-endian, mono, đúng `TTS_SAMPLE_RATE` (mặc định và khuyến nghị 16000). Chốt 16 kHz làm
-  hợp đồng chung, giải TODO ở `docs/ARCHITECTURE.md` §3 (ADR-025 đề xuất).
+  hợp đồng chung, giải TODO ở `docs/ARCHITECTURE.md` §3 (ADR-025).
   - VieNeu trả float32 48 kHz: adapter cắt biên về [-1, 1], đổi sang int16 và hạ tần số 48 → 16 kHz (tỉ lệ 3:1) bằng lọc thông thấp
     đơn giản rồi lấy 1 mẫu trong 3, dùng `numpy` (đi kèm `vieneu` qua `onnxruntime`). Không dùng `audioop` (đã bị bỏ khỏi Python 3.13).
-  - Gemini: xin thẳng 16 kHz (R2).
+  - Gemini trả PCM16 24 kHz (API không nhận yêu cầu 16 kHz, đo ở T044): adapter hạ 24 → 16 kHz (tỉ lệ 2:3) bằng cùng bộ lọc, chèn 0
+    để tăng gấp đôi rồi lọc và lấy 1 mẫu trong 3. Bộ lọc dùng chung nằm ở `ai_live/tts/resample.py`.
 - **Lý do:** Wav2Lip và MuseTalk đều tính đặc trưng tiếng ở 16 kHz, LiveTalking nhận PCM 16 kHz, và trang host ảnh tĩnh của 001 đã chạy
   16 kHz (FR-005: dùng được trực tiếp cho cả hai). 16 kHz đủ rõ cho giọng nói.
 - **Phương án đã cân nhắc:**
@@ -140,11 +185,13 @@
 
 ## R9. Thời gian chờ của bước tạo tiếng
 
-- **Quyết định:** Giữ nguyên `TTS_TIMEOUT_S=5` và cách ShowDirector áp thời gian chờ cho cả câu. Không sửa lõi ở feature này.
+- **Quyết định (đổi bởi ADR-049, 2026-11-09):** Giữ `TTS_TIMEOUT_S=5` nhưng áp cho **mỗi lần chờ chunk** (chunk đầu và giữa hai
+  chunk liền nhau), không áp cho cả câu. Sửa ở `ShowDirector` (001) và `ScriptRunner` (004); spec 001 đã sửa trước.
+- **Quyết định cũ:** Giữ nguyên `TTS_TIMEOUT_S=5` và cách ShowDirector áp thời gian chờ cho cả câu. Không sửa lõi ở feature này.
 - **Lý do:** Nếu VieNeu đạt khoảng 2 lần thời gian thực như công bố, một câu dài 5 giây tiếng cần khoảng 2,5 giây để tạo, còn trong
   giới hạn. Chưa có số đo trên laptop nên chưa đủ lý do sửa lõi.
-- **TODO:** Sau khi đo SC-006 khi chạy cùng lip-sync: nếu câu dài hay bị quá thời gian thì tăng `TTS_TIMEOUT_S` bằng cấu hình (ADR-023
-  chấp nhận chậm), hoặc đề xuất tách thời gian chờ câu đầu và cả câu (sửa lõi, cần sửa spec 001 trước).
+- **Số đo T026 (2026-11-09):** VieNeu trên laptop cần khoảng 0,63 s cho mỗi giây tiếng. Câu 9,6 s tiếng bị cắt ở 6,6 s với giới hạn
+  5 s cho cả câu, lượt lỗi `tts/timeout`. Vì vậy quyết định cũ sai với câu dài; đã chọn tách thời gian chờ (ADR-049).
 
 ## R10. Kiểm thử
 
@@ -157,3 +204,28 @@
     `addopts = '-m "not live_llm and not live_tts"'`.
   - Nghe thử (SC-002, SC-006) là bước tay trong quickstart.
 - **Lý do:** Điều V: test mặc định không cần GPU, mạng hay key.
+
+## Kết quả SC-003 / SC-006 (T049, chạy riêng, không có lip-sync)
+
+Cách đo (2026-11-09, laptop dev): app thật (`AVATAR_MODE=static`, trang host giả lập phát theo thời gian thật), engine trả lời giả
+đọc lại đúng 10 câu trả lời thật của lần chấm `data/eval/runs/20261104-171739` (Qwen3.8, 14 câu nói), 20 lượt mỗi lần đo (10 câu
+× 2), số lấy từ `GET /api/latency`, `chars` từ sự kiện `tts_usage` lúc đóng app.
+
+| Nguồn | Luồng CPU | Lượt (lỗi) | p95 câu đầu → chunk đầu (SC-003 ≤ 1,0 s) | Trung vị | p95 nhận comment → phát | `chars` / request | Điểm nghe (SC-002) |
+|-------|-----------|------------|------------------------------------------|----------|--------------------------|-------------------|--------------------|
+| VieNeu, Thục Đoan | 2 | 20 (0) | 0,529 s | 0,367 s | 0,593 s | 2116 / 28 | — |
+| VieNeu, Thục Đoan | 4 | 20 (0) | 0,419 s | 0,297 s | 0,482 s | 2116 / 28 | q07 đọc "nắng" thành "nứng" → đổi giọng |
+| VieNeu, Thục Đoan | 6 | 20 (0) | 0,405 s | 0,281 s | 0,454 s | 2116 / 28 | — |
+| VieNeu, **Thùy Dung** | 4 | 20 (0) | 0,405 s | 0,281 s | 0,467 s | 2116 / 28 | người dùng muốn cố định vân giọng → thêm đoạn mẫu |
+| VieNeu, **Thùy Dung + đoạn mẫu `lan2`** | 4 | 20 (0) | 0,516 s | 0,360 s | 0,578 s | 2116 / 28 | ổn, kể cả "nắng" (người dùng nghe `out/t049/ref_lan2/`) |
+| Gemini | — | không đo 20 lượt (người dùng chốt nguồn mặc định 2026-11-09) | 3,5–4,1 s (đo đơn lẻ T044, T045) | — | — | — | nghe rõ (T045) |
+
+- VieNeu đạt SC-003 ở cả ba mức luồng; 20/20 lượt xong, không lỗi bước `tts`.
+- Đoạn mẫu làm đoạn tiếng đầu chậm thêm khoảng 0,1 s (p95 0,405 → 0,516 s), vẫn dưới 1,0 s. Warm-up lần đầu (nạp model + mã hóa
+  đoạn mẫu) khoảng 12 s.
+- Gemini: các lần đo đơn lẻ ở T044, T045 cho đoạn đầu 3,5–4,1 s, tức không đạt SC-003 dù chưa đo đủ 20 lượt.
+- **Chốt (2026-11-09, người dùng):** nguồn mặc định `vieneu` (giọng `Thùy Dung` + đoạn mẫu `VIENEU_REF_AUDIO`, 4 luồng), `gemini`
+  dự phòng, đổi tay bằng `TTS_PROVIDER` (spec không tự chuyển nguồn). Không đo Gemini đủ 20 lượt để giữ hạn mức free tier: số đo
+  đơn lẻ đã gấp 3–4 lần ngưỡng SC-003 nên không đổi được kết luận. Giá trị mặc định trong code vẫn là `fake` (test và máy chưa có
+  model chạy được ngay, quickstart §0); máy chạy phiên đặt `TTS_PROVIDER=vieneu` trong `.env`.
+- Khi có lip-sync (T050): TODO, cần fork LiveTalking của 005 chạy được.

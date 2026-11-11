@@ -189,7 +189,7 @@ chấm bộ câu hỏi mẫu (R13) và tạm dừng / bỏ qua (R14).
 | `LLM_MODEL` | `gemini-3.8-flash` | ứng viên ban đầu, chốt bằng benchmark (R5) |
 | `LLM_THINKING_LEVEL` | `low` | giảm thời gian "suy nghĩ" để ra câu đầu nhanh (R5) |
 | `LLM_TIMEOUT_S` | `8` | timeout mỗi lượt gọi LLM (Điều VIII) |
-| `TTS_TIMEOUT_S` | `5` | timeout mỗi câu |
+| `TTS_TIMEOUT_S` | `5` | timeout mỗi lần chờ chunk (chunk đầu và giữa hai chunk), không tính cả câu (ADR-049) |
 | `RENDERER_ACK_TIMEOUT_S` | `3` | chờ trang host báo bắt đầu phát |
 | `COMMENT_QUEUE_MAX` | `50` | |
 | `COMMENT_DEDUP_WINDOW_S` | `60` | |

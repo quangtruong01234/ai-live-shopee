@@ -9,7 +9,9 @@ You are running the **plan** step of the Spec-Driven workflow (see `docs/WORKFLO
 Write the plan documents in Vietnamese; reply to the user in Vietnamese.
 
 ## Identify the feature
-Same as `/sdd.clarify`: from the input, then the `NNN-*` git branch, then the newest non-`Done` feature in `specs/README.md`.
+Same as `/sdd.clarify`: from the input, then `active_feature` in `progress/STATUS.md`, then the newest non-`Done` feature in
+`progress/FEATURES.md`. Read the feature's card and `progress/OPEN.md` first: pending ADRs and constitution amendments there
+affect the Constitution gate.
 
 ## Preconditions
 - `specs/NNN-slug/spec.md` must exist.
@@ -29,11 +31,14 @@ Same as `/sdd.clarify`: from the input, then the `NNN-*` git branch, then the ne
    - `data-model.md`: entities, fields, types, validation rules, state transitions.
    - `contracts/`: adapter Protocols, HTTP/WebSocket endpoints, event schemas. Compare with `docs/ARCHITECTURE.md` §3 and call out
      any differences.
-   - `quickstart.md`: steps to run and verify each user story, marking which steps need GPU/RunPod and which run on the laptop.
+   - `quickstart.md`: steps to run and verify each user story, marking which steps need a GPU (laptop GPU first, RunPod as fallback) and which run without one.
 6. Fill the "Ảnh hưởng ngân sách độ trễ" table if the feature touches the pipeline.
 7. **Constitution gate (pass 2)** after the design is done, then update the table.
 8. List the ADRs to record and new risks. Add ADRs to `docs/DECISIONS.md` with status `Đề xuất`, and risks to `docs/RISKS.md`.
-9. Set the spec status and its row in `specs/README.md` to `Planned`.
+9. Set the spec status to `Planned`.
+10. Update `progress/` (`progress/README.md` §3): the card in `FEATURES.md` (`status`, `artifacts`, `adrs`, `depends_on`,
+    `agents`), new `Đề xuất` ADRs and dependencies awaiting approval in `OPEN.md` §2, `STATUS.md` `next_step` / `blockers`,
+    one line in `LOG.md`.
 
 ## Do not
 - Create tasks.md or write feature code.

@@ -1,6 +1,6 @@
 # Đặc tả tính năng: [TÊN TÍNH NĂNG]
 
-- **Feature ID:** `[NNN-slug]` · **Branch:** `[NNN-slug]` · **Ngày tạo:** [YYYY-MM-DD]
+- **Feature ID:** `[NNN-slug]` · **Branch:** `main` · **Ngày tạo:** [YYYY-MM-DD]
 - **Trạng thái:** Draft <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** [M1a / M1b / ...]
 - **Mô tả gốc:** "[mô tả người dùng đưa vào /sdd.specify]"
@@ -58,7 +58,7 @@ Order by priority P1 (most important, the MVP), P2, P3...
 - [ ] Điều I (realtime / nhãn AI / 1 host 1 tài khoản): [...]
 - [ ] Điều II (đồng ý / bảo mật): [...]
 - [ ] Điều III (trả lời có căn cứ): [...]
-- [ ] Điều VI (độ trễ): [feature này chiếm bao nhiêu trong ngân sách < 5 giây]
+- [ ] Điều VI (độ trễ): [show kịch bản: câu đầu ≤ 5 giây, khoảng lặng p95 ≤ 1,5 giây; trả lời comment: < 5 giây p95; feature này chiếm bao nhiêu]
 
 ### Thực thể chính *(nếu feature có dữ liệu)*
 

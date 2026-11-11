@@ -218,7 +218,7 @@
     (`source.stop()`) và xóa phụ đề. Lượt có kết quả `skipped`.
   - Mỗi lượt chạy 2 task nối bằng hàng đợi câu (tối đa 2 câu): task sinh (LLM → tách câu → guard → TTS) và task phát (renderer). Câu 2 được
     sinh trong khi câu 1 đang phát, nên không có khoảng lặng giữa các câu.
-  - Timeout: `LLM_TIMEOUT_S` cho cả stream và riêng chờ câu đầu; `TTS_TIMEOUT_S` mỗi câu; renderer như R10. Hết giờ hoặc lỗi thì kết thúc lượt
+  - Timeout: `LLM_TIMEOUT_S` cho cả stream và riêng chờ câu đầu; `TTS_TIMEOUT_S` mỗi lần chờ chunk tiếng (chunk đầu và giữa hai chunk; đổi bởi ADR-049, trước là cả câu); renderer như R10. Hết giờ hoặc lỗi thì kết thúc lượt
     với `error` + bước lỗi (`llm`, `guard`, `tts`, `render`), ghi lỗi, phát sự kiện lên trang điều khiển, lấy comment kế tiếp.
   - Giả lập lỗi cho SC-005: endpoint `POST /api/debug/fault` (chỉ khi `APP_ENV=dev`) làm lượt kế tiếp lỗi ở bước được chọn.
 - **Lý do:** Spec chỉ nói "tạm dừng việc trả lời" và tách riêng "dừng ngay câu trả lời đang phát", nên hiểu tạm dừng là không nhận lượt mới.

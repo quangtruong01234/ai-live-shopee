@@ -5,7 +5,7 @@
 ## Định dạng: `- [ ] T### [P?] [GPU?] [US#?] Mô tả kèm đường dẫn file`
 
 - **[P]**: chạy song song được (khác file, không phụ thuộc task chưa xong)
-- **[GPU]**: cần RunPod; không làm trên laptop, gom vào đợt GPU (xem cuối file)
+- **[GPU]**: cần GPU; chạy trên GPU laptop trước (ADR-023), RunPod chỉ dự phòng và cần duyệt chi phí; gom vào đợt GPU (xem cuối file)
 - **[US#]**: thuộc user story nào (US1, US2...). Phase Setup, Foundational và Polish không gắn nhãn này.
 - Mỗi task ghi **đường dẫn file cụ thể**. Một task chỉ đủ nhỏ để xong và kiểm chứng trong một lần làm.
 
@@ -73,9 +73,9 @@ TASK GENERATION RULES (for /sdd.tasks; delete this block in the real file; write
 
 - [Nhóm task [P] làm cùng lúc được]
 
-## Đợt GPU (RunPod)
+## Đợt GPU
 
-- [Danh sách task [GPU], gom để bật pod một lần] (xem `docs/RUNPOD.md`)
+- [Danh sách task [GPU]: chạy trên GPU laptop trước; nếu cần RunPod thì gom để bật pod một lần, sau khi người dùng duyệt chi phí] (xem `docs/RUNPOD.md`)
 
 ## Chiến lược MVP
 

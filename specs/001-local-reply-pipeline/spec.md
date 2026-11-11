@@ -1,6 +1,6 @@
 # Đặc tả tính năng: Pipeline trả lời comment chạy local
 
-- **Feature ID:** `001-local-reply-pipeline` · **Branch:** `001-local-reply-pipeline` (chưa tạo vì thư mục chưa có git) · **Ngày tạo:** 2026-10-30
+- **Feature ID:** `001-local-reply-pipeline` · **Branch:** `main` (ADR-027) · **Ngày tạo:** 2026-10-30
 - **Trạng thái:** Tasked <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** M1a
 - **Mô tả gốc:** "feature 001". Được hiểu theo dòng đề xuất `001-local-reply-pipeline` trong `specs/README.md`: "Người vận hành gõ

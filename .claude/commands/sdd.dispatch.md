@@ -11,7 +11,8 @@ tick tasks → report) into one command. Reply to the user in Vietnamese.
 
 ## 1. Scope (same as `/sdd.implement`)
 
-- Feature and scope from the input; default is the **first unfinished phase**, stopping at its checkpoint.
+- Feature and scope from the input (else `active_feature` in `progress/STATUS.md`); read its card in
+  `progress/FEATURES.md` first. Default scope is the **first unfinished phase**, stopping at its checkpoint.
 - Tasks from a later phase are included only when the user lists them explicitly in the input.
 - If `/sdd.analyze` has not run on the current `tasks.md`, recommend it first. Known CRITICAL issues: do not dispatch.
 
@@ -20,9 +21,9 @@ tick tasks → report) into one command. Reply to the user in Vietnamese.
 | Files in the task | Agent |
 |---|---|
 | `comments/`, `comment_queue/`, `data/rules/` | `ai-comments` |
-| `products/`, `brain/`, `qa_eval/`, `scripts/make_demo_content.py`, `tests/live/` | `ai-brain` |
+| `products/`, `brain/`, `qa_eval/`, `scripts/make_demo_content.py`, `tests/live/`, `test_sanitize.py`, `test_script_prompt.py`, `test_brain_*.py` | `ai-brain` |
 | `tts/`, `avatar/`, `static/host.*`, `scripts/runpod/` | `ai-media` |
-| `core/`, `director/`, `security/`, `app/` (not `host.*`), `test_api.py`, `test_pipeline_fake.py`, `test_show_director.py` | `ai-orchestrator` |
+| `core/`, `director/`, `security/`, `app/` (not `host.*`), `test_api.py`, `test_pipeline_fake.py`, `test_show_director.py`, `test_script_runner.py`, `test_show_api.py`, `test_show_models.py`, `test_segment_planner.py`, `test_show_stats.py` | `ai-orchestrator` |
 | `data/eval/`, `tests/contract/`, `tests/conftest.py`, `tests/fixtures/content_builder.py`, `tests/unit/test_cli.py` | `ai-qa` |
 | `docs/`, `quickstart.md` runs, ADRs, measurements needing the user, `/update-context` | main session (not dispatched) |
 
@@ -36,9 +37,9 @@ tick tasks → report) into one command. Reply to the user in Vietnamese.
 - Inside a wave, each agent gets **all** of its tasks in one prompt, in tasks.md order (its own tests first), so it runs
   test → implement → verify as one flow and never waits on another agent.
 - Launch every agent of the wave **in a single message** (multiple Agent tool calls) so they run concurrently. Each prompt
-  contains: feature folder, task IDs with their full text, "read `.claude/agent-rules.md` first", and "end with the report
-  format of agent-rules §5".
-- Do not use `isolation: worktree` while the repo has no commit (the worktree would be empty); ownership keeps the shared
+  contains: feature ID (the agent reads its card in `progress/FEATURES.md`), task IDs with their full text, "read
+  `.claude/agent-rules.md` first", and "end with the report format of agent-rules §5".
+- Do not use `isolation: worktree` for now (open question in `progress/OPEN.md` §4); ownership keeps the shared
   working tree safe.
 
 ## 4. After each wave (always, in this order, no extra command needed)
@@ -54,6 +55,8 @@ tick tasks → report) into one command. Reply to the user in Vietnamese.
    `[GPU]` tasks → `[~]`.
    Add any error worth remembering to "Nhật ký lỗi gặp khi implement".
 4. Next wave, until the scope is done or nothing is unblocked.
+5. When dispatch stops: update `progress/` like `/sdd.implement` does (`FEATURES.md` tasks count and status, `STATUS.md`,
+   one line in `LOG.md` listing the waves and ticked task IDs). Agents never edit `progress/`.
 
 ## 5. Stop and report (Vietnamese)
 

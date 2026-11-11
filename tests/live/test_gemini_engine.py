@@ -27,8 +27,9 @@ DEMO_QUESTIONS = Path("data/eval/demo_questions.json")
 
 @pytest.fixture(scope="module")
 def live_settings():
-    # conftest clears the environment; the key is read again from `.env`.
-    s = Settings()
+    # conftest clears the environment; the key is read again from `.env`. The engine is pinned because the
+    # default became `chain` (feature 008) and these tests exercise Gemini directly.
+    s = Settings(reply_engine="gemini")
     if s.gemini_api_key is None:
         pytest.skip("chưa có GEMINI_API_KEY trong .env")
     return s

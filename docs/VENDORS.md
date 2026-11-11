@@ -18,6 +18,19 @@
 Cần so sánh trước khi chọn: độ tự nhiên, độ trễ, **chi phí mỗi giờ live** (mục tiêu ~15 giờ/ngày), có cho dùng ảnh/giọng người mẫu riêng
 không, và điều khoản xử lý dữ liệu người mẫu (phải nằm trong phạm vi văn bản đồng ý).
 
+## Tạo nhân vật và clip nền offline (spec 005, ADR-036)
+
+Chỉ dùng một lần cho mỗi nhân vật, không nằm trong pipeline live. Miệng vẫn sinh realtime bằng LiveTalking.
+
+| Ứng viên | Kiểu | Chi phí | Ghi chú |
+|----------|------|---------|---------|
+| ComfyUI | Công cụ chạy workflow ảnh/video (GPL-3.0) | Miễn phí | Chạy không giao diện trong notebook Kaggle hoặc Colab (Colab free cấm web UI) |
+| SDXL base 1.0 / FLUX.1-schnell | Model tạo ảnh gương mặt | Miễn phí | CreativeML Open RAIL++-M / Apache-2.0. Không dùng FLUX.1-dev (phi thương mại) |
+| Wan 2.2 TI2V-5B (dự phòng: Wan 2.2 I2V A14B GGUF) | Model ảnh → video | Miễn phí | Apache-2.0. TODO: tốc độ thật trên T4 (không có bf16)? |
+| Google Colab free (T4) | GPU cloud | Miễn phí | TODO: điều khoản có cho tạo tài sản dùng thương mại không? (RISKS G8) |
+| Kaggle Notebooks | GPU cloud (T4/P100, ~30 giờ/tuần) | Miễn phí | Nơi chạy đầu tiên cho giai đoạn demo (ADR-036). Điều khoản phi thương mại: đọc lại trước khi khách trả tiền (RISKS G8) |
+| RunPod | GPU thuê | Trả phí theo giờ | Dự phòng; báo chi phí cho người dùng trước khi bật pod |
+
 ## Khung ráp pipeline
 
 | Ứng viên | Kiểu | Chi phí | Ghi chú |
@@ -26,17 +39,24 @@ không, và điều khoản xử lý dữ liệu người mẫu (phải nằm tr
 
 ## TTS tiếng Việt (`TTSEngine`)
 
+Đang dùng (ADR-024, spec 003): **VieNeu-TTS** chạy CPU trên máy (`TTS_PROVIDER=vieneu`, nguồn mặc định khi chạy phiên) và
+**Gemini TTS** gói miễn phí (`TTS_PROVIDER=gemini`, 3 RPM / 10 RPD nên chỉ để thử và cầm cự vài câu). Các dòng dưới là ứng viên,
+chưa có adapter.
+
 | Ứng viên | Free tier (theo tìm kiếm) | Ghi chú |
 |----------|---------------------------|---------|
 | FPT.AI | 100.000 ký tự/tháng, hơn 20 giọng | Gói trả phí từ 500.000đ. TODO: có trả audio streaming theo chunk không? |
 | Zalo AI | Có gói miễn phí | Độ trễ khoảng 100–150 ms. TODO: hạn mức và streaming? |
 | Viettel AI | 50.000 ký tự trong tháng đầu | TODO: streaming? |
-| ElevenLabs | TODO | Đã có trong ADR-006; trả phí, server ở nước ngoài |
-| Model TTS mã nguồn mở | Miễn phí, cần máy chạy | ADR-006. TODO: chọn model cụ thể |
+| ElevenLabs | TODO | Đã có trong ADR-006; trả phí, server ở nước ngoài. ADR-024 bỏ khỏi cấu hình, giữ làm ứng viên |
+| Model TTS mã nguồn mở | Miễn phí, cần máy chạy | ADR-006; ADR-024 đã chọn VieNeu-TTS |
 
 ## LLM (`ReplyEngine`)
 
-- Gemini API, free tier (ADR-018). Đang dùng.
+- Gemini API, free tier (ADR-018). Đang dùng trong code; theo ADR-035 xuống cuối chuỗi.
+- freellmapi (ADR-034) làm cổng OpenAI-compatible cho các nhà cung cấp free. Chuỗi đã chốt ở ADR-035: SEA-LION v4 27B (Cloudflare
+  Workers AI) → gpt-oss-120b (Groq) → Qwen3.8 27B (Groq hoặc IteraCompute) → Gemini. Đã loại: OpenRouter free, Llama 3.3 70B fp8-fast.
+  ADR-040 bỏ gpt-oss-120b khỏi chuỗi mặc định (không đạt SC-001 ở T055 của 008): còn SEA-LION → Qwen3.8.
 
 ## Nguồn comment (`CommentSource`)
 

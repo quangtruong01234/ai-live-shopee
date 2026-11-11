@@ -1,7 +1,7 @@
 # Đặc tả tính năng: Giọng tiếng Việt thật cho AI host
 
-- **Feature ID:** `003-vietnamese-tts` · **Branch:** `003-vietnamese-tts` (chưa tạo, chờ người dùng xác nhận, xem báo cáo) · **Ngày tạo:** 2026-10-31
-- **Trạng thái:** Planned <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
+- **Feature ID:** `003-vietnamese-tts` · **Branch:** `main` (ADR-027) · **Ngày tạo:** 2026-10-31
+- **Trạng thái:** In progress (2026-11-07) <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** M1a
 - **Mô tả gốc:** "003-vietnamese-tts: Giọng tiếng Việt thật cho AI host qua adapter TTSEngine, streaming theo câu, chuẩn hóa số/giá/đơn vị
   trước khi đọc, cắm vào pipeline 001 thay FakeTTS. Làm song song với 005 (lip-sync cần giọng thật để kiểm tra khớp miệng).
@@ -81,10 +81,12 @@ Mình gõ một câu và nghe ngay giọng đọc, không cần mở phiên; lư
 - **FR-001**: Hệ thống PHẢI đọc câu trả lời bằng giọng tiếng Việt thật, đúng thanh điệu, theo từng câu ngay khi câu đó sẵn sàng.
 - **FR-002**: Giọng dùng cho phiên là **một giọng có sẵn** của nguồn giọng, không phải giọng clone của người thật cụ thể (hợp với
   nhân vật gương mặt AI ở feature 005). Giọng được chọn bằng cấu hình và gắn với đúng một khách; không dùng cùng giọng cho khách khác.
+  Với nguồn (a), giọng có thể kèm **một đoạn tiếng mẫu ngắn do chính giọng có sẵn đó đọc** (không phải tiếng người thật) để giữ chất
+  giọng ổn định; đoạn mẫu chọn bằng cấu hình, nằm ngoài git, thiếu hoặc hỏng thì báo lỗi cấu hình chứ không đọc bằng giọng khác.
 - **FR-003**: Hệ thống PHẢI có **hai nguồn giọng thật, đều miễn phí**, chọn bằng cấu hình: (a) một nguồn chạy ngay trên laptop
   (dùng chung card đồ họa 4 GB với nhân vật nhép miệng); (b) một dịch vụ bên ngoài ở gói miễn phí (có hạn mức ký tự, cần mạng).
-  Với nguồn (b), chỉ gửi đúng phần chữ cần đọc, không gửi thêm thông tin phiên hay người xem. Sau khi so sánh (SC-006), nguồn
-  mặc định được chốt bằng một ADR; nguồn còn lại giữ làm dự phòng.
+  Với nguồn (b), chỉ gửi đúng phần chữ cần đọc, không gửi thêm thông tin phiên hay người xem. Nguồn mặc định là (a), nguồn (b) giữ
+  làm dự phòng (người dùng chọn 2026-11-07, ADR-024); người dùng xác nhận lại 2026-11-09 sau khi đo (T049, research bảng kết quả).
 - **FR-004**: Tiếng phải nối liền giữa các câu của cùng một lượt; câu đầu phát trước khi câu cuối được tạo xong.
 - **FR-005**: Tiếng tạo ra PHẢI dùng được trực tiếp cho màn hình host ảnh tĩnh (feature 001) và nhân vật nhép miệng (feature 005),
   không cần chuyển đổi bằng tay.
@@ -166,6 +168,10 @@ Mình gõ một câu và nghe ngay giọng đọc, không cần mở phiên; lư
   Thực thể chính, Giả định, Ngoài phạm vi).
 - Q: Nguồn giọng chạy trên laptop hay dịch vụ ngoài gói miễn phí? → A: Thử cả hai (đều miễn phí), so sánh rồi chốt nguồn mặc định
   bằng ADR (FR-003, SC-006).
+
+### Phiên 2026-11-09 (lúc `/sdd.implement` T049)
+- Q: Giọng có sẵn `Thục Đoan` đọc "nắng" thành "nứng"; giữ giọng có sẵn hay dùng đoạn mẫu? → A: Chọn `Thùy Dung`, kèm đoạn mẫu
+  `D_ThuyDung_lan2` (một lần đọc của chính giọng `Thùy Dung`) làm chất giọng cố định; người dùng nghe 10 câu: ổn (FR-002).
 
 ## Checklist chất lượng spec
 

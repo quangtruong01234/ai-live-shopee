@@ -1,19 +1,25 @@
-"""ReplyEngine gọi Gemini API, async streaming (ADR-018, research R5)."""
+"""ReplyEngine backed by the Gemini API, async streaming (ADR-018, 001 research R5, 004 research R3).
+
+`reply()` (comment path) and `narrate()` (script path) share one streaming routine; they differ only in the prompt
+and the output-token budget (004 contracts/adapters.md §1).
+"""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 
 from google import genai
 from google.genai import errors, types
 
 from ai_live.brain.prompt import build_system_prompt, build_user_message
+from ai_live.brain.script_prompt import build_script_system_prompt, build_segment_message
 from ai_live.brain.sentence_splitter import SentenceSplitter
 from ai_live.core.config import Settings
 from ai_live.core.logging import log_event
-from ai_live.core.models import Comment
+from ai_live.core.models import Comment, SegmentRequest
 from ai_live.core.protocols import ReplyEngineError
 from ai_live.products.models import ProductCatalog
 
@@ -28,16 +34,26 @@ _BLOCKED_FINISH = {
 
 
 def _error_from_api(exc: errors.APIError) -> ReplyEngineError:
-    # 429 không retry trong lượt live: chờ backoff là vượt ngân sách 5 s (research R5).
+    # No retry on 429 inside a live turn: waiting for backoff would blow the 5 s budget (research R5).
     kind = "rate_limited" if exc.code == 429 else "api_error"
     return ReplyEngineError(kind, f"Gemini lỗi HTTP {exc.code}: {exc.message or exc.status}")
 
 
 class GeminiReplyEngine:
-    def __init__(self, client: Any, *, model: str, thinking_level: str, max_output_tokens: int) -> None:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        model: str,
+        thinking_level: str,
+        max_output_tokens: int,
+        script_max_tokens: int | None = None,
+    ) -> None:
         self._client = client
         self.model = model
         self.max_output_tokens = max_output_tokens
+        # Optional so callers built for 001 keep working; a script segment is longer than a reply, hence its own budget.
+        self.script_max_tokens = script_max_tokens if script_max_tokens is not None else max_output_tokens
         try:
             self.thinking_level = types.ThinkingLevel[thinking_level.upper()]
         except KeyError as exc:
@@ -56,21 +72,38 @@ class GeminiReplyEngine:
             model=settings.llm_model,
             thinking_level=settings.llm_thinking_level,
             max_output_tokens=settings.llm_max_tokens,
+            script_max_tokens=settings.script_max_tokens,
         )
 
-    def _config(self, catalog: ProductCatalog) -> types.GenerateContentConfig:
+    def _config(self, system_instruction: str, max_output_tokens: int) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
-            system_instruction=build_system_prompt(catalog),
-            max_output_tokens=self.max_output_tokens,
+            system_instruction=system_instruction,
+            max_output_tokens=max_output_tokens,
             thinking_config=types.ThinkingConfig(thinking_level=self.thinking_level),
         )
 
     async def reply(self, comment: Comment, catalog: ProductCatalog) -> AsyncIterator[str]:
+        config = self._config(build_system_prompt(catalog), self.max_output_tokens)
+        # `aclosing`: when the consumer closes this generator early, the inner one (and its HTTP stream) closes now,
+        # not whenever the garbage collector gets to it.
+        async with aclosing(self._stream(build_user_message(comment), config, {"comment_id": comment.id})) as stream:
+            async for sentence in stream:
+                yield sentence
+
+    async def narrate(self, request: SegmentRequest, catalog: ProductCatalog) -> AsyncIterator[str]:
+        # The engine never cuts the sentence count: the runner drops sentences past `max_sentences` (adapters.md §1).
+        config = self._config(build_script_system_prompt(catalog), self.script_max_tokens)
+        log_fields = {"segment_id": request.segment_id, "topic": request.topic.value}
+        async with aclosing(self._stream(build_segment_message(request, catalog), config, log_fields)) as stream:
+            async for sentence in stream:
+                yield sentence
+
+    async def _stream(
+        self, contents: str, config: types.GenerateContentConfig, log_fields: dict[str, Any]
+    ) -> AsyncIterator[str]:
         try:
             stream = await self._client.aio.models.generate_content_stream(
-                model=self.model,
-                contents=build_user_message(comment),
-                config=self._config(catalog),
+                model=self.model, contents=contents, config=config
             )
         except errors.APIError as exc:
             raise _error_from_api(exc) from exc
@@ -93,7 +126,7 @@ class GeminiReplyEngine:
         except errors.APIError as exc:
             raise _error_from_api(exc) from exc
         finally:
-            # Hủy lượt (bỏ qua, timeout) phải đóng stream để không giữ kết nối HTTP và không tốn thêm token.
+            # A cancelled turn (skip, timeout) must close the stream: no HTTP connection held, no tokens spent.
             aclose = getattr(stream, "aclose", None)
             if aclose is not None:
                 await aclose()
@@ -107,7 +140,7 @@ class GeminiReplyEngine:
             log_event(
                 logger,
                 "llm_usage",
-                comment_id=comment.id,
+                **log_fields,
                 prompt_tokens=getattr(usage, "prompt_token_count", None),
                 output_tokens=getattr(usage, "candidates_token_count", None),
                 cached_tokens=getattr(usage, "cached_content_token_count", None),

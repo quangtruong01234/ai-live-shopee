@@ -3,6 +3,9 @@
 Only the browser knows when sound really starts playing, so the renderer waits for the host page's `playback_started` /
 `sentence_played` acks instead of guessing durations. The `avatar_first_frame` milestone is the moment the server
 receives the `playback_started` ack of a turn's first sentence; ShowDirector reads it through `first_playback_at`.
+
+It also owns the single `/host` connection in both avatar modes (ADR-016), so it is the `HostLink` that the 005
+`LiveTalkingRenderer` uses to send subtitle / mode messages and to learn the page's WebRTC `sessionid`.
 """
 
 from __future__ import annotations
@@ -32,6 +35,26 @@ class HostConnection(Protocol):
     async def close(self, code: int = 1000) -> None: ...
 
 
+class HostLink(Protocol):
+    """What the lip-sync renderer needs from the `/host` channel (005 contracts/adapters.md §5)."""
+
+    @property
+    def lipsync_session(self) -> str | None:
+        """WebRTC `sessionid` the host page got from the fork's `/offer`; None until reported or if `/offer` failed."""
+        ...
+
+    @property
+    def host_ready(self) -> bool:
+        """Host page attached and "ready"; without it a lip-sync failure is the page's, not the character's."""
+        ...
+
+    async def send_to_host(self, message: dict[str, Any]) -> bool:
+        """Send a JSON message to the attached host page; False when none is attached."""
+        ...
+
+    def on_session_change(self, callback: Callable[[str | None], None]) -> None: ...
+
+
 class StaticRenderer:
     def __init__(
         self,
@@ -51,6 +74,8 @@ class StaticRenderer:
         self._waiters: dict[tuple[str, str, int], asyncio.Future[None]] = {}
         self._speaking: str | None = None
         self._interrupted = False
+        self._lipsync_session: str | None = None
+        self._session_callbacks: list[Callable[[str | None], None]] = []
 
     # ---------- AvatarRenderer ----------
 
@@ -136,6 +161,22 @@ class StaticRenderer:
             if uid == utterance_id and not fut.done():
                 fut.set_result(None)
 
+    # ---------- HostLink ----------
+
+    @property
+    def lipsync_session(self) -> str | None:
+        return self._lipsync_session
+
+    async def send_to_host(self, message: dict[str, Any]) -> bool:
+        conn = self._conn
+        if conn is None:
+            return False
+        await conn.send_json(message)
+        return True
+
+    def on_session_change(self, callback: Callable[[str | None], None]) -> None:
+        self._session_callbacks.append(callback)
+
     # ---------- /ws/host channel ----------
 
     async def attach(self, conn: HostConnection) -> None:
@@ -161,6 +202,12 @@ class StaticRenderer:
             if not self._ready:
                 self._ready = True
                 self._publish_connection(True)
+            # A static-mode page sends no `lipsync_session`; that must not clear one reported earlier.
+            if "lipsync_session" in message:
+                self._set_lipsync_session(message["lipsync_session"])
+            return
+        if kind == "lipsync_session":
+            self._set_lipsync_session(message.get("session"))
             return
         if kind not in ("playback_started", "sentence_played"):
             return
@@ -187,10 +234,26 @@ class StaticRenderer:
             while len(d) > _KEEP_UTTERANCES:
                 del d[next(iter(d))]
 
+    def _set_lipsync_session(self, session: Any) -> None:
+        # The fork's id is an opaque string (an upstream UUID); anything else from a buggy page is ignored.
+        if session is not None and (not isinstance(session, str) or not session):
+            return
+        if session == self._lipsync_session:
+            return
+        self._lipsync_session = session
+        for callback in list(self._session_callbacks):
+            try:
+                callback(session)
+            except Exception:
+                # One broken listener must not stop the host channel or the other listeners.
+                logger.exception("lipsync session callback failed")
+
     def _drop_connection(self) -> None:
         was_ready = self._ready
         self._conn = None
         self._ready = False
+        # The WebRTC session belonged to that page; a new page reports its own.
+        self._set_lipsync_session(None)
         for fut in self._waiters.values():
             if not fut.done():
                 fut.set_exception(RendererUnavailable("Màn hình host đã ngắt kết nối"))

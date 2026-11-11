@@ -9,9 +9,12 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from ai_live.app.main import create_app
+from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
 from ai_live.avatar.static_renderer import StaticRenderer
+from ai_live.avatar.switching_renderer import SwitchingRenderer
 from ai_live.core.events import EventBus
 from ai_live.core.protocols import RendererUnavailable
+from fixtures.fake_fork import FakeFork
 from fixtures.fake_host import FakeHostConnection
 
 
@@ -199,3 +202,180 @@ async def test_interrupt_when_idle_sends_nothing():
     renderer.handle_message(conn, {"type": "ready"})
     await renderer.interrupt()
     assert conn.json_messages("stop") == []
+
+
+# --- Feature 005: StaticRenderer as HostLink (contracts/adapters.md §5, api.md §4, T013) ---
+
+
+@pytest.mark.anyio
+async def test_ready_with_lipsync_session_sets_session_and_calls_back():
+    renderer = StaticRenderer(ack_timeout_s=0.5)
+    seen: list[str | None] = []
+    renderer.on_session_change(seen.append)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    assert renderer.lipsync_session is None
+
+    renderer.handle_message(conn, {"type": "ready", "lipsync_session": "s7"})
+    assert renderer.host_ready
+    assert renderer.lipsync_session == "s7"
+    assert seen == ["s7"]
+
+
+@pytest.mark.anyio
+async def test_standalone_lipsync_session_message_updates_session():
+    renderer = StaticRenderer(ack_timeout_s=0.5)
+    seen: list[str | None] = []
+    renderer.on_session_change(seen.append)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready", "lipsync_session": "s7"})
+
+    # The host page redid /offer (after `mode` or a lost WebRTC link) and reports the new session.
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": "s9"})
+    assert renderer.lipsync_session == "s9"
+    # Same value again is not a change; null means the new /offer failed.
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": "s9"})
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": None})
+    assert renderer.lipsync_session is None
+    assert seen == ["s7", "s9", None]
+
+
+@pytest.mark.anyio
+async def test_lipsync_session_ignores_bad_values_and_other_connections():
+    renderer = StaticRenderer(ack_timeout_s=0.5)
+    conn = FakeHostConnection(renderer)
+    stranger = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready", "lipsync_session": "s7"})
+
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": 8})
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": ""})
+    renderer.handle_message(conn, {"type": "lipsync_session", "session": True})
+    renderer.handle_message(stranger, {"type": "lipsync_session", "session": "s5"})
+    assert renderer.lipsync_session == "s7"
+
+
+@pytest.mark.anyio
+async def test_ready_without_lipsync_session_behaves_as_before():
+    bus = EventBus()
+    sub = bus.subscribe()
+    renderer = StaticRenderer(ack_timeout_s=0.5, bus=bus)
+    seen: list[str | None] = []
+    renderer.on_session_change(seen.append)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+
+    renderer.handle_message(conn, {"type": "ready"})
+    assert renderer.host_ready
+    assert renderer.lipsync_session is None
+    assert seen == []
+    assert [e.payload for e in sub.drain()] == [{"connected": True}]
+
+    await renderer.speak("u1", "Dạ chào bạn.", _audio(b"\x00\x00" * 160), 16000)
+    assert [m["type"] for m in conn.json_messages()] == ["sentence_start", "sentence_end"]
+
+
+@pytest.mark.anyio
+async def test_send_to_host_forwards_message():
+    renderer = StaticRenderer(ack_timeout_s=0.5)
+    assert await renderer.send_to_host({"type": "mode", "mode": "static"}) is False
+
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    assert await renderer.send_to_host({"type": "subtitle", "utterance_id": "u1", "text": "Dạ."}) is True
+    assert conn.json_messages("subtitle") == [{"type": "subtitle", "utterance_id": "u1", "text": "Dạ."}]
+
+
+@pytest.mark.anyio
+async def test_detach_resets_lipsync_session():
+    renderer = StaticRenderer(ack_timeout_s=0.5)
+    seen: list[str | None] = []
+    renderer.on_session_change(seen.append)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready", "lipsync_session": "s7"})
+
+    renderer.detach(conn)
+    assert renderer.lipsync_session is None
+    assert seen == ["s7", None]
+    assert await renderer.send_to_host({"type": "mode", "mode": "static"}) is False
+
+
+# --- Feature 005 US2: `mode`, `subtitle`, `subtitle_clear` on the host channel (contracts/api.md §4, T053) ---
+
+
+def _switching(fork: FakeFork) -> SwitchingRenderer:
+    static = StaticRenderer(ack_timeout_s=1.0)
+    lipsync = LiveTalkingRenderer(fork.url, static, first_frame_timeout_s=1.0, ack_timeout_s=1.0, reconnect_max_s=0.2)
+    return SwitchingRenderer(lipsync, static, fallback_after=2)
+
+
+async def _wait(predicate, timeout_s: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_s
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, "condition not met in time"
+        await asyncio.sleep(0.01)
+
+
+async def _lipsync_host(renderer: SwitchingRenderer) -> FakeHostConnection:
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready", "lipsync_session": "sess-1"})
+    await _wait(lambda: renderer.lipsync.ready)
+    return conn
+
+
+@pytest.mark.anyio
+async def test_host_gets_mode_static_before_the_fallback_turn_and_livetalking_on_enable():
+    async with FakeFork() as fork:
+        renderer = _switching(fork)
+        await renderer.start()
+        try:
+            conn = await _lipsync_host(renderer)
+            renderer.record_render_outcome("u1", False, error_kind="lipsync_unavailable")
+            assert conn.json_messages("mode") == []
+            renderer.record_render_outcome("u2", False, error_kind="lipsync_unavailable")
+
+            # The next turn is on the still image: the page switches picture before its first sentence arrives.
+            await renderer.speak("u3", "Dạ chào bạn.", _audio(b"\x00\x00" * 160), 16000)
+            types = [m["type"] for m in conn.json_messages()]
+            assert types.index("mode") < types.index("sentence_start")
+            assert conn.json_messages("mode") == [{"type": "mode", "mode": "static", "reason": "render_errors"}]
+            assert conn.audio_bytes() > 0
+
+            # The operator switches back: the page hears it before `enable_lipsync` returns.
+            await renderer.enable_lipsync()
+            assert conn.json_messages("mode")[-1] == {"type": "mode", "mode": "livetalking", "reason": None}
+            # Already on lip-sync: a second press sends nothing new.
+            await renderer.enable_lipsync()
+            assert len(conn.json_messages("mode")) == 2
+        finally:
+            await renderer.stop()
+
+
+@pytest.mark.anyio
+async def test_lipsync_subtitle_and_clear_arrive_in_sentence_order():
+    async with FakeFork() as fork:
+        renderer = _switching(fork)
+        await renderer.start()
+        try:
+            conn = await _lipsync_host(renderer)
+            for text in ("Dạ chào bạn.", "Hôm nay mình giới thiệu áo."):
+                await renderer.speak("u1", text, _audio(b"\x00\x00" * 1600), 16000)
+            subs = [
+                (m["type"], m["seq"], m.get("text"))
+                for m in conn.json_messages()
+                if m["type"] in ("subtitle", "subtitle_clear")
+            ]
+            assert subs == [
+                ("subtitle", 0, "Dạ chào bạn."),
+                ("subtitle_clear", 0, None),
+                ("subtitle", 1, "Hôm nay mình giới thiệu áo."),
+                ("subtitle_clear", 1, None),
+            ]
+            # On lip-sync the fork speaks: the page gets no `sentence_start` and no audio of its own.
+            assert conn.json_messages("sentence_start") == [] and conn.audio_bytes() == 0
+            assert {m["utterance_id"] for m in conn.json_messages("subtitle")} == {"u1"}
+        finally:
+            await renderer.stop()

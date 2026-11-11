@@ -42,3 +42,25 @@ async def test_failure_raises_exception(tts_harness):
         with pytest.raises(Exception):  # noqa: B017 - the contract only requires that something is raised
             async for _ in tts.synthesize("Dạ chào bạn Lan nha."):
                 pass
+
+
+async def test_warm_up_is_idempotent_and_silent(tts_harness):
+    # 003 contracts/adapters.md §1: called once at app start and before the CLI's first sentence; must not
+    # produce audio and must leave the engine usable.
+    tts = tts_harness.make()
+    with anyio.fail_after(5):
+        assert await tts.warm_up() is None
+        assert await tts.warm_up() is None
+        chunks = [c async for c in tts.synthesize("Dạ.")]
+    assert chunks
+
+
+@pytest.mark.parametrize("kind", ["quota_exhausted", "rate_limited", "api_error", "config_error", "model_error"])
+def test_tts_engine_error_carries_kind_and_message(kind):
+    from ai_live.core.protocols import TTSEngineError
+
+    exc = TTSEngineError(kind, "Nguồn giọng chưa sẵn sàng: thiếu model")
+    assert isinstance(exc, RuntimeError)
+    assert exc.kind == kind
+    assert exc.message == "Nguồn giọng chưa sẵn sàng: thiếu model"
+    assert str(exc) == exc.message

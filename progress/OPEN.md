@@ -1,0 +1,39 @@
+# Câu hỏi và quyết định đang chờ
+
+> Chỉ liệt kê việc **chờ người dùng**. Giải quyết xong thì sửa nguồn gốc (spec, ADR, hiến pháp, doc), rồi xóa dòng ở đây và ghi LOG.
+> Thứ tự trong mỗi mục: ảnh hưởng lớn trước.
+
+## 1. Câu hỏi làm rõ của spec (`[NEEDS CLARIFICATION]`)
+
+| Feature | Vị trí | Câu hỏi | Giải bằng |
+|---------|--------|---------|-----------|
+| — | — | Không có câu nào đang mở | — |
+
+## 2. ADR chưa chốt (`Đề xuất`)
+
+| ADR | Nội dung chờ | Chặn gì |
+|-----|-------------|---------|
+| [ADR-010](../docs/DECISIONS.md) | Cơ chế mã hóa phiên Shopee | M2 |
+| [ADR-021](../docs/DECISIONS.md) | App desktop cài trên Windows | Sau demo |
+
+## 3. Hiến pháp chờ sửa (`/sdd.constitution`)
+
+Không có. Hiến pháp ở 1.2.0 (sửa 2026-11-01, [ADR-029](../docs/DECISIONS.md): Điều V, VI, VIII).
+
+## 4. `TODO:` quan trọng trong docs
+
+| Nguồn | Câu hỏi |
+|-------|---------|
+| [PRD.md](../docs/PRD.md) §3 số 1 | Có chấm độ khớp miệng theo thang 1–5 không? |
+| [PRD.md](../docs/PRD.md) | Avatar là người thật (ai làm mẫu) hay nhân vật AI? Giọng clone từ người mẫu hay giọng có sẵn? |
+| [PRD.md](../docs/PRD.md) | Giới hạn ngân sách mỗi buổi demo (GPU, API)? |
+| [ROADMAP.md](../docs/ROADMAP.md) | Ngày dự kiến demo với khách? |
+| [004 research](../specs/004-show-director/research.md) R14 | RPM/RPD thật của từng model trong chuỗi ADR-035 (trước là Gemini free tier) (quyết định số phân đoạn mỗi lần tự kiểm tra) |
+| [ADR-036](../docs/DECISIONS.md), [RISKS](../docs/RISKS.md) G8 | Trước khi khách trả tiền: điều khoản Kaggle/Colab có cho dùng thương mại không (không thì tạo lại clip trên RunPod)? |
+| [RISKS](../docs/RISKS.md) P2 | Shopee có tính video nền lặp (miệng sinh realtime) là nội dung quay sẵn không? Khách hỏi lúc đăng ký live AI |
+| [RISKS](../docs/RISKS.md) L10 | License chính xác của checkpoint ảnh/video (cả VAE, text encoder) trước khi thu tiền khách |
+| [ADR-035](../docs/DECISIONS.md) | Hạn mức neuron/ngày thật của Cloudflare Workers AI (xem dashboard Cloudflare) |
+| [ADR-035](../docs/DECISIONS.md) | IteraCompute: có thêm key không (khuyến mãi hết 2026-11-24, chưa đọc chính sách bảo mật)? Điều khoản free của Cloudflare, Groq |
+| [WORKFLOW.md](../docs/WORKFLOW.md) §2b | Repo đã có commit: có chạy sub-agent trong worktree riêng không? |
+
+Danh sách đầy đủ: `grep -rn "TODO:" docs specs`.

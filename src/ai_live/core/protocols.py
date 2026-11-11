@@ -6,14 +6,26 @@ A new source or provider is a new class satisfying a Protocol, never a change to
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-from ai_live.core.models import Comment, Priority, QueuedComment
+from ai_live.core.models import Comment, Priority, QueuedComment, RenderTurnStats, SegmentRequest
 from ai_live.products.models import Product, ProductCatalog
 
 
 class RendererUnavailable(RuntimeError):
     """No `/host` page is connected to play audio."""
+
+
+class RendererError(RuntimeError):
+    """Render-step failure reported by the renderer itself (005 contracts/adapters.md §2, FR-021).
+
+    `kind` is written to `errors.jsonl`: `lipsync_unavailable`, `vram_oom`, `inference_failed`, `bad_audio`,
+    `renderer_restarted`, `timeout`.
+    """
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class ReplyEngineError(RuntimeError):
@@ -61,15 +73,53 @@ class ProductStore(Protocol):
 
 
 class ReplyEngine(Protocol):
-    """Generates the reply. Yields complete sentences (after the sentence splitter, before the guard)."""
+    """Generates host lines. Both methods yield complete sentences (after the sentence splitter, before sanitize/guard).
 
-    def reply(self, comment: Comment, catalog: ProductCatalog) -> AsyncIterator[str]: ...
+    Neither method changes `catalog`. Failures are raised as `ReplyEngineError` with `kind` in `api_error`,
+    `rate_limited`, `provider_blocked`, `config_error`.
+
+    Implementations: ChainReplyEngine (OpenAI-compatible model chain, ADR-035/037), GeminiReplyEngine, FakeReplyEngine.
+    """
+
+    def reply(self, comment: Comment, catalog: ProductCatalog) -> AsyncIterator[str]:
+        """Answer one viewer comment (feature 001)."""
+        ...
+
+    def narrate(self, request: SegmentRequest, catalog: ProductCatalog) -> AsyncIterator[str]:
+        """Speak one scripted segment about `request.topic` of `request.product_id` (feature 004, ADR-030).
+
+        Raises `ReplyEngineError` like `reply()`. The engine does not handle timeouts: `ScriptRunner` wraps the whole
+        segment in `SCRIPT_LLM_TIMEOUT_S` (`SCRIPT_RETRY_TIMEOUT_S` when retrying in fallback mode). The engine does
+        not trim the sentence count either: the runner drops sentences beyond `request.max_sentences`
+        (`sentence_count_exceeded`) and closes the stream, so it may yield more or fewer than asked.
+        """
+        ...
+
+
+class TTSEngineError(RuntimeError):
+    """Failure in the `tts` step (003 contracts/adapters.md §1).
+
+    `kind` is written to `errors.jsonl`: `quota_exhausted`, `rate_limited`, `api_error`, `config_error`, `model_error`.
+    `message` is Vietnamese, shown to the operator as is.
+    """
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
 
 
 class TTSEngine(Protocol):
-    """PCM16 little-endian mono."""
+    """Vietnamese TTS. Output: PCM16 little-endian, mono, exactly `sample_rate` Hz (16000, ADR-025)."""
 
     sample_rate: int
+
+    async def warm_up(self) -> None:
+        """Load the model before the session so the first sentence is not slow; a no-op for sources without one.
+
+        Raises `TTSEngineError("config_error", ...)`; the app logs it and keeps running.
+        """
+        ...
 
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...
 
@@ -84,3 +134,21 @@ class AvatarRenderer(Protocol):
     def first_playback_at(self, utterance_id: str) -> float | None:
         """`time.monotonic()` when the turn's first sentence started playing (`avatar_first_frame`), else `None`."""
         ...
+
+
+# Optional renderer capabilities (005 contracts/adapters.md §2). The core checks them with `isinstance`, so a renderer
+# that lacks them (StaticRenderer) keeps working unchanged.
+
+
+@runtime_checkable
+class RenderOutcomeSink(Protocol):
+    """A renderer that wants to know how each turn's render step ended (FR-022, research R9)."""
+
+    def record_render_outcome(self, utterance_id: str, ok: bool, *, error_kind: str | None = None) -> None: ...
+
+
+@runtime_checkable
+class RenderStatsSource(Protocol):
+    """A renderer that measures its own frame rate per turn (FR-020)."""
+
+    def render_stats(self, utterance_id: str) -> RenderTurnStats | None: ...

@@ -1,7 +1,7 @@
 # Đặc tả tính năng: AI host tự nói kịch bản giới thiệu sản phẩm, sinh realtime
 
-- **Feature ID:** `004-show-director` · **Branch:** `004-show-director` (chưa tạo, chờ người dùng xác nhận, xem báo cáo) · **Ngày tạo:** 2026-10-31
-- **Trạng thái:** Draft <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
+- **Feature ID:** `004-show-director` · **Branch:** `main` (ADR-027) · **Ngày tạo:** 2026-10-31
+- **Trạng thái:** In progress <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** M1a (mục `ShowDirector` trong `docs/ROADMAP.md`; feature chính tiếp theo theo ADR-026)
 - **Mô tả gốc:** "004-show-director" (bổ sung từ `specs/README.md` và ADR-026: host nói kịch bản giới thiệu sản phẩm liên tục, sinh
   realtime từ dữ liệu sản phẩm; đây là nội dung chính của phiên live, thay cho việc đọc chat để trả lời người xem).
@@ -75,10 +75,10 @@ và nhật ký lỗi.
 2. **Given** phiên chạy 30 phút, **When** thống kê phân đoạn theo sản phẩm, **Then** sản phẩm chính chiếm phần lớn thời lượng và mỗi
    sản phẩm phụ đều được giới thiệu đều đặn (SC-004).
 3. **Given** bước sinh kịch bản lỗi hoặc quá giờ, **When** host đang chuẩn bị phân đoạn kế tiếp, **Then** phân đoạn đó bị bỏ, lỗi được
-   ghi lại và hiện trên trang điều khiển, phiên không dừng
-   [NEEDS CLARIFICATION: Khi dịch vụ sinh nội dung lỗi kéo dài (mất mạng, hết hạn mức miễn phí), host nên (a) đọc nguyên văn bài giới
-   thiệu và mô tả có sẵn trong file nội dung (tiếng và hình vẫn sinh realtime, nhưng câu chữ lặp lại), hay (b) im lặng, nhân vật vẫn
-   hiện, và báo người vận hành quyết định?].
+   ghi lại và hiện trên trang điều khiển, phiên không dừng. Nếu lỗi kéo dài (mặc định 3 phân đoạn liên tiếp lỗi, chỉnh được), host
+   chuyển sang **chế độ dự phòng**: đọc nguyên văn từng câu của bài giới thiệu và mô tả có sẵn trong file nội dung (vẫn qua bộ chặn
+   như câu sinh ra; tiếng và hình vẫn sinh realtime), trang điều khiển báo rõ "đang ở chế độ dự phòng". Trước mỗi phân đoạn dự phòng,
+   hệ thống thử sinh lại; sinh được thì tự quay về chế độ bình thường.
 4. **Given** bước tạo tiếng lỗi ở một câu, **When** host đang nói phân đoạn, **Then** câu đó bị bỏ, lỗi được ghi, host nói tiếp câu kế.
 
 ---
@@ -118,6 +118,29 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 2. **Given** sản phẩm X không có dữ liệu cho chủ đề Y (ví dụ không có khuyến mãi), **When** người vận hành chọn, **Then** trang điều khiển
    không cho chọn tổ hợp đó (hoặc báo rõ là không có dữ liệu).
 
+---
+
+### User Story 6: Comment mock chen vào kịch bản đang chạy (Ưu tiên: P3)
+
+Trong lúc host đang nói kịch bản, người vận hành gửi một comment mock từ trang điều khiển (công cụ thử của 001, ví dụ "Lan: giá bao
+nhiêu?"). Host nói hết câu đang nói, trả lời comment đó theo đúng cách của 001, rồi quay lại kịch bản.
+
+**Vì sao ưu tiên này:** Giữ đường trả lời comment của 001 chạy được cùng kịch bản, để thử giọng và nhân vật trong tình huống giống live
+thật, và mở sẵn đường cho lúc mở lại phần đọc chat (ADR-026). Không có vẫn demo được.
+
+**Kiểm thử độc lập:** Khi phiên đang chạy, gửi 10 comment mock ở các thời điểm khác nhau (giữa phân đoạn, giữa hai phân đoạn, lúc tạm
+dừng), xem host trả lời và quay lại kịch bản.
+
+**Kịch bản chấp nhận:**
+1. **Given** host đang nói giữa một phân đoạn, **When** người vận hành gửi comment mock hợp lệ, **Then** host nói hết câu đang nói, không
+   bắt đầu câu kế của phân đoạn, mà trả lời comment (lời trả lời theo đúng quy tắc căn cứ dữ liệu, xưng hô và bộ chặn của 001).
+2. **Given** host vừa trả lời xong và hàng đợi comment trống, **When** quay lại kịch bản, **Then** host nói câu kế tiếp của phân đoạn bị
+   ngắt (hoặc phân đoạn mới nếu phân đoạn cũ đã hết), như khi bấm "Tiếp tục".
+3. **Given** comment mock bị bộ lọc 001 loại (spam, có link...), **When** gửi, **Then** host không ngắt kịch bản và trang điều khiển hiện
+   lý do bị loại như 001.
+4. **Given** comment mock được trả lời, **When** xem log, **Then** có đủ các mốc `comment_received` đến `avatar_first_frame` của 001 để đo
+   độ trễ (SC-011).
+
 ### Trường hợp biên
 
 - **File chỉ có sản phẩm chính, không có sản phẩm phụ:** host xoay vòng các chủ đề của sản phẩm chính, không nhắc tới sản phẩm phụ.
@@ -132,9 +155,14 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - **Sản phẩm bị bỏ khỏi file mới:** host không nhắc tới sản phẩm đó nữa, kể cả phân đoạn đã chuẩn bị sẵn cho nó.
 - **Tạm dừng đúng lúc phân đoạn kế tiếp đang được chuẩn bị:** phân đoạn đó được giữ lại cho lúc "Tiếp tục", không mất.
 - **Nguồn giọng hết hạn mức hoặc lỗi liên tục:** trang điều khiển báo rõ; phiên không treo, người vận hành quyết định dừng hay đổi giọng.
-- **Có comment mock gửi từ trang điều khiển (công cụ thử của 001) khi kịch bản đang chạy:**
-  [NEEDS CLARIFICATION: Comment mock có được chen vào kịch bản không? (a) Có: host nói hết câu đang nói, trả lời comment, rồi quay lại kịch
-  bản; (b) Không: chế độ kịch bản và chế độ trả lời comment tách riêng, người vận hành chọn một chế độ cho mỗi phiên.]
+- **Có comment mock gửi từ trang điều khiển (công cụ thử của 001) khi kịch bản đang chạy:** comment được chen vào kịch bản theo
+  User Story 6 và FR-028 đến FR-030.
+- **Nhiều comment mock tới liền nhau:** host trả lời lần lượt theo thứ tự ưu tiên của hàng đợi 001 cho tới khi hàng đợi hết, rồi mới
+  quay lại kịch bản. Comment quá hạn hoặc bị lọc thì bỏ như 001.
+- **Comment mock gửi lúc tạm dừng hoặc lúc chào kết:** lúc tạm dừng, comment vào hàng đợi và được trả lời khi người vận hành bấm "Tiếp
+  tục" (nếu chưa quá hạn); lúc chào kết hoặc sau khi kết thúc, comment không được trả lời.
+- **Bấm "Bỏ qua" khi host đang trả lời comment:** câu trả lời đó dừng như FR-016; host trả lời comment kế tiếp trong hàng đợi, hoặc quay
+  lại kịch bản nếu hàng đợi trống.
 
 ## Yêu cầu *(bắt buộc)*
 
@@ -151,7 +179,8 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - **FR-005**: Hệ thống PHẢI xoay vòng sản phẩm và chủ đề: hai phân đoạn liên tiếp không trùng cả sản phẩm lẫn chủ đề; sản phẩm chính
   chiếm tỷ lệ phân đoạn cao nhất (mặc định ≥ 50%, chỉnh được); mỗi sản phẩm phụ được giới thiệu ít nhất một lần trong mỗi chu kỳ xoay vòng.
 - **FR-006**: Mỗi câu PHẢI được sinh trong lúc phiên đang chạy, dựa trên dữ liệu sản phẩm và những gì host đã nói trong phiên, để cùng
-  một thông tin được nói lại bằng câu chữ khác. Không được đọc lại một kịch bản viết sẵn từ đầu đến cuối.
+  một thông tin được nói lại bằng câu chữ khác. Không được đọc lại một kịch bản viết sẵn từ đầu đến cuối. Ngoại lệ duy nhất là chế độ dự
+  phòng ở FR-021, chỉ khi dịch vụ sinh nội dung lỗi kéo dài.
 - **FR-007**: Câu PHẢI được phát theo từng câu: câu đầu tiên của phân đoạn bắt đầu phát trước khi cả phân đoạn được sinh xong. Phân đoạn kế
   tiếp PHẢI sẵn sàng trước khi phân đoạn hiện tại nói xong, để không có khoảng lặng dài giữa hai phân đoạn.
 - **FR-008**: Mỗi câu PHẢI được phát thành tiếng và hiện thành phụ đề đồng thời trên màn hình host (như feature 001).
@@ -178,13 +207,15 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - **FR-018**: Người vận hành PHẢI có thể chọn sản phẩm và/hoặc chủ đề cho phân đoạn kế tiếp, chỉ trong các tổ hợp có dữ liệu; phân đoạn
   đang nói không bị cắt. Sau phân đoạn đó, xoay vòng tiếp tục như FR-005. (P3)
 - **FR-019**: Trang điều khiển PHẢI hiển thị: trạng thái phiên (chưa chạy / đang chạy / tạm dừng / đang chào kết / đã kết thúc), phân đoạn
-  đang nói (sản phẩm, chủ đề, câu đang nói), phân đoạn kế tiếp, các câu bị chặn gần đây kèm lý do, và lỗi gần đây.
+  đang nói (sản phẩm, chủ đề, câu đang nói), chế độ bình thường hay dự phòng (FR-021), phân đoạn kế tiếp, các câu bị chặn gần đây kèm lý do, và lỗi gần đây.
 
 **Độ bền và quan sát**
 - **FR-020**: Mỗi bước (sinh kịch bản, tạo tiếng, phát) PHẢI có giới hạn thời gian. Khi lỗi hoặc quá giờ: bước sinh kịch bản lỗi thì bỏ phân
   đoạn đó; bước tạo tiếng lỗi thì bỏ câu đó; ghi lỗi và tiếp tục. Một lỗi không được làm dừng phiên.
-- **FR-021**: Khi dịch vụ sinh nội dung lỗi liên tục, hệ thống PHẢI báo rõ trên trang điều khiển và xử lý theo cách đã chốt ở User Story 3
-  kịch bản 3 (câu hỏi còn mở tại đó).
+- **FR-021**: Khi dịch vụ sinh nội dung lỗi liên tục (mặc định 3 phân đoạn liên tiếp, chỉnh được), hệ thống PHẢI chuyển sang chế độ dự
+  phòng: host đọc nguyên văn câu của bài giới thiệu và mô tả trong file nội dung, mỗi câu vẫn qua kiểm tra FR-011, FR-012 và vẫn tạo tiếng,
+  dựng hình realtime. Trang điều khiển PHẢI báo rõ đang ở chế độ dự phòng. Trước mỗi phân đoạn dự phòng hệ thống PHẢI thử sinh lại; thành
+  công thì tự quay về chế độ bình thường. Lần vào và ra chế độ dự phòng được ghi log và vào file lịch sử (FR-023).
 - **FR-022**: Mỗi phân đoạn PHẢI có mã riêng; mỗi câu ghi đủ các mốc thời gian: yêu cầu phân đoạn, có câu đầu tiên, có tiếng đầu tiên, bắt
   đầu phát (ở chế độ avatar tĩnh, "bắt đầu phát" được coi là "frame đầu tiên của avatar"). Khoảng lặng giữa hai câu liên tiếp PHẢI được đo
   và ghi lại.
@@ -197,8 +228,18 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
   host dùng khi live, và chấm tự động: con số không có trong file, khẳng định bị cấm, đọc link, sai xưng hô, có ký hiệu định dạng.
 - **FR-026**: Kết quả chấm PHẢI được lưu lại, gồm từng phân đoạn, các câu vi phạm kèm lý do, tổng số vi phạm, và so sánh với lần chạy trước.
 
+**Comment chen vào kịch bản (P3)**
+- **FR-028**: Khi phiên kịch bản đang chạy, comment mock gửi từ trang điều khiển PHẢI đi qua bộ lọc, phân loại ưu tiên và hàng đợi của 001.
+  Comment hợp lệ làm host dừng kịch bản ở cuối câu đang nói (không cắt giữa câu) và trả lời bằng đúng đường trả lời của 001 (căn cứ dữ
+  liệu, bộ chặn, xưng hô).
+- **FR-029**: Sau khi trả lời hết các comment trong hàng đợi, host PHẢI quay lại kịch bản: câu kế tiếp của phân đoạn bị ngắt, hoặc phân
+  đoạn mới nếu phân đoạn cũ đã hết. Lời trả lời comment không tính là phân đoạn khi xoay vòng (FR-005) và khi thống kê SC-004.
+- **FR-030**: Lời trả lời comment PHẢI có trong lịch sử đã nói (FR-023) kèm comment gốc, để kịch bản sau đó không nói lặp lại nguyên văn.
+  Comment gửi lúc tạm dừng được giữ cho tới khi "Tiếp tục" (trừ khi quá hạn); comment gửi lúc chào kết hoặc sau khi kết thúc không được
+  trả lời.
+
 **Bảo mật**
-- **FR-027**: Chỉ nội dung sản phẩm và lời host đã nói được gửi tới dịch vụ sinh nội dung. Khóa dịch vụ và thông tin bí mật KHÔNG ĐƯỢC xuất
+- **FR-027**: Chỉ nội dung sản phẩm, lời host đã nói và chữ của comment mock được gửi tới dịch vụ sinh nội dung. Khóa dịch vụ và thông tin bí mật KHÔNG ĐƯỢC xuất
   hiện trong log, file lịch sử hay trên trang điều khiển.
 
 ### Ràng buộc từ Hiến pháp
@@ -206,19 +247,19 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - [x] Điều I (realtime / nhãn AI / 1 host 1 tài khoản): mỗi câu được sinh chữ, tạo tiếng và dựng hình ngay lúc phát (FR-006, FR-007);
   không lưu tiếng hay hình của câu đã nói để phát lại. Nhãn "AI" luôn hiện trên màn hình host, kể cả khi tạm dừng (US1 #6, US2 #1). Nhân
   vật và giọng của phiên thuộc đúng một khách.
-- [x] Điều II (đồng ý / bảo mật): không gửi dữ liệu người xem ra ngoài (feature này không đọc comment); khóa dịch vụ không xuất hiện trong
-  log (FR-027). Dùng nhân vật và giọng nào thì vẫn theo điều kiện đồng ý của feature 003 và 005.
+- [x] Điều II (đồng ý / bảo mật): không gửi dữ liệu người xem ra ngoài (feature này không đọc chat thật; comment mock do người vận hành
+  tự gõ, US6); khóa dịch vụ không xuất hiện trong log (FR-027). Dùng nhân vật và giọng nào thì vẫn theo điều kiện đồng ý của feature 003 và 005.
 - [x] Điều III (trả lời có căn cứ): FR-010 đến FR-014. Bộ tự kiểm tra kịch bản (FR-025, FR-026) là bộ regression bắt buộc chạy lại mỗi khi
   đổi cách sinh kịch bản, và không được tăng số vi phạm.
-- [x] Điều VI (độ trễ): feature này không có comment nên không có mốc "nhận comment". Thay vào đó đo (a) từ lúc bấm "Bắt đầu" đến câu đầu
-  tiên phát ≤ 5 giây (SC-001) và (b) khoảng lặng giữa hai câu (SC-002). ADR-026 ghi rằng Điều VI cần sửa qua `/sdd.constitution`; spec này
-  không tự sửa Hiến pháp.
+- [x] Điều VI (độ trễ): nội dung chính là kịch bản, không có mốc "nhận comment". Đo (a) từ lúc bấm "Bắt đầu" đến câu đầu tiên phát
+  ≤ 5 giây (SC-001), (b) khoảng lặng giữa hai câu (SC-002), và (c) với comment mock chen vào (US6), mốc `comment_received` →
+  `avatar_first_frame` (SC-011). Hiến pháp Điều VI đã sửa ở bản 1.2.0 (ADR-029) theo đúng ba mục tiêu này.
 - [x] Điều VIII (quan sát được): FR-020, FR-022, FR-023, FR-024.
 
 ### Thực thể chính
 
-- **Phiên kịch bản:** một lần chạy từ "Bắt đầu" tới "Kết thúc". Thuộc tính: trạng thái, thời điểm bắt đầu/kết thúc, file nội dung đang
-  dùng, lịch sử phân đoạn. Mỗi lúc chỉ có một phiên chạy.
+- **Phiên kịch bản:** một lần chạy từ "Bắt đầu" tới "Kết thúc". Thuộc tính: trạng thái, chế độ (bình thường / dự phòng), thời điểm bắt đầu/kết
+  thúc, file nội dung đang dùng, lịch sử phân đoạn. Mỗi lúc chỉ có một phiên chạy.
 - **Chủ đề:** một loại nội dung trong danh sách cố định ở FR-003, cộng với "chào mở màn" và "chào kết" (không gắn sản phẩm). Mỗi chủ đề có
   điều kiện dữ liệu (cần mục nào của sản phẩm).
 - **Phân đoạn:** đơn vị nội dung, gắn một sản phẩm và một chủ đề. Thuộc tính: mã phân đoạn, các câu, trạng thái (đang chuẩn bị / đang nói /
@@ -232,23 +273,26 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 
 - **SC-001**: Ở ≥ 9/10 lần bấm "Bắt đầu" trên laptop dev với giọng đang dùng, câu chào mở màn bắt đầu phát trong vòng 5 giây.
 - **SC-002**: Trong phiên 30 phút, khoảng lặng giữa hai câu liên tiếp (tính cả giữa hai phân đoạn, không tính lúc tạm dừng và lúc giả lập
-  lỗi) có p95 ≤ 1,5 giây và không khoảng lặng nào quá 5 giây
-  [NEEDS CLARIFICATION: Ngưỡng này (p95 ≤ 1,5 giây, tối đa 5 giây) có dùng làm tiêu chí demo thay cho `docs/PRD.md` §3 số 2–3 (đã hoãn theo
-  ADR-026) không, hay cần thêm tiêu chí khác, ví dụ người vận hành/khách chấm độ tự nhiên của kịch bản theo thang điểm?].
+  lỗi) có p95 ≤ 1,5 giây và không khoảng lặng nào quá 5 giây. Đây là tiêu chí demo số 3 trong `docs/PRD.md` §3 (thay cho độ trễ
+  comment, chốt 2026-11-01).
 - **SC-003**: 0 câu nói ra chứa con số tiền/phần trăm không có trong file, khẳng định bị cấm, hoặc đường link, khi kiểm toàn bộ lịch sử phụ
   đề của phiên 30 phút.
 - **SC-004**: Trong phiên 30 phút: sản phẩm chính chiếm ≥ 50% số phân đoạn; trong mỗi khoảng 10 phút, mỗi sản phẩm phụ có ít nhất 1 phân
   đoạn.
 - **SC-005**: Trong phiên 30 phút, ≤ 5% số câu trùng nguyên văn (bỏ qua dấu câu và hoa/thường) với một câu đã nói trước đó trong phiên,
-  và không có hai phân đoạn nào giống nhau hoàn toàn.
+  và không có hai phân đoạn nào giống nhau hoàn toàn. Không tính các câu nói trong chế độ dự phòng (FR-021).
 - **SC-006**: Phiên 30 phút có ít nhất 3 lần giả lập lỗi ở bước sinh kịch bản và 3 lần ở bước tạo tiếng: phiên không dừng, mỗi lỗi chỉ làm
   mất phân đoạn hoặc câu đó, mỗi khoảng lặng do lỗi ≤ 8 giây, và mỗi lỗi có trong nhật ký kèm bước lỗi.
 - **SC-007**: Ở 100% lần thử (≥ 10 lần mỗi lệnh), tính từ lúc bấm: **bỏ qua** làm tiếng và phụ đề dừng trong ≤ 1 giây; **tạm dừng** không để
   câu mới nào bắt đầu sau câu đang nói; **tiếp tục** làm câu kế tiếp phát trong ≤ 3 giây.
 - **SC-008**: Bộ tự kiểm tra kịch bản cho 0 vi phạm ở 3 lần chạy liên tiếp với file nội dung mẫu.
 - **SC-009**: Người vận hành nghe 10 phân đoạn chọn ngẫu nhiên từ phiên 30 phút và đánh giá ≥ 8/10 phân đoạn "nói tự nhiên như host bán
-  hàng, đúng xưng hô, không lủng củng".
+  hàng, đúng xưng hô, không lủng củng". SC-009 cùng SC-003 là tiêu chí demo số 2 trong `docs/PRD.md` §3 (thay cho bộ 10 câu hỏi mẫu,
+  chốt 2026-11-01).
 - **SC-010**: Nhãn "AI" hiển thị trong 100% ảnh chụp màn hình host lấy ngẫu nhiên trong phiên 30 phút, kể cả lúc tạm dừng.
+- **SC-011**: Với ≥ 10 comment mock hợp lệ gửi lúc kịch bản đang chạy: 100% được trả lời rồi host quay lại kịch bản; không câu kịch bản nào
+  bị cắt giữa chừng vì comment; thời gian từ `comment_received` đến `avatar_first_frame` của lời trả lời có p95 < 5 giây (tính cả thời
+  gian nói hết câu đang nói).
 
 ## Giả định
 
@@ -275,11 +319,22 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - Hiện ảnh sản phẩm, bảng giá hay đồ họa khác trên màn hình host ngoài phụ đề và nhãn "AI".
 - Nhạc nền, hiệu ứng âm thanh, cảm xúc giọng theo nội dung.
 - Viết sẵn toàn bộ kịch bản trước phiên rồi đọc lại.
-- Sửa Hiến pháp Điều VI và sửa `docs/PRD.md` §3 (làm riêng qua `/sdd.constitution` và `/update-context` sau khi chốt tiêu chí).
+- Sửa Hiến pháp Điều VI: đã làm riêng qua `/sdd.constitution` (bản 1.2.0, ADR-029). `docs/PRD.md` §3 số 2–3 đã được sửa trong phiên làm rõ 2026-11-01.
 
 ## Làm rõ
 
 <!-- /sdd.clarify ghi vào đây. Mỗi phiên một mục. -->
+
+### Phiên 2026-11-01
+
+- Q: Khi dịch vụ sinh nội dung lỗi kéo dài, host đọc văn bản có sẵn hay im lặng? → A: Đọc nguyên văn bài giới thiệu và mô tả trong
+  file nội dung (chế độ dự phòng), vẫn qua bộ chặn, tiếng và hình vẫn sinh realtime; trang điều khiển báo rõ; thử sinh lại trước mỗi
+  phân đoạn dự phòng và tự quay về khi được. Sửa: US3 #3, FR-006, FR-019, FR-021, SC-005, thực thể "Phiên kịch bản".
+- Q: Comment mock có được chen vào kịch bản không, hay hai chế độ tách riêng? → A: Cho chen vào: host nói hết câu đang nói, trả lời
+  comment theo đường của 001, rồi quay lại kịch bản. Sửa: thêm US6 (P3), FR-028 đến FR-030, SC-011; sửa FR-027, ràng buộc Điều II, VI,
+  trường hợp biên.
+- Q: Tiêu chí demo nào thay cho `docs/PRD.md` §3 số 2–3? → A: Số 2 = SC-009 (≥ 8/10 phân đoạn nghe tự nhiên) cùng SC-003 (0 câu bịa giá,
+  khẳng định cấm, link); số 3 = SC-002 (khoảng lặng p95 ≤ 1,5 giây, tối đa 5 giây). Sửa: SC-002, SC-009, Ngoài phạm vi, `docs/PRD.md` §3.
 
 ## Checklist chất lượng spec
 
@@ -290,4 +345,4 @@ hành chọn một sản phẩm và/hoặc một chủ đề trên trang điều
 - [x] Trường hợp biên đã liệt kê
 - [x] Phạm vi và ngoài phạm vi rõ ràng
 - [x] Ràng buộc Hiến pháp liên quan đã được nêu
-- [ ] Không còn `[NEEDS CLARIFICATION]` (còn 3, chờ `/sdd.clarify`)
+- [x] Không còn `[NEEDS CLARIFICATION]` (giải xong ở phiên làm rõ 2026-11-01)

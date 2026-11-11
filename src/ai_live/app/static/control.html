@@ -14,6 +14,7 @@
         Server <span id="server-badge" class="badge bad">mất kết nối</span>
         Host <span id="host-badge" class="badge bad">chưa mở</span>
         Phiên <span id="session-badge" class="badge">…</span>
+        <span id="lipsync-status" hidden>Nhép miệng <span id="lipsync-badge" class="badge bad">mất nối</span></span>
       </div>
       <div class="session-controls">
         <button id="pause-btn" type="button">Tạm dừng</button>
@@ -28,7 +29,61 @@
       nếu không comment sẽ lỗi ở bước <code>render</code>.
     </div>
 
+    <!-- 005 FR-022: shown while the lip-synced character fell back to the still image; only the operator switches back. -->
+    <div id="avatar-warning" class="banner session-controls" hidden>
+      <span id="avatar-warning-text">Nhân vật nhép miệng lỗi 2 lượt liền, đang dùng ảnh tĩnh.</span>
+      <button id="lipsync-enable-btn" type="button">Bật lại nhân vật nhép miệng</button>
+      <span id="avatar-msg" class="form-msg"></span>
+    </div>
+
     <div class="grid">
+      <section class="panel wide" id="show-panel">
+        <h2>Show <span id="show-state" class="badge">chưa chạy</span> <span id="show-mode" class="badge" hidden></span></h2>
+        <div class="session-controls">
+          <button id="show-start-btn" type="button">Bắt đầu show</button>
+          <button id="show-end-btn" type="button" disabled>Kết thúc</button>
+          <span id="show-msg" class="form-msg"></span>
+        </div>
+        <div class="session-controls" id="next-picker">
+          <label for="next-product">Phân đoạn kế tiếp:</label>
+          <select id="next-product" disabled></select>
+          <select id="next-topic" disabled></select>
+          <button id="next-btn" type="button" disabled>Chọn</button>
+          <span id="next-msg" class="form-msg"></span>
+        </div>
+        <div id="fallback-warning" class="banner" hidden>
+          Đang ở chế độ dự phòng: dịch vụ viết kịch bản đang lỗi, host đọc nguyên văn phần giới thiệu và mô tả sản phẩm.
+          Show vẫn chạy và tự quay lại bình thường khi dịch vụ hoạt động lại.
+        </div>
+        <div id="show-current" class="turn-meta">Show chưa bắt đầu.</div>
+        <div id="show-sentence" class="turn-meta"></div>
+        <div id="show-next" class="turn-meta"></div>
+        <div id="show-stats" class="latency-meta"></div>
+        <h3>Câu kịch bản bị chặn (10 câu gần nhất)</h3>
+        <ul id="show-blocked" class="list"><li class="empty">Chưa có.</li></ul>
+        <h3>Lỗi của show (10 lỗi gần nhất)</h3>
+        <ul id="show-errors" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <!-- 008 FR-017, FR-020: read only, no button; shown only when the reply engine is the model chain. -->
+      <section class="panel wide" id="llm-panel" hidden>
+        <h2>Model LLM</h2>
+        <div id="llm-current" class="turn-meta"></div>
+        <div id="llm-backup-warning" class="banner" hidden>
+          Đang dùng model dự phòng.
+          <ul id="llm-backup-reasons" class="list"></ul>
+        </div>
+        <div id="llm-none-warning" class="banner danger" hidden>
+          Không có model nào sẵn sàng; show sẽ vào chế độ dự phòng
+        </div>
+        <table class="latency llm-entries">
+          <thead>
+            <tr><th>Thứ tự</th><th>Nhãn</th><th>Model</th><th>Nền tảng</th><th>Trạng thái</th></tr>
+          </thead>
+          <tbody id="llm-rows"></tbody>
+        </table>
+      </section>
+
       <section class="panel">
         <h2>Gửi comment</h2>
         <form id="comment-form" class="comment">
@@ -75,6 +130,34 @@
       <section class="panel">
         <h2>Lỗi gần đây</h2>
         <ul id="errors" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <!-- Dev only: shown when the app answers on /api/debug/fault (APP_ENV=dev). -->
+      <section class="panel" id="fault-panel" hidden>
+        <h2>Giả lập lỗi (dev)</h2>
+        <form id="fault-form" class="comment">
+          <label for="fault-entry">Mục model</label>
+          <select id="fault-entry"></select>
+          <label for="fault-step">Bước</label>
+          <select id="fault-step"></select>
+          <label for="fault-mode">Kiểu lỗi</label>
+          <select id="fault-mode"></select>
+          <label for="fault-count">Số lần</label>
+          <input id="fault-count" type="number" min="1" max="100" value="1" required>
+          <button type="submit">Tạo lỗi</button>
+          <div id="fault-msg" class="form-msg"></div>
+        </form>
+      </section>
+
+      <!-- Dev only (005 FR-011): plays a ready-made voice so lip-sync can be judged without the LLM and TTS. -->
+      <section class="panel" id="speak-audio-panel" hidden>
+        <h2>Thử bằng tiếng có sẵn (dev)</h2>
+        <form id="speak-audio-form" class="comment">
+          <label for="speak-audio-file">File WAV (16 kHz, mono, 16-bit, tối đa 5 MB)</label>
+          <input id="speak-audio-file" type="file" accept=".wav,audio/wav" required>
+          <button type="submit">Phát thử</button>
+          <div id="speak-audio-msg" class="form-msg"></div>
+        </form>
       </section>
 
       <section class="panel wide">

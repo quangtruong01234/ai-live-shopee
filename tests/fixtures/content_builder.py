@@ -1,10 +1,10 @@
-"""Dựng file nội dung `.docx` trong bộ nhớ cho test (contracts/content-template.md).
+"""Build `.docx` content files in memory for tests (contracts/content-template.md).
 
-Mỗi file được mô tả bằng danh sách khối `(loại, nội dung)`:
-- `("h1", text)`, `("h2", text)`: tiêu đề theo style Heading 1/2.
-- `("p", text)`: đoạn văn thường.
-- `("table", [[ô, ô], ...])`: bảng, dòng đầu là tiêu đề.
-Cách mô tả bằng khối giúp tạo được cả file hợp lệ lẫn từng biến thể lỗi mà không cần mẫu riêng cho mỗi case.
+Each file is described as a list of `(kind, value)` blocks:
+- `("h1", text)`, `("h2", text)`: a heading in style Heading 1/2.
+- `("p", text)`: a plain paragraph.
+- `("table", [[cell, cell], ...])`: a table, the first row is the header.
+Blocks let one helper build both the valid file and every broken variant, without a template per case.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ Block = tuple[str, object]
 
 
 def build_docx(blocks: Iterable[Block]) -> bytes:
-    """Ghi danh sách khối thành bytes của một file `.docx`."""
+    """Write a list of blocks as the bytes of a `.docx` file."""
     doc = Document()
     for kind, value in blocks:
         if kind == "h1":
@@ -55,7 +55,7 @@ def product_blocks(
     link: str | None = "https://example.com/kem-x",
     type_line: str | None = None,
 ) -> list[Block]:
-    """Khối của một sản phẩm hợp lệ; truyền `None` cho một mục để bỏ hẳn mục đó."""
+    """Blocks of one valid product; `None` leaves a section out (an empty sequence for `specs`, `faq`, `promotions`)."""
     blocks: list[Block] = [("h1", name)]
     if type_line is None:
         blocks.append(("p", f"Loại: {kind}"))
@@ -90,7 +90,7 @@ def product_blocks(
 
 
 def valid_blocks() -> list[Block]:
-    """File hợp lệ: 1 sản phẩm chính, 2 sản phẩm phụ, trong đó 1 sản phẩm có bảng phân loại."""
+    """Valid file: 1 main product and 2 secondary products; the main product has a variant table."""
     return [
         ("p", "Mẫu nội dung sản phẩm (ghi chú cho người soạn, hệ thống bỏ qua)"),
         *product_blocks(
@@ -107,3 +107,22 @@ def valid_blocks() -> list[Block]:
 
 def valid_docx() -> bytes:
     return build_docx(valid_blocks())
+
+
+SPARSE_PRODUCT_NAME = "Sữa rửa mặt Y"
+
+
+def sparse_blocks() -> list[Block]:
+    """Valid file whose secondary product has only the required sections.
+
+    `SPARSE_PRODUCT_NAME` has no specs, FAQ or promotions, so `specs`, `faq` and `promotion` have no data for it
+    (004 research R5). `price` cannot be the missing topic: the loader requires a price or a variant table.
+    """
+    return [
+        *product_blocks("Kem chống nắng X", "chính"),
+        *product_blocks(SPARSE_PRODUCT_NAME, "phụ", price="159.000đ", specs=(), faq=(), promotions=(), link=None),
+    ]
+
+
+def sparse_docx() -> bytes:
+    return build_docx(sparse_blocks())

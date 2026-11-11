@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from ai_live.core.models import Comment, DropReason
+from ai_live.core.models import AvatarModeState, Comment, DropReason, LipsyncHealth
+from ai_live.security.redact import redact_text
 
 
 class EventType(StrEnum):
@@ -28,6 +29,18 @@ class EventType(StrEnum):
     CONTENT_REPLACED = "content_replaced"
     HOST_CONNECTION = "host_connection"
     LATENCY = "latency"
+    # feature 004 scripted show (specs/004-show-director/contracts/events.md §3)
+    SHOW_STATE = "show_state"
+    SEGMENT_STARTED = "segment_started"
+    SEGMENT_FINISHED = "segment_finished"
+    SEGMENT_NEXT = "segment_next"
+    SHOW_STATS = "show_stats"
+    SHOW_ERROR = "show_error"
+    # feature 008 LLM model chain: payload is a ChainSnapshot (specs/008-llm-provider-chain/contracts/events.md §2)
+    LLM_CHAIN = "llm_chain"
+    # feature 005 avatar / lip-sync (specs/005-lipsync-livetalking/contracts/events.md §1)
+    AVATAR_MODE = "avatar_mode"
+    LIPSYNC_HEALTH = "lipsync_health"
 
 
 @dataclass(frozen=True)
@@ -115,9 +128,33 @@ class EventBus:
             self._subscribers.remove(sub)
 
 
-def comment_dropped_event(comment: Comment, reason: DropReason) -> Event:
-    """`comment_dropped` for the control page; filter, queue_full and stale drops all share this shape."""
+def comment_dropped_event(comment: Comment, reason: DropReason, *, show_id: str | None = None) -> Event:
+    """`comment_dropped` for the control page; filter, queue_full, stale and show_ended drops share this shape.
+
+    `show_id` is added only when given (a `show_ended` drop), so a 001 drop keeps exactly its old payload.
+    """
+    payload = {"comment_id": comment.id, "author": comment.author, "text": comment.text, "reason": reason.value}
+    if show_id is not None:
+        payload["show_id"] = show_id
+    return Event(EventType.COMMENT_DROPPED, payload)
+
+
+def show_error_event(*, step: str, kind: str, message: str, segment_id: str | None = None) -> Event:
+    """`show_error` for the control page. The message goes through `redact`: provider errors can echo a key."""
     return Event(
-        EventType.COMMENT_DROPPED,
-        {"comment_id": comment.id, "author": comment.author, "text": comment.text, "reason": reason.value},
+        EventType.SHOW_ERROR,
+        {"segment_id": segment_id, "step": step, "kind": kind, "message": redact_text(message)},
     )
+
+
+def avatar_mode_event(state: AvatarModeState) -> Event:
+    """`avatar_mode`: published on a fallback to the still image, on re-enabling lip-sync and once at startup."""
+    return Event(EventType.AVATAR_MODE, state.to_json())
+
+
+def lipsync_health_event(health: LipsyncHealth) -> Event:
+    """`lipsync_health`. `last_error` goes through `redact`: it carries the fork's error text."""
+    payload = health.to_json()
+    if payload["last_error"] is not None:
+        payload["last_error"] = redact_text(payload["last_error"])
+    return Event(EventType.LIPSYNC_HEALTH, payload)

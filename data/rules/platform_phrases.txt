@@ -1,0 +1,29 @@
+# TODO: người dùng xem lại danh sách cụm cơ chế nền tảng này (research R9, ADR-031).
+# Mỗi dòng một cụm; dòng trống và dòng bắt đầu bằng # bị bỏ qua. Guard so khớp nguyên từ trên dạng không dấu, chữ thường (đ -> d).
+# Cụm nào có trong file nội dung sản phẩm thì được phép nói. Không ghi từ bán hàng chung như "mua", "giá", "giảm giá", "khuyến mãi".
+giỏ hàng
+thêm vào giỏ
+bỏ vào giỏ
+bấm vào giỏ
+mã giảm giá
+nhập mã
+áp mã
+lưu mã
+voucher
+mã freeship
+freeship
+shopee xu
+flash sale
+ghim sản phẩm
+sản phẩm đã ghim
+sản phẩm được ghim
+bấm link
+nhấn link
+bấm vào link
+link bên dưới
+link ở dưới
+góc trái màn hình
+góc phải màn hình
+góc dưới màn hình
+theo dõi shop
+follow shop

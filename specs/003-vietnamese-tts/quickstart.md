@@ -6,9 +6,13 @@
 ## 0. Chuẩn bị
 
 1. Kiểm tra mặc định không cần gì thêm: `uv run pytest` (mọi test chạy không mạng, không key, không model).
-2. 📦 🌐 Sau khi ADR-024 được duyệt: `uv add vieneu` (bản CPU/ONNX), rồi chạy một lần để thư viện tải model về cache.
-   Ghi dung lượng tải và thư mục cache vào research R1.
-3. 🔑 Gemini: dùng lại `GEMINI_API_KEY` đã có trong `.env`. Mở AI Studio xem giới hạn RPM/RPD của model TTS, ghi vào research R2.
+2. 📦 🌐 `uv add vieneu` (bản CPU/ONNX, ADR-024, đã cài). Model (581 MB) tải về thư mục `VIENEU_MODEL_CACHE` (mặc định
+   `~/.cache/ai-live/hf`, ngoài repo) ở lần warm-up đầu tiên, mất khoảng 40 s. Không dùng cache mặc định của Hugging Face: `onnxruntime`
+   không nạp được model từ cache symlink (research R1). Máy mới thì để app tự tải, không cần bước tay.
+   Đoạn giọng mẫu (`VIENEU_REF_AUDIO`, FR-002) không tự tải được: chép file WAV từ hồ sơ khách (ngoài git) sang máy chạy phiên, ví dụ
+   `~/.cache/ai-live/voices/thuy_dung_lan2.wav`, rồi đặt đường dẫn trong `.env`. Để trống thì dùng giọng có sẵn.
+3. 🔑 Gemini: dùng lại `GEMINI_API_KEY` đã có trong `.env`. Giới hạn free tier của model TTS: 3 RPM, 10 RPD (xem 2026-11-10,
+   research R2), nên mỗi lần thử chỉ chạy vài câu.
 
 ## US2: Chuyển chữ (làm trước được, không cần nguồn giọng)
 
@@ -21,8 +25,10 @@
 1. 📦 `TTS_PROVIDER=vieneu` trong `.env`, rồi:
    `uv run python -m ai_live.tts say "Dạ chị ơi, son này giá 259.000đ, đang giảm 15% ạ." --out out_vieneu.wav`
    → in thời gian tới chunk đầu, chữ đã chuẩn hóa; mở `out_vieneu.wav` nghe được (file `.wav` đã nằm trong `.gitignore`).
+   `--out` trỏ vào thư mục chưa có thì lệnh tự tạo; không ghi được file thì báo "Không ghi được file ..." trước khi gọi nguồn giọng.
 2. 🌐 🔑 `TTS_PROVIDER=gemini`, chạy cùng câu với `--out out_gemini.wav`.
 3. Đổi giọng: sửa `VIENEU_VOICE` hoặc `GEMINI_TTS_VOICE`, chạy lại, nghe khác giọng (FR-011, không sửa code).
+   Đổi `VIENEU_VOICE` thì đổi luôn `VIENEU_REF_AUDIO` sang đoạn mẫu của chính giọng đó, hoặc để trống.
 4. Lỗi hết hạn mức (không tốn hạn mức): `uv run pytest tests/unit/test_tts_speech.py -k quota -v` (lớp bọc nghỉ sau 429 giả).
 
 ## US1: Host trả lời bằng giọng thật

@@ -8,7 +8,7 @@
 
 - [ ] Tài khoản RunPod và credit. TODO: ngân sách tối đa mỗi tháng cho giai đoạn demo?
 - [ ] Thêm SSH public key vào RunPod (Settings → SSH Keys).
-- [ ] Tạo các secret trên RunPod (thay vì để `.env` trên volume): `GEMINI_API_KEY`, `ELEVENLABS_API_KEY` và key cần thiết khác.
+- [ ] Tạo các secret trên RunPod (thay vì để `.env` trên volume): `GEMINI_API_KEY` (LLM và Gemini TTS) và key cần thiết khác.
 - [ ] Repo fork LiveTalking của mình (ADR-004). TODO: public hay private? Nếu private thì cần deploy key hoặc token.
 - [ ] Bộ dữ liệu avatar đã có văn bản đồng ý, được chuẩn bị theo yêu cầu model, và lưu ở chỗ riêng (không trong git).
 
@@ -84,7 +84,7 @@ cd /workspace/ai-live && AVATAR_MODE=livetalking uvicorn ai_live.app.main:app --
 - [ ] Bật pod, chạy tổng duyệt 30 phút, xem log độ trễ (< 5 giây) và kiểm tra bộ 10 câu hỏi
 - [ ] Thử share tab qua Meet với một máy khác để kiểm tra âm thanh
 - [ ] Video dự phòng 2–3 phút đã có trên laptop và đã thử phát qua Meet
-- [ ] Kiểm tra credit RunPod, giới hạn tần suất Gemini API (AI Studio) và quota ElevenLabs
+- [ ] Kiểm tra credit RunPod, giới hạn tần suất Gemini API và Gemini TTS (AI Studio)
 
 **T-2 giờ**
 - [ ] Bật pod (nếu không có GPU thì chuyển region hoặc loại GPU dự phòng, hoặc dùng video dự phòng)

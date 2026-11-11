@@ -7,9 +7,12 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.162.0",
     "google-genai>=2.34.0",
+    "httpx>=0.28.1",
     "pydantic-settings>=2.16.2",
     "python-docx>=1.2.0",
     "uvicorn[standard]>=0.54.0",
+    "vieneu>=3.8.3",
+    "websockets>=17.3",
 ]
 
 [build-system]
@@ -32,12 +35,14 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["tests"]
-markers = ["live_llm: gọi Gemini API thật (cần GEMINI_API_KEY, tính vào quota free tier)"]
-addopts = '-m "not live_llm"'
+markers = [
+    "live_llm: gọi LLM thật (Gemini hoặc chuỗi model; cần key trong .env, tính vào hạn mức free)",
+    "live_tts: gọi nguồn giọng thật: VieNeu cần model đã tải, Gemini tốn hạn mức",
+]
+addopts = '-m "not live_llm and not live_tts"'
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]

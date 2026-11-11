@@ -1,13 +1,15 @@
-"""T032: guard đầu ra theo từng câu (research R8; US1 #3, #4; FR-010, FR-011)."""
+"""T032 (001) and T017 (004): per-sentence output guard (001 research R8; 004 research R9, contracts/adapters.md §4)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from ai_live.brain.guard import OutputGuard, refusal_sentence
+from ai_live.brain.guard import GuardConfigError, OutputGuard, load_platform_phrases, refusal_sentence
 from ai_live.core.models import GuardReason
 from ai_live.products.docx_loader import load_catalog
-from fixtures.content_builder import valid_docx
+from fixtures.content_builder import build_docx, product_blocks, valid_docx
 
 
 @pytest.fixture
@@ -67,7 +69,7 @@ def test_grounded_sentence_passes(guard, catalog, sentence):
 
 
 def test_forbidden_claim_of_any_product_counts(guard, catalog):
-    # Sữa rửa mặt Y không có khẳng định cấm, nhưng câu nhắc "chữa khỏi mụn" vẫn bị chặn: cấm theo toàn catalog.
+    # Sữa rửa mặt Y has no forbidden claim of its own, yet "chữa khỏi mụn" is still blocked: claims apply catalog-wide.
     assert not guard.check("Sữa rửa mặt Y chữa khỏi mụn nha.", catalog).ok
 
 
@@ -75,3 +77,188 @@ def test_refusal_sentence_passes_guard(guard, catalog):
     sentence = refusal_sentence("bạn Lan")
     assert sentence == "Dạ phần này em chưa có thông tin, bạn Lan nhắn shop giúp em nha."
     assert guard.check(sentence, catalog).ok
+
+
+# ---------------------------------------------------------------- 004: percent, link, platform phrase (T017)
+
+REPO_PHRASES = Path(__file__).resolve().parents[2] / "data" / "rules" / "platform_phrases.txt"
+
+
+@pytest.fixture
+def phrases():
+    return load_platform_phrases(REPO_PHRASES)
+
+
+@pytest.fixture
+def full_guard(phrases):
+    return OutputGuard(phrases)
+
+
+@pytest.fixture
+def promo_catalog():
+    """A file whose promotions mention the cart and a percentage, so both are grounded."""
+    blocks = product_blocks(
+        "Kem chống nắng X",
+        promotions=("Bấm vào giỏ hàng để nhận quà tặng", "Giảm 15% cho đơn đầu tiên"),
+    )
+    return load_catalog(build_docx(blocks), "promo.docx", 5_000_000)
+
+
+def test_check_order_stops_at_first_failure(full_guard, catalog):
+    # Each step removes the part that failed, so the next check in the contract order is the one reported.
+    steps = [
+        ("Chữa khỏi mụn, giá 99k, giảm 30%, xem https://x.com, bấm vào giỏ hàng nha.", GuardReason.FORBIDDEN_CLAIM),
+        ("Giá 99k, giảm 30%, xem https://x.com, bấm vào giỏ hàng nha.", GuardReason.UNKNOWN_AMOUNT),
+        ("Giảm 30%, xem https://x.com, bấm vào giỏ hàng nha.", GuardReason.UNKNOWN_PERCENT),
+        ("Xem https://x.com, bấm vào giỏ hàng nha.", GuardReason.LINK),
+        ("Anh chị bấm vào giỏ hàng nha.", GuardReason.PLATFORM_PHRASE),
+    ]
+    for sentence, reason in steps:
+        result = full_guard.check(sentence, catalog)
+        assert not result.ok, sentence
+        assert result.reason is reason, (sentence, result)
+    assert full_guard.check("Anh chị chọn phân loại 50 ml nha.", catalog).ok
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Dạ hôm nay giảm 30% cho cả nhà ạ.",
+        "Dạ hôm nay giảm 30 % cho cả nhà ạ.",
+        "Dạ hôm nay giảm 30 phần trăm cho cả nhà ạ.",
+        "Da hom nay giam 30 PHAN TRAM nha.",
+    ],
+)
+def test_unknown_percent_blocked(full_guard, catalog, sentence):
+    assert 30 not in catalog.known_amounts  # the fixture must not make this case vacuous
+    result = full_guard.check(sentence, catalog)
+    assert not result.ok
+    assert result.reason is GuardReason.UNKNOWN_PERCENT
+    assert result.detail == "30%"
+
+
+@pytest.mark.parametrize(
+    ("sentence", "detail"),
+    [
+        ("Dạ hôm nay giảm30% cho cả nhà ạ.", "30%"),  # number glued to the word before it
+        ("Dạ hôm nay giảm 30\u200b% cho cả nhà ạ.", "30%"),  # zero-width space between number and sign
+        ("Dạ hôm nay giảm 2,5% nha.", "2,5%"),  # a decimal is never in the integer set
+    ],
+)
+def test_unknown_percent_bypasses_blocked(guard, catalog, sentence, detail):
+    result = guard.check(sentence, catalog)
+    assert result.reason is GuardReason.UNKNOWN_PERCENT
+    assert result.detail == detail
+
+
+def test_link_hidden_by_zero_width_space_blocked(guard, catalog):
+    sentence = "Anh chị vô https\u200b://shopkem.c\u200bom nha."
+    assert guard.check(sentence, catalog).reason is GuardReason.LINK
+
+
+@pytest.mark.parametrize("sentence", ["Đang giảm 15% cho đơn đầu tiên nha.", "Giảm 15 phần trăm cho đơn đầu ạ."])
+def test_percent_in_file_passes(full_guard, promo_catalog, sentence):
+    assert full_guard.check(sentence, promo_catalog).ok
+
+
+@pytest.mark.parametrize(
+    ("sentence", "fragment"),
+    [
+        ("Anh chị vô https://example.com/kem-x mua nha.", "https://example.com/kem-x"),
+        ("Anh chị vào www.shopkem.vn xem thêm nha.", "www.shopkem.vn"),
+        ("Anh chị ghé kemchongnang.com nha.", "kemchongnang.com"),
+    ],
+)
+def test_link_blocked(full_guard, catalog, sentence, fragment):
+    result = full_guard.check(sentence, catalog)
+    assert not result.ok
+    assert result.reason is GuardReason.LINK
+    assert result.detail and fragment.startswith(result.detail.rstrip(".,!?"))
+
+
+def test_link_detail_cut_to_40_chars(guard, catalog):
+    url = "https://example.com/" + "a" * 100
+    result = guard.check(f"Xem {url} nha.", catalog)
+    assert result.reason is GuardReason.LINK
+    assert result.detail is not None
+    assert len(result.detail) <= 40
+    assert url.startswith(result.detail)
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Anh chị bấm vào giỏ hàng nha.",
+        "Anh chi bam vao GIO HANG nha.",
+        "Nhớ lưu mã giảm giá trước khi chốt đơn nha.",
+        "Sản phẩm đã ghim ở góc trái màn hình đó ạ.",
+    ],
+)
+def test_platform_phrase_blocked_when_not_in_file(full_guard, catalog, sentence):
+    result = full_guard.check(sentence, catalog)
+    assert not result.ok
+    assert result.reason is GuardReason.PLATFORM_PHRASE
+    assert result.detail
+
+
+def test_platform_phrase_detail_is_the_matched_phrase(catalog):
+    result = OutputGuard(["giỏ hàng"]).check("Anh chị thêm vô giỏ hàng nha.", catalog)
+    assert result.reason is GuardReason.PLATFORM_PHRASE
+    assert result.detail == "giỏ hàng"
+
+
+def test_platform_phrase_matches_whole_words_only(catalog):
+    assert OutputGuard(["freeship"]).check("Dạ freeshipper giao tận nơi nha.", catalog).ok
+
+
+def test_platform_phrase_allowed_when_file_has_it(full_guard, promo_catalog):
+    assert full_guard.check("Anh chị bấm vào giỏ hàng để nhận quà tặng nha.", promo_catalog).ok
+
+
+def test_forbidden_claim_blocked_with_phrases(full_guard, catalog):
+    # US1 #5: a scripted sentence carrying a forbidden claim never reaches TTS.
+    result = full_guard.check("Kem chống nắng X chữa khỏi mụn luôn đó anh chị.", catalog)
+    assert result.reason is GuardReason.FORBIDDEN_CLAIM
+
+
+def test_guard_without_phrases_skips_only_platform_check(guard, catalog):
+    # analyze A4: `OutputGuard()` keeps the other four checks.
+    assert guard.check("Chữa khỏi mụn luôn nha.", catalog).reason is GuardReason.FORBIDDEN_CLAIM
+    assert guard.check("Giá 99k nha.", catalog).reason is GuardReason.UNKNOWN_AMOUNT
+    assert guard.check("Giảm 30% nha.", catalog).reason is GuardReason.UNKNOWN_PERCENT
+    assert guard.check("Xem https://x.com nha.", catalog).reason is GuardReason.LINK
+    assert guard.check("Anh chị bấm vào giỏ hàng nha.", catalog).ok
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        "Dạ kem chống nắng X loại 50 ml giá 250.000đ, loại 100 ml giá 420.000đ nha bạn Lan.",
+        "Đang giảm 30.000đ cho đơn từ 500k đó bạn.",
+        "Dạ kem không chứa cồn, dùng cho da dầu được nha.",
+        "Dạ phần này em chưa có thông tin, bạn Lan nhắn shop giúp em nha.",
+        "Kem chống nắng X có chỉ số chống nắng SPF 50 nha anh chị.",
+    ],
+)
+def test_grounded_sentence_passes_full_guard(full_guard, catalog, sentence):
+    assert full_guard.check(sentence, catalog).ok
+
+
+def test_load_platform_phrases_skips_blank_and_comment_lines(tmp_path):
+    path = tmp_path / "phrases.txt"
+    path.write_text("# ghi chú\n\ngiỏ hàng\n   \n  mã giảm giá  \n#voucher\nghim sản phẩm\n", encoding="utf-8")
+    assert load_platform_phrases(path) == ("giỏ hàng", "mã giảm giá", "ghim sản phẩm")
+
+
+def test_repo_platform_phrases_file_loads(phrases):
+    assert "giỏ hàng" in phrases
+    assert all(p and not p.startswith("#") for p in phrases)
+
+
+def test_missing_platform_phrases_file_is_config_error(tmp_path):
+    missing = tmp_path / "khong-co.txt"
+    with pytest.raises(GuardConfigError) as exc:
+        load_platform_phrases(missing)
+    message = str(exc.value)
+    assert str(missing) in message
+    assert "Không tìm thấy" in message

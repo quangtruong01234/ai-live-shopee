@@ -39,8 +39,8 @@ Trong phạm vi:
 | # | Tiêu chí | Cách đo |
 |---|----------|---------|
 | 1 | Avatar nhép miệng khớp lời | Người vận hành và khách quan sát bằng mắt. TODO: có cần chấm theo thang 1–5 không? |
-| 2 | ~~Trả lời đúng ≥ 8/10 câu hỏi mẫu về sản phẩm~~ **Tạm hoãn (ADR-026).** TODO: tiêu chí thay thế cho kịch bản? | Bộ 10 câu hỏi cố định kèm đáp án kỳ vọng, chấm đúng/sai. Mình soạn từ file nội dung sản phẩm, khách không cần duyệt (chốt 2026-10-30, spec 001). |
-| 3 | ~~Độ trễ từ comment đến lúc avatar bắt đầu nói < 5 giây~~ **Tạm hoãn (ADR-026).** TODO: tiêu chí thay thế (ví dụ khoảng lặng giữa các câu)? | Log `comment_received` đến `avatar_first_frame`. TODO: tính từ lúc người xem gửi comment hay từ lúc hệ thống nhận? (YouTube có độ trễ polling riêng.) |
+| 2 | Kịch bản host nói **tự nhiên và không bịa**: ≥ 8/10 phân đoạn chọn ngẫu nhiên được chấm "tự nhiên, đúng xưng hô"; 0 câu bịa giá, khẳng định cấm hay đọc link (thay bộ 10 câu hỏi mẫu, ADR-026; chốt 2026-11-01, spec 004 SC-009, SC-003) | Người vận hành nghe 10 phân đoạn ngẫu nhiên từ phiên 30 phút; bộ chặn kiểm toàn bộ lịch sử phụ đề. Bộ 10 câu hỏi của 001 giữ làm regression cho đường trả lời comment. |
+| 3 | **Khoảng lặng** giữa hai câu liên tiếp p95 ≤ 1,5 giây, không lần nào quá 5 giây (thay độ trễ comment → avatar, ADR-026; chốt 2026-11-01, spec 004 SC-002) | Log mốc thời gian từng câu của phiên 30 phút, không tính lúc tạm dừng và lúc giả lập lỗi. Comment mock chen vào (004 US6) vẫn đo `comment_received` → `avatar_first_frame` (SC-011). |
 | 4 | Chạy liên tục **30 phút** không lỗi | Phiên tổng duyệt 30 phút, không crash, không đứng hình, không mất tiếng. |
 | 5 | Có **video dự phòng 2–3 phút** | File có sẵn trên máy demo, đã thử phát qua Meet. |
 

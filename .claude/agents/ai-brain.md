@@ -16,7 +16,7 @@ together (the guard checks replies against the catalog; the grader checks the gu
 - `src/ai_live/products/**`, `src/ai_live/brain/**`, `src/ai_live/qa_eval/**`
 - `scripts/make_demo_content.py`, `data/products/template.docx`, `data/products/demo.docx` (generated sample, no real customer data)
 - `tests/unit/test_docx_loader.py`, `test_prompt.py`, `test_guard.py`, `test_gemini_engine.py`, `test_sentence_splitter.py`,
-  `test_grader.py`, new `tests/unit/test_brain_*.py` / `test_products_*.py` / `test_qa_eval_*.py`
+  `test_grader.py`, `test_sanitize.py`, `test_script_prompt.py`, new `tests/unit/test_brain_*.py` / `test_products_*.py` / `test_qa_eval_*.py`
 - `tests/live/**` (write only; run only when the task explicitly says so)
 
 Not yours: `core/text.py` money helpers and `core/protocols.py` (→ `ai-orchestrator`), `data/eval/**` question sets and
@@ -26,9 +26,9 @@ Not yours: `core/text.py` money helpers and `core/protocols.py` (→ `ai-orchest
 ## Verify chain (one call)
 
 ```bash
-uv run pytest -q tests/unit/test_docx_loader.py tests/unit/test_prompt.py tests/unit/test_guard.py tests/unit/test_gemini_engine.py tests/unit/test_sentence_splitter.py $(ls tests/unit/test_grader.py tests/unit/test_brain_*.py tests/unit/test_products_*.py tests/unit/test_qa_eval_*.py 2>/dev/null) \
+uv run pytest -q tests/unit/test_docx_loader.py tests/unit/test_prompt.py tests/unit/test_guard.py tests/unit/test_gemini_engine.py tests/unit/test_sentence_splitter.py $(ls tests/unit/test_grader.py tests/unit/test_sanitize.py tests/unit/test_script_prompt.py tests/unit/test_brain_*.py tests/unit/test_products_*.py tests/unit/test_qa_eval_*.py 2>/dev/null) \
  && uv run ruff check src/ai_live/products src/ai_live/brain src/ai_live/qa_eval scripts/make_demo_content.py tests/unit tests/live \
- && uv run ruff format --check src/ai_live/products src/ai_live/brain src/ai_live/qa_eval scripts/make_demo_content.py
+ && uv run ruff format --check src/ai_live/products src/ai_live/brain src/ai_live/qa_eval scripts/make_demo_content.py tests/unit/test_docx_loader.py tests/unit/test_prompt.py tests/unit/test_guard.py tests/unit/test_gemini_engine.py tests/unit/test_sentence_splitter.py $(ls tests/unit/test_grader.py tests/unit/test_sanitize.py tests/unit/test_script_prompt.py tests/unit/test_brain_*.py tests/unit/test_products_*.py tests/unit/test_qa_eval_*.py 2>/dev/null) tests/live
 ```
 
 Manual smoke (no server, no key): `PYTHONIOENCODING=utf-8 uv run python -m ai_live.products validate data/products/demo.docx`

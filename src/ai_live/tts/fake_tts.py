@@ -1,7 +1,7 @@
-"""TTS giả cho test và chạy laptop không mạng (research R11).
+"""Fake TTS for tests and offline laptop runs (001 research R11).
 
-Phát một âm nhỏ thay vì im lặng để người vận hành nghe được lúc nào host đang nói; thời lượng tỉ lệ số âm tiết để
-nhịp phụ đề và độ trễ gần với TTS thật.
+Plays a quiet tone instead of silence so the operator can hear when the host is speaking; the duration scales with
+the syllable count so subtitle pacing and latency stay close to a real TTS.
 """
 
 from __future__ import annotations
@@ -14,11 +14,11 @@ from collections.abc import AsyncIterator
 SECONDS_PER_SYLLABLE = 0.25
 CHUNK_SECONDS = 0.1
 TONE_HZ = 400
-AMPLITUDE = 1036  # khoảng −30 dBFS
+AMPLITUDE = 1036  # about -30 dBFS
 
 
 class FakeTTSError(RuntimeError):
-    """Lỗi giả lập để test nhánh lỗi bước `tts`."""
+    """Simulated failure to test the error path of the `tts` step."""
 
 
 class FakeTTS:
@@ -27,11 +27,14 @@ class FakeTTS:
         self.delay_ms = delay_ms
         self.fail = fail
         samples_per_chunk = int(sample_rate * CHUNK_SECONDS)
-        # 400 Hz chia hết cho 10 chu kỳ/100 ms nên mọi chunk giống nhau: tính một lần, dùng lại.
+        # 400 Hz is exactly 40 cycles per 100 ms, so every chunk is identical: compute it once and reuse it.
         self._chunk = struct.pack(
             f"<{samples_per_chunk}h",
             *(round(AMPLITUDE * math.sin(2 * math.pi * TONE_HZ * n / sample_rate)) for n in range(samples_per_chunk)),
         )
+
+    async def warm_up(self) -> None:
+        return None
 
     async def synthesize(self, text: str) -> AsyncIterator[bytes]:
         if self.delay_ms:
@@ -44,5 +47,5 @@ class FakeTTS:
             chunk = self._chunk[:remaining]
             remaining -= len(chunk)
             yield chunk
-            # Nhường event loop giữa các chunk như TTS thật đang stream.
+            # Yield to the event loop between chunks, like a real streaming TTS.
             await asyncio.sleep(0)

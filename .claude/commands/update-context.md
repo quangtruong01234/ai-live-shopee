@@ -1,5 +1,5 @@
 ---
-description: Update CLAUDE.md, docs/DECISIONS.md and docs/ROADMAP.md after finishing a large task
+description: Update CLAUDE.md, docs/DECISIONS.md, docs/ROADMAP.md and reconcile progress/ after finishing a large task
 argument-hint: "[summary of the task just finished (optional)]"
 ---
 
@@ -8,7 +8,8 @@ You are updating the AI-context skeleton of the AI Live Shopee project after a l
 Summary from the user (may be empty): $ARGUMENTS
 
 ## Step 1: Collect what changed
-- Read `CLAUDE.md`, `docs/DECISIONS.md`, `docs/ROADMAP.md`.
+- Read `progress/` first (`STATUS.md`, `FEATURES.md`, `OPEN.md`, the tail of `LOG.md`), then `CLAUDE.md`,
+  `docs/DECISIONS.md`, `docs/ROADMAP.md`.
 - If the repo uses git: check `git log` and `git diff --stat` since the last context update (look for a commit containing "update-context").
 - Combine with the current conversation and the summary above.
 - Briefly list: finished features, new decisions, new commands (run/test/lint), new constraints, `TODO:` questions now answered.
@@ -31,8 +32,16 @@ Summary from the user (may be empty): $ARGUMENTS
 
 ## Step 5: Sync other docs (only when needed)
 - If the change affects `docs/ARCHITECTURE.md`, `docs/PRD.md`, `docs/RISKS.md` or `docs/RUNPOD.md`, fix them for consistency.
-- `specs/README.md`: each feature's status must match the "Trạng thái" line in `spec.md` and the `[x]` tasks in `tasks.md`.
 - ADRs with status `Đề xuất` (created by `/sdd.plan`) that the user has approved become `Đã chốt`.
+
+## Step 6: Reconcile `progress/` (rules in `progress/README.md` §1–§2)
+- `FEATURES.md`: each feature's status matches the "Trạng thái" line in `spec.md`; `tasks` matches the `[x]` / `[~]` / `[ ]`
+  counts in `tasks.md`; `artifacts` and `adrs` list what really exists.
+- `OPEN.md`: drop answered items, add new `Đề xuất` ADRs, remaining `[NEEDS CLARIFICATION]` and important new `TODO:`s.
+- `STATUS.md`: `last_updated`, `last_commit` (`git log -1`), `current_milestone` (matches ROADMAP), `active_feature`,
+  `next_step`, `blockers`.
+- Walk the "Khi đổi X thì rà Y" table for every change found in Step 1; fix mismatches or list them as `TODO:`.
+- Append one line to `LOG.md`.
 
 ## Rules
 - Never invent information. Where unsure, write `TODO:` with a specific question.
@@ -43,5 +52,5 @@ Summary from the user (may be empty): $ARGUMENTS
 Print, in Vietnamese:
 1. Files changed, one line each summarizing the change.
 2. New ADRs (number + title).
-3. ROADMAP items just ticked.
+3. ROADMAP items just ticked, and `progress/` mismatches fixed.
 4. Up to 5 of the most important open `TODO:` questions.

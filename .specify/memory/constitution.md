@@ -1,6 +1,6 @@
 # AI Live Shopee Project Constitution
 
-> Version: **1.1.0** · Ratified: 2026-10-30 · Last amended: 2026-10-30
+> Version: **1.2.0** · Ratified: 2026-10-30 · Last amended: 2026-11-01 (ADR-029)
 > These principles are **non-negotiable**. Every spec, plan, tasks file and line of code must comply.
 > `/sdd.plan` checks each article at the "Kiểm tra Constitution" gate. `/sdd.analyze` treats every violation as **CRITICAL**.
 > To amend the constitution use `/sdd.constitution` together with an ADR (see Governance).
@@ -30,10 +30,17 @@
   the code that makes them green.
 - Default tests run without a GPU, network or API key (mock source, `FakeTTS`, static renderer, fake LLM).
   Tests that call real APIs carry their own marker and are not run by default.
-- GPU work (lip-sync) is verified by manual scenarios in `quickstart.md`, batched to run on RunPod.
+- GPU work (lip-sync) is verified by manual scenarios in `quickstart.md`, run on the dev laptop GPU first (ADR-023: low
+  FPS/resolution accepted, still generated in real time, never pre-rendered). RunPod is the fallback: batch the `[GPU]` tasks
+  and get the user's cost approval before starting a pod.
 
 ## Article VI: The latency budget is a requirement
-- Target: from comment to the avatar starting to speak < 5 seconds (p95). Per-stage budget in `docs/ARCHITECTURE.md` §4.
+- Scripted show (the main content, ADR-026): from "Start" to the first sentence playing ≤ 5 seconds, and the gap between
+  consecutive sentences p95 ≤ 1.5 seconds, never > 5 seconds (pauses and injected faults excluded).
+- Answering a comment (mock now, real chat later): from comment received to the avatar starting to speak < 5 seconds (p95).
+  Per-stage budget in `docs/ARCHITECTURE.md` §4.
+- Targets are judged on the machine and mode used for the demo; laptop lip-sync numbers (ADR-023) are indicative and are
+  re-measured there.
 - Any feature that touches the pipeline states its latency impact in the plan and measures it with the `utterance_id` log milestones.
 - Never block the event loop; heavy work runs in an executor or a separate process.
 
@@ -45,7 +52,8 @@
 
 ## Article VIII: Observability
 - Structured logs; every utterance has an `utterance_id` and the milestones `comment_received`, `llm_first_sentence`,
-  `tts_first_chunk`, `avatar_first_frame`.
+  `tts_first_chunk`, `avatar_first_frame`. Scripted sentences carry a `segment_id` and use `segment_requested` in place of
+  `comment_received`; the gap between consecutive sentences is logged.
 - Every stage has a timeout and a fallback; one failed turn must never stall the whole live session.
 
 ## Article IX: Language and documentation

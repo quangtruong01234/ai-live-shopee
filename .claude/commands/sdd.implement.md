@@ -9,13 +9,14 @@ You are running the **implement** step of the Spec-Driven workflow (see `docs/WO
 Reply to the user in Vietnamese.
 
 ## Identify feature and scope
-- Feature: same as `/sdd.clarify`. Requires `tasks.md`.
+- Feature: same as `/sdd.clarify` (read the feature's card in `progress/FEATURES.md` first). Requires `tasks.md`.
 - Scope: from the input. Otherwise do the **first unfinished phase** and stop at that phase's checkpoint.
-- If `/sdd.analyze` has not run on the current tasks version, recommend running it first. If CRITICAL issues are known, **do not implement**.
+- Check the card's `analyze` key: if `/sdd.analyze` has not run on the current tasks version, recommend running it first.
+  If CRITICAL issues are known, **do not implement**.
 
 ## Before starting
 1. Read `tasks.md`, `plan.md`, `spec.md`, `data-model.md`, `contracts/`, `quickstart.md` and `CLAUDE.md`.
-2. Check that `.gitignore` blocks `.env`, models and media. In a git repo make sure you are on branch `NNN-slug`.
+2. Check that `.gitignore` blocks `.env`, models and media. Work on the current branch (`main`, ADR-027).
 
 ## Per-task loop (in order; `[P]` tasks may be done back to back)
 1. **Test task:** write the test, run `uv run pytest <file>` and confirm it **FAILS** for the right reason (missing behavior, not a
@@ -40,8 +41,10 @@ Reply to the user in Vietnamese.
 
 ## When the scope is done
 - Run `uv run pytest` and `uv run ruff check .` (if configured) and report the exact results.
-- When the **whole** feature is done: run the laptop-capable steps of `quickstart.md`, set the spec status and `specs/README.md`
-  to `Done`, then suggest `/update-context`.
+- Update `progress/` (`progress/README.md` §3): the row and card in `FEATURES.md` (`tasks` = done/total and `[~]` count,
+  `status` = `In progress` after the first ticked task), `STATUS.md` `next_step` / `blockers`, one line in `LOG.md`.
+- When the **whole** feature is done: run the laptop-capable steps of `quickstart.md`, set the spec status and its
+  `progress/FEATURES.md` row to `Done`, then suggest `/update-context`.
 
 ## Report
 - Completed tasks (IDs), tasks waiting for GPU, blocked tasks with reasons.

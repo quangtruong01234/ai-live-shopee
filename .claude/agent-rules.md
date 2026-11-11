@@ -10,8 +10,8 @@ working tree** without waiting for each other or breaking each other's work. The
 - Shared files have exactly one owner (`ai-orchestrator` for `src/ai_live/core/`, `app/`, `director/`; `ai-qa` for
   `tests/conftest.py` and `tests/fixtures/`). If your task needs a change there, **do not edit it**: finish what you can, and
   write the exact change you need (file, function, signature, why) under **Handoff** in your report. Do not wait for it.
-- Never edit `specs/**/tasks.md`, `CLAUDE.md`, `docs/`, `pyproject.toml`, `uv.lock`, `.env*`. The main session ticks tasks
-  and updates docs after every agent of the wave has reported.
+- Never edit `specs/**/tasks.md`, `progress/`, `CLAUDE.md`, `docs/`, `pyproject.toml`, `uv.lock`, `.env*`. The main session
+  ticks tasks and updates docs and progress after every agent of the wave has reported.
 - If a needed file is owned by nobody, treat it as owned by the main session: report it under Handoff.
 
 ## 2. Things that would break other agents (never do them)
@@ -29,6 +29,8 @@ working tree** without waiting for each other or breaking each other's work. The
 
 For each task given to you, in order:
 
+0. Once per run, read the feature's card in `progress/FEATURES.md` (folder, artifacts, related ADRs, dependencies) instead of
+   scanning `docs/` or `specs/`. Open an ADR or doc only when the card or the task points to it.
 1. Read the task text in `tasks.md`, plus only the spec/contract sections it cites.
 2. Test task: write the test, then run your **verify chain** once; confirm the new test fails for the right reason
    (missing behavior, not an import or syntax error).
