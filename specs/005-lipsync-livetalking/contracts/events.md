@@ -57,12 +57,14 @@ LIVETALKING_BATCH_SIZE=16       # fork đọc; nhỏ hơn thì khung đầu sớ
 LIVETALKING_LIP_EVERY_N=1       # fork đọc; 2 = suy luận miệng mỗi khung thứ 2 khi máy không kịp
 LIVETALKING_TRANSITION_S=0.3    # fork đọc; thời gian trộn khi đổi clip
 LIVETALKING_HOLD_S=1.5          # fork đọc; giữ clip nói (miệng khép) chừng ấy giây sau câu rồi mới về clip chờ
+AILIVE_RECORD_DIR=              # fork đọc; tự kiểm: ghi luồng ra mp4/wav/jsonl vào đây (vd out/selfcheck, ngoài git); trống = tắt
+AILIVE_RECORD_MAX_S=600         # fork đọc; mỗi bản ghi tự dừng sau chừng ấy giây
 AI_LABEL_TEXT=AI                # ở livetalking chỉ dùng chữ ASCII
 AI_LABEL_POSITION=top-right
 RENDERER_ACK_TIMEOUT_S=3
 ```
 
-Bốn biến `LIVETALKING_BATCH_SIZE`, `LIVETALKING_LIP_EVERY_N`, `LIVETALKING_TRANSITION_S`, `LIVETALKING_HOLD_S` chỉ fork đọc (qua `run.ps1`). `test_config` hiện
+Sáu biến `LIVETALKING_BATCH_SIZE`, `LIVETALKING_LIP_EVERY_N`, `LIVETALKING_TRANSITION_S`, `LIVETALKING_HOLD_S`, `AILIVE_RECORD_DIR`, `AILIVE_RECORD_MAX_S` chỉ fork đọc (qua `run.ps1`; hai biến ghi luồng là công cụ tự kiểm, xem quickstart §11). `test_config` hiện
 kiểm `.env.example` khớp `Settings`: thêm danh sách biến "chỉ fork đọc" được miễn, thay vì thêm trường không dùng vào `Settings`.
 
 ## 6. CLI

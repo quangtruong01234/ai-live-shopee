@@ -336,7 +336,14 @@ AVATAR_DEFAULTS = {
 }
 
 # Read only by the fork through scripts/livetalking/run.ps1, so they live in `.env.example` but not in Settings.
-FORK_ONLY_VARS = ("LIVETALKING_BATCH_SIZE", "LIVETALKING_LIP_EVERY_N", "LIVETALKING_TRANSITION_S", "LIVETALKING_HOLD_S")
+FORK_ONLY_VARS = (
+    "LIVETALKING_BATCH_SIZE",
+    "LIVETALKING_LIP_EVERY_N",
+    "LIVETALKING_TRANSITION_S",
+    "LIVETALKING_HOLD_S",
+    "AILIVE_RECORD_DIR",
+    "AILIVE_RECORD_MAX_S",
+)
 
 LIPSYNC_OK = {"avatar_mode": "livetalking", "customer_id": "demo_customer_01", "avatar_id": "demo_host_01"}
 

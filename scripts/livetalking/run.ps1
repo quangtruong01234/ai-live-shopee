@@ -49,6 +49,16 @@ foreach ($name in 'AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE'
     Set-Item -Path "Env:$name" -Value $cfg[$name]
 }
 
+# Self-check recording (ailive_ext/recorder.py): off unless AILIVE_RECORD_DIR is set; a relative dir is under the repo,
+# not the fork, so recordings land in the gitignored out/ next to other measurements.
+$recordDir = $cfg['AILIVE_RECORD_DIR']
+if ($recordDir) {
+    if (-not [System.IO.Path]::IsPathRooted($recordDir)) { $recordDir = Join-Path $RepoRoot $recordDir }
+    $env:AILIVE_RECORD_DIR = $recordDir
+    if ($cfg['AILIVE_RECORD_MAX_S']) { $env:AILIVE_RECORD_MAX_S = $cfg['AILIVE_RECORD_MAX_S'] }
+    Write-Host "Ghi luồng tự kiểm: bật, thư mục $recordDir (POST /ailive/record/start|stop)"
+}
+
 # Flags checked against config.py of the pinned commit; --ailive_character is ours (an `# ailive:` hook in config.py).
 $forkArgs = @(
     'app.py',

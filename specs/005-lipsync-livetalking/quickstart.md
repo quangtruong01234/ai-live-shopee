@@ -218,3 +218,43 @@ Kết quả 2026-11-11 (T047, SC-002, FR-010):
 ## 10. Chia sẻ vào Google Meet (FR-018) [GPU laptop]
 
 Chia sẻ tab `/host` có tiếng vào Meet; người xem bên kia thấy nhân vật, nhãn "AI", nghe tiếng khớp miệng.
+
+## 11. Tự kiểm không cần người xem: bộ ghi luồng (thêm 2026-11-12) [GPU laptop]
+
+Dùng cho bước 6–9 khi không có người ngồi xem: fork ghi lại đúng khung hình + tiếng nó gửi sang WebRTC (sau khi dán nhãn "AI"),
+rồi một script chấm điểm. Bản ghi chứa mặt và giọng người mẫu nên chỉ nằm trong `out/` (ngoài git), không gửi đi đâu.
+
+1. Trong `.env`: `AILIVE_RECORD_DIR=out/selfcheck` (để trống là tắt, mặc định tắt), `AILIVE_RECORD_MAX_S=600` (mỗi bản ghi tự dừng).
+   Bật lại fork bằng `run.ps1` (in "Ghi luồng tự kiểm: bật"), bật app `APP_ENV=dev`, mở `/host`, bấm "Bắt đầu" một lần.
+2. Chạy:
+   ```bash
+   uv run python scripts/selfcheck/lipsync_check.py --name t062 --text "Câu một." --text "Câu hai."
+   uv run python scripts/selfcheck/lipsync_check.py --name wav1 --wav out/t052/sample.wav --idle 5
+   ```
+   Script lấy phiên từ `/ailive/health`, gọi `POST /ailive/record/start`, đọc từng câu qua `/api/debug/speak` (hoặc
+   `/api/debug/speak-audio` cho WAV), dừng ghi, rồi chạy `python -m ailive_ext.analyze` trong venv fork. Mã thoát 0 = đạt.
+3. Kết quả cạnh bản ghi: `<tên>.mp4/.wav/.jsonl` (bản ghi), `.report.json`, `.sheet.jpg` (khung đầu câu, hai bên chỗ chuyển clip,
+   khung to tiếng nhất), `.mouth.jpg` (50 khung miệng liền nhau quanh đoạn to nhất, kèm vạch âm lượng), `.driver.json`.
+
+Các mục chấm (chỉ là số đo thay thế, không chấm được độ tự nhiên của giọng và mặt; việc đó vẫn cần người xem ở gói duyệt):
+
+| Mục | Đo gì | Đạt khi |
+|-----|-------|---------|
+| stream | số khung, fps theo đồng hồ, khung bộ ghi bỏ; ước lượng khựng phía người xem (`playout_freezes`) | đủ khung, không bỏ khung, fps ≥ 23,5 (khựng chỉ báo, chưa chấm) |
+| label | hộp nhãn "AI" có mặt ở mọi khung | không khung nào thiếu |
+| audio | đỉnh, vỡ tiếng, tiếng lọt vào lúc chờ, câu không có thẻ kết thúc | vỡ < 0,1 %, không lọt, câu nào cũng kết thúc |
+| mouth | độ mở miệng (điểm ảnh không phải môi nằm trong viền môi) so với đường bao âm lượng, quét lệch ±6 khung | r ≥ 0,15, đỉnh rõ (≥ 0,2 so với mép), lệch ≤ 2 khung (80 ms), to tiếng mở hơn lúc chờ ≥ 1,5 lần |
+| seams | hình nhảy ở chỗ đổi nói/chờ hoặc đổi clip | không chỗ nào chênh > 3 lần chuyển động quanh nó (và > 6 mức xám) |
+
+Khựng thật phía trình duyệt: đo bằng `requestVideoFrameCallback` trên thẻ `video` của `/host` (Chrome DevTools MCP chạy script đếm
+khoảng cách giữa các khung được hiển thị > 80 ms).
+
+Kết quả chạy đầu (2026-11-12, `smoke3`, `smoke4`; 2 câu VieNeu, batch 16, laptop GTX 1650 Ti):
+
+- stream, label, audio đạt; miệng đạt với ngưỡng mới (r 0,33 và 0,21, cả hai đỉnh ở lệch 0, mở khi nói gấp ~2,8 lần lúc chờ). Ngưỡng
+  ban đầu (r ≥ 0,3, đo phần tối trong vùng dưới mặt) đánh trượt nhầm: vùng tóc và bóng cằm bị tính là miệng mở.
+- **seams trượt:** chuyển `talk_02 → idle_01` cắt cứng (chênh ~29 so với ~1,8 quanh đó). Đúng như chờ đợi: trộn dần
+  `LIVETALKING_TRANSITION_S` thuộc T066 (US3), chưa làm. Dùng bản ghi này làm mốc so sánh cho T066–T067.
+- **Khựng lúc bắt đầu nói:** bộ ghi thấy khoảng trống ~1,4–1,6 s ở khung đầu câu (ước lượng khựng ~0,7 s); trình duyệt đo được 10 lần
+  khựng 0,28–0,41 s trong 33 s, dồn quanh lúc bắt đầu câu. TODO: tìm nguyên nhân ở T062–T063 (TTS CPU tranh CPU với fork? lô suy luận
+  đầu câu chờ đủ 16 khung tiếng?).

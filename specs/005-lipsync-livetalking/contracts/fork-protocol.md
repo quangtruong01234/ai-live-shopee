@@ -12,6 +12,8 @@
 | `GET /ailive/ws?sessionid=<str>` | app | **mới** | §2–§3. `sessionid` không tồn tại → đóng mã `4404` |
 | `POST /interrupt_talk` | (không dùng) | upstream | Thay bằng tin `stop` trên `/ailive/ws` |
 | `GET /ailive/health` | quickstart, script | **mới** | `{"ok": true, "boot_id", "fork_commit", "sessions": [..], "vram_used_mb"}` |
+| `POST /ailive/record/start?sessionid=<str>[&name=<tên>]` | `scripts/selfcheck/lipsync_check.py` | **mới** (công cụ tự kiểm) | Chỉ khi `AILIVE_RECORD_DIR` có giá trị, ngược lại `404`. Ghi khung + tiếng gửi WebRTC ra `<dir>/<tên>.mp4/.wav/.jsonl` (`ailive_ext/recorder.py`); tên chỉ gồm `A-Za-z0-9_.-`, sai → `400`; đang ghi → `409`. Tự dừng sau `AILIVE_RECORD_MAX_S` giây. Không bao giờ chặn luồng ra: hàng đợi đầy thì bỏ khung và đếm |
+| `POST /ailive/record/stop?sessionid=<str>` | như trên | **mới** | Dừng, đợi ghi xong, trả `{prefix, frames, dropped, seconds, stopped_by, error, files}`; không đang ghi → `409`. Chấm điểm: `python -m ailive_ext.analyze <prefix>` (quickstart §11) |
 
 Các endpoint upstream khác (`/human`, `/humanaudio`, `/record`, `/set_audiotype`, `/sse`, `/whep`) giữ nguyên, không dùng.
 
@@ -77,4 +79,4 @@ Ack chỉ gửi cho câu đã nhận `sentence_start` trên **cùng** kết nố
 lại miệng đúng vị trí), `test_ingest.py` (cắt khung, độn khung cuối, gắn `datainfo`, `stop` xóa đệm),
 `test_label.py` (nhãn có mặt ở đúng góc trên khung giả; chữ rỗng / không ASCII bị từ chối), `test_ws.py` (`/ailive/ws` và
 `/ailive/health` với avatar giả: 4404, `hello`, ack, `stop`, kết nối mới thay kết nối cũ), `test_clips.py` (đọc danh sách clip, chọn
-clip chờ/nói theo lô), `test_prepare.py` (kiểm clip trước `genavatar` với video nhỏ và bộ đếm mặt giả). Chạy: `vendor/livetalking/.venv/Scripts/python -m pytest ailive_ext/tests`.
+clip chờ/nói theo lô), `test_prepare.py` (kiểm clip trước `genavatar` với video nhỏ và bộ đếm mặt giả), `test_recorder.py` (bộ ghi luồng và bộ chấm trên mặt giả có miệng mở theo tiếng: đồng bộ đạt, miệng trễ 3 khung bị bắt, thiếu nhãn, hình nhảy, câu thiếu thẻ kết thúc, khựng phát). Chạy: `vendor/livetalking/.venv/Scripts/python -m pytest ailive_ext/tests`.
