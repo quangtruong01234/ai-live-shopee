@@ -82,8 +82,9 @@ quay sẵn" (RISKS P2). Xoay clip rẻ hơn nhiều so với cử chỉ theo ch�
 clip nền có đổi và có lặp lại liền nhau không.
 
 **Kịch bản chấp nhận:**
-1. **Given** nhân vật có từ 2 clip nói trở lên, **When** hai lượt nói liền nhau (hoặc câu dài cần nối sang clip nói khác), **Then** clip
-   nói sau khác clip nói vừa dùng và miệng vẫn khớp tiếng.
+1. **Given** nhân vật có từ 2 clip nói trở lên, **When** cần clip nói mới (lượt nói mới bắt đầu sau khi nhân vật đã về clip chờ, hoặc clip
+   nói đang dùng đã chạy hết một vòng đi tới rồi đi lùi và tới ranh giới câu), **Then** clip nói sau khác clip nói vừa dùng và miệng vẫn
+   khớp tiếng. Câu đến trong khoảng giữ nói tiếp trên clip đang giữ, không đổi clip ở mỗi câu (sửa 2026-11-12, xem Làm rõ).
 2. **Given** nhân vật có từ 2 clip chờ trở lên, **When** clip chờ chạy hết và cần clip chờ tiếp theo, **Then** không chọn lại đúng clip vừa dùng.
 3. **Given** nhân vật chỉ có 1 clip của một loại, **When** cần clip loại đó, **Then** dùng lại clip đó, không coi là lỗi.
 
@@ -109,7 +110,7 @@ Sau khi nhân vật chạy được, mình xem số liệu thật trên laptop: 
 - **Laptop tạo hình không kịp tốc độ của tiếng:** không được để tiếng chạy trước hình rồi hình đuổi theo. Hệ thống giảm số khung hình
   hoặc độ nét để giữ tiếng và miệng khớp nhau (FR-007). Tốc độ thấp được chấp nhận (ADR-023).
 - **Câu dài hơn clip nói:** clip nền lặp lại hoặc nối sang clip nói khác trong lúc nói, chỗ nối không giật rõ, miệng vẫn khớp tiếng.
-- **Câu ngắn hơn clip nói:** nhân vật về clip chờ khi hết lượt (im lặng quá một khoảng giữ ngắn sau câu cuối, cấu hình được, mặc định 1,5 s), không chạy nốt clip nói với miệng khép lâu. Giữa hai câu của cùng lượt nhân vật giữ clip nói với miệng khép (US2 #1).
+- **Câu ngắn hơn clip nói:** nhân vật về clip chờ khi hết lượt (im lặng quá một khoảng giữ ngắn sau câu cuối, cấu hình được, mặc định 2,5 s), không chạy nốt clip nói với miệng khép lâu. Giữa hai câu sát nhau (của cùng lượt, hoặc hai câu kịch bản liền nhau) nhân vật giữ clip nói với miệng khép (US2 #1).
 - **Hết bộ nhớ đồ họa hoặc phần tạo hình bị treo giữa phiên:** lượt đó ghi lỗi, phiên không dừng; lỗi 2 lượt liền thì phiên tự chuyển sang
   ảnh tĩnh của chính nhân vật (FR-022) để show không bị câm, trang điều khiển báo rõ; người vận hành khởi động lại phần tạo hình rồi bấm
   bật lại nhân vật.
@@ -151,8 +152,9 @@ Sau khi nhân vật chạy được, mình xem số liệu thật trên laptop: 
 
 **Xoay vòng clip nền** (US3)
 - **FR-012**: Mỗi clip nền PHẢI có loại (chờ hoặc nói). Một nhân vật có thể có nhiều clip mỗi loại.
-- **FR-013**: Khi cần một clip nền mới (bắt đầu lượt, nối clip trong câu dài, hết clip chờ), hệ thống PHẢI chọn clip đúng loại và không
-  chọn lại đúng clip vừa dùng của loại đó, trừ khi loại đó chỉ có một clip.
+- **FR-013**: Khi cần một clip nền mới (bắt đầu lượt sau khi đã về clip chờ, clip nói chạy hết một vòng và tới ranh giới câu, nối clip
+  trong câu dài, hết clip chờ), hệ thống PHẢI chọn clip đúng loại và không chọn lại đúng clip vừa dùng của loại đó, trừ khi loại đó chỉ có
+  một clip.
 
 **Cắm vào pipeline**
 - **FR-014**: Người vận hành PHẢI chọn được chế độ "ảnh tĩnh" hoặc "nhân vật nhép miệng" bằng cấu hình khi mở phiên; chế độ ảnh tĩnh giữ
@@ -272,6 +274,14 @@ Sau khi nhân vật chạy được, mình xem số liệu thật trên laptop: 
 - Q: Phần tạo hình lỗi giữa buổi thì người xem thấy gì? → A: Lỗi 2 lượt liền thì phiên tự chuyển sang ảnh tĩnh của chính nhân vật (vẫn có
   tiếng, phụ đề, nhãn "AI"), trang điều khiển báo; người vận hành bấm bật lại nhân vật giữa phiên (US2 #5, #6, FR-022, Trường hợp biên,
   SC-005, Điều VIII).
+
+### Phiên 2026-11-12 (sửa khi làm T067, theo đề xuất của agent, người dùng duyệt sau trong gói review)
+- Q: Fork không biết đâu là "lượt": mỗi câu kịch bản của 004 là một `utterance_id` riêng (`seq 0`), nên đổi clip nói ở mỗi `seq 0` làm
+  show kịch bản đổi clip ở mọi câu (44 lần trong 7 phút) và luôn chạy lại từ khung 0, người xem chỉ thấy ~3 s đầu của hai clip lặp lại. Đổi
+  clip nói khi nào? → A: Câu đến trong khoảng giữ (kể cả `seq 0`) nói tiếp trên clip nói đang giữ. Chọn clip nói mới khi bắt đầu nói từ
+  clip chờ, hoặc khi clip nói đang dùng đã chạy hết một vòng đi tới rồi đi lùi: đổi ở khoảng im lặng giữa hai câu hoặc ở đầu câu mới
+  (ranh giới câu, FR-009). Khoảng giữ mặc định đổi 1,5 s → 2,5 s vì khoảng nghỉ giữa hai câu kịch bản p95 ~2,9 s (T067) (US3 #1, FR-013,
+  Trường hợp biên).
 
 ## Checklist chất lượng spec
 

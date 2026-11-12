@@ -21,7 +21,7 @@ Các endpoint upstream khác (`/human`, `/humanaudio`, `/record`, `/set_audiotyp
 
 | Tin | Dạng | Trường | Hành vi của fork |
 |-----|------|--------|-----------------|
-| `sentence_start` | JSON | `utterance_id: str`, `seq: int`, `text: str`, `sample_rate: 16000` | Ghi nhớ câu đang nhận. `sample_rate` khác 16000 → `error {kind:"bad_audio"}`. `seq == 0` = lượt mới → chọn clip nói (§4) |
+| `sentence_start` | JSON | `utterance_id: str`, `seq: int`, `text: str`, `sample_rate: 16000` | Ghi nhớ câu đang nhận. `sample_rate` khác 16000 → `error {kind:"bad_audio"}`. `seq == 0` = lượt mới; clip nói chọn theo §4 (đang giữ clip nói thì nói tiếp trên clip đó) |
 | (nhị phân) | bytes | PCM16 LE mono 16 kHz, độ dài bất kỳ (số chẵn byte) | Ghép đệm, cắt khung 320 mẫu, đổi float32 `/32768`, `put_audio_frame(chunk, datainfo)`. Khung đầu câu có `datainfo={"status":"start","utterance_id","seq"}` |
 | `sentence_end` | JSON | `utterance_id`, `seq` | Khung lẻ cuối được độn im lặng cho đủ 320 mẫu; khung cuối mang `datainfo={"status":"end",...}` |
 | `stop` | JSON | `utterance_id` | `flush_talk()`, bỏ phần đệm, về clip chờ (§4); không gửi `sentence_played` cho câu bị dừng. Bỏ **mọi** tiếng nói đã vào fork trước `stop`, kể cả phần đã qua hàng đợi tiếng: đặc trưng chưa suy luận thành im lặng, khung đã suy luận bị bỏ, hàng đợi gửi WebRTC (~1 s) bị xả cả hình lẫn tiếng. Mất kết nối `/ailive/ws` làm như `stop` (T062: thiếu bước này làm tiếng còn chạy 1–1,5 s sau khi bỏ qua) |
@@ -50,14 +50,21 @@ Ack chỉ gửi cho câu đã nhận `sentence_start` trên **cùng** kết nố
   khi khởi động. Không có endpoint hay tham số nào tắt nhãn.
 - **Watermark "LiveTalking"** của upstream: giữ nguyên, không sửa.
 - **Xoay clip** (`rotation.py`, thuần Python): `pick_next(clips: Sequence[Clip], kind, last_id: str | None, rng) -> Clip`: chọn ngẫu nhiên
-  trong các clip đúng loại khác `last_id`; chỉ có một thì trả clip đó. Clip nói chọn khi nhận `sentence_start seq=0`; clip chờ chọn khi
-  hết lượt nói (hết khoảng giữ dưới đây) và sau mỗi vòng đi tới đi lùi đầy đủ của clip chờ.
+  trong các clip đúng loại khác `last_id`; chỉ có một thì trả clip đó. Clip nói chọn khi bắt đầu nói từ clip chờ, và khi
+  clip nói đang dùng đã chạy hết một vòng đi tới đi lùi (tới ranh giới câu: lô im lặng trong khoảng giữ, hoặc lô có `sentence_start`);
+  clip chờ chọn khi hết lượt nói (hết khoảng giữ dưới đây) và sau mỗi vòng đi tới đi lùi đầy đủ của clip chờ. Câu dài nói liên tục quá một
+  vòng thì lặp đi tới đi lùi trên clip đó, không đổi giữa câu (FR-009).
 - **Giữ clip nói giữa hai câu** (`ClipScheduler` trong `rotation.py`, thuần Python, research R7): sau khung cuối của câu, fork giữ clip nói
-  hiện tại thêm tối đa `LIVETALKING_HOLD_S` (mặc định 1,5 s): phát khung nền gốc của clip nói (không dán miệng), chỉ số khung chạy tiếp.
-  Câu mới trong khoảng giữ: `seq > 0` nói tiếp trên clip đó; `seq == 0` chọn clip nói mới. Im lặng quá `LIVETALKING_HOLD_S` hoặc `stop`
-  → chuyển dần về clip chờ.
+  hiện tại thêm tối đa `LIVETALKING_HOLD_S` (mặc định 2,5 s): phát khung nền gốc của clip nói (không dán miệng), chỉ số khung chạy tiếp.
+  Câu mới trong khoảng giữ (cả `seq > 0` lẫn `seq == 0`) nói tiếp trên clip đó; đổi clip nói ở khoảng im lặng không làm khoảng giữ bắt
+  đầu lại. Im lặng quá `LIVETALKING_HOLD_S` hoặc `stop` → chuyển dần về clip chờ. (Sửa 2026-11-12, T067: trước đây `seq == 0` chọn clip
+  nói mới, mà mỗi câu kịch bản của 004 là một `utterance_id` riêng, nên show kịch bản đổi clip ở mọi câu và luôn chạy lại khung 0; spec
+  Làm rõ 2026-11-12.)
 - **Chuyển clip**: clip mới bắt đầu ở khung 0; trộn dần từ khung cuối của clip cũ trong `LIVETALKING_TRANSITION_S` (mặc định 0,3 s) bằng
-  cơ chế `enable_transition` sẵn có. Chuyển im lặng → nói đưa cả chỉ số clip chờ về 0 khi quay lại chờ.
+  `Crossfade` trong `rotation.py`, tính theo số khung (`round(TRANSITION_S × fps)`), trộn trước khi dán watermark và nhãn "AI". Không dùng
+  `enable_transition` của upstream (sửa 2026-11-12, T066): cơ chế đó chỉ trộn khi đổi nói ↔ im lặng, còn ở đây clip đổi theo `clip_id`
+  (giữ clip nói qua lúc im lặng, xoay clip chờ trong lúc im lặng), nên `Crossfade` trộn mỗi khi `clip_id` đổi. Chuyển im lặng → nói đưa
+  cả chỉ số clip chờ về 0 khi quay lại chờ.
 - **Giảm tải** (`lipskip.py`, numpy): `LIVETALKING_LIP_EVERY_N = n`: chỉ suy luận miệng cho 1/n khung trong lô, khung khác dán lại miệng vừa tạo lên khung nền
   hiện tại. `LIVETALKING_BATCH_SIZE` truyền vào `batch_size` của LiveTalking.
 - **Nạp avatar**: một thư mục avatar LiveTalking cho mỗi clip (`<character_id>__<clip_id>`), nạp hết lúc khởi động (R7 TODO RAM).

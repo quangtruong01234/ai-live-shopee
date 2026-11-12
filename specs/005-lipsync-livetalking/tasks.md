@@ -259,7 +259,7 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
 
 ### Test cho US3 (viết trước, phải FAIL trước khi implement)
 
-- [ ] T064 [P] [US3] Test `pick_next` trong `vendor/livetalking/ailive_ext/tests/test_rotation.py`: chỉ chọn clip đúng loại; khác `last_id` khi có
+- [x] T064 [P] [US3] Test `pick_next` trong `vendor/livetalking/ailive_ext/tests/test_rotation.py`: chỉ chọn clip đúng loại; khác `last_id` khi có
   ≥ 2 clip (US3 #1, #2); chỉ một clip thì trả clip đó (US3 #3); `rng` cố định cho kết quả lặp lại được. `ClipScheduler(hold_s)` với đồng hồ giả: sau
   `sentence_end` giữ clip nói tới `hold_s`, câu `seq > 0` trong khoảng giữ giữ nguyên clip, `seq = 0` chọn clip nói mới, quá `hold_s`
   hoặc `stop` → clip chờ (US2 #1, research R7; fork-protocol §4; phụ thuộc T008)
@@ -267,17 +267,29 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
 
 ### Implement US3
 
-- [ ] T065 [US3] Viết `vendor/livetalking/ailive_ext/rotation.py`: `pick_next(clips, kind, last_id, rng)` và `ClipScheduler`
+- [x] T065 [US3] Viết `vendor/livetalking/ailive_ext/rotation.py`: `pick_next(clips, kind, last_id, rng)` và `ClipScheduler`
   (FR-012, FR-013, US2 #1; phụ thuộc T064)
   **(ADR-048)**
-- [ ] T066 [US3] Sửa `vendor/livetalking/avatars/base_avatar.py`: chọn clip theo `ClipScheduler`: clip nói mới bằng `pick_next` khi nhận `sentence_start seq=0`,
+- [x] T066 [US3] Sửa `vendor/livetalking/avatars/base_avatar.py`: chọn clip theo `ClipScheduler`: clip nói mới bằng `pick_next` khi nhận `sentence_start seq=0`,
   câu dài hơn clip thì lặp đi tới đi lùi; sau mỗi câu giữ clip nói (khung nền gốc, không dán miệng) tối đa `LIVETALKING_HOLD_S`; chọn clip
   chờ khi hết khoảng giữ hoặc `stop` và sau mỗi vòng đi tới đi lùi đầy đủ; clip mới bắt đầu ở khung 0, trộn dần
   `LIVETALKING_TRANSITION_S` bằng `enable_transition`; quay lại chờ thì chỉ số clip chờ về 0; `stats` gửi `clip_id` (fork-protocol §4,
   FR-009, FR-013, US2 #1; phụ thuộc T042, T061, T065) **(ADR-048)**
-- [ ] T067 [GPU] [US3] Quickstart bước 8: chờ 3 phút + 10 lượt nói, quay màn hình, đếm giật ≤ 1 (SC-007); nếu giật thì chỉnh
+  _Đã làm 2026-11-12: `ClipScheduler.for_batch` chạy mỗi lô trên luồng suy luận, đồng hồ là số khung đã xếp / fps (khoảng giữ theo
+  luồng phát, không theo việc luồng suy luận chạy trước bao xa); khoảng giữ tính từ lô im lặng đầu tiên. Câu nói mà mất thẻ bắt đầu
+  (vd. nối lại) vẫn ép sang clip nói, không dán miệng lên clip chờ. Clip chờ chỉ có một thì chỉ số chạy tiếp `index % vòng`, không về 0.
+  Trộn chuyển clip không dùng `enable_transition` (upstream chỉ trộn khi đổi nói ↔ im lặng) mà dùng `Crossfade` theo `clip_id`, trước
+  watermark và nhãn AI (fork-protocol §4 đã sửa theo). `stats.clip_id` lấy từ `clip_id` gắn vào khung đầu / cuối câu (`tag_clip`), vì
+  lúc WebRTC gửi khung cuối thì luồng suy luận đã sang clip khác. Bỏ `ClipCursor` của T042. Test fork: 92 đạt._
+- [x] T067 [GPU] [US3] Quickstart bước 8: chờ 3 phút + 10 lượt nói, quay màn hình, đếm giật ≤ 1 (SC-007); nếu giật thì chỉnh
   `LIVETALKING_TRANSITION_S`, nếu về clip chờ giữa hai câu thì nâng `LIVETALKING_HOLD_S`, ghi giá trị chọn vào `.env.example`; `clips_used` trong `GET /api/latency` không trùng clip nói ở hai lượt liền
   nhau (US3 #1, #2, FR-009) (phụ thuộc T066, T070)
+  _Đã làm 2026-11-12 bằng bộ ghi luồng (quickstart bước 8, §11): SC-007 đạt, 0 chỗ giật ở 4 bản ghi. Lần đầu tìm ra câu kịch bản nào
+  cũng là `seq 0` nên clip nói đổi và chạy lại từ khung 0 ở mọi câu, và giữ 1,5 s không đủ cho khoảng nghỉ p95 2,84 s; sửa spec trước
+  (phiên 2026-11-12: giữ clip nói qua các câu trong khoảng giữ, đổi sau một vòng ở ranh giới câu, `LIVETALKING_HOLD_S=2.5`), rồi
+  `ClipScheduler.for_batch`; chạy lại: 0/49 khoảng nghỉ về clip chờ, 25/47 câu liền nhau cùng clip. `TRANSITION_S` giữ 0,3. Không làm
+  T070 trước (chưa cần số đo US4 để chấm giật). Miệng r thấp hơn (0,08) do đoạn đầu ngửa trong clip nói, chờ người dùng xem lại clip.
+  Test fork: 97 đạt._
 - [ ] T068 [GPU] [US3] SC-008: cho ≥ 3 người ngoài dự án xem 1 phút chờ, hỏi "trông như đang sống không"; ghi kết quả (đạt khi ≥ 2/3) vào
   quickstart bước 8 (phụ thuộc T067)
 

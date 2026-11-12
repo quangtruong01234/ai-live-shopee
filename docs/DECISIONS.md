@@ -800,7 +800,7 @@
     - dùng clip gốc, không dùng bản `_pingpong`, vì fork đã phát kiểu đi tới rồi đi lùi;
     - fork chọn clip bằng `pick_next`, khác clip vừa dùng của cùng loại;
     - chuyển dần giữa hai clip trong `LIVETALKING_TRANSITION_S` (0,3 s);
-    - giữ clip nói (miệng khép) tối đa `LIVETALKING_HOLD_S` (1,5 s) sau mỗi câu, để không về clip chờ giữa hai câu của cùng lượt (research R7, analyze A1);
+    - giữ clip nói (miệng khép) tối đa `LIVETALKING_HOLD_S` (1,5 s) sau mỗi câu, để không về clip chờ giữa hai câu của cùng lượt (research R7, analyze A1); _mặc định đổi 2,5 s và câu `seq 0` trong khoảng giữ nói tiếp trên clip đang giữ (2026-11-12, T067, spec 005 Làm rõ 2026-11-12)_;
     - phát 25 khung/giây.
 - **Lý do:** ràng buộc số 3 và Điều I (một host cho một tài khoản, RISKS P4); FR-001–005, FR-009, FR-012, FR-013 của spec 005.
 - **Phương án đã loại:**

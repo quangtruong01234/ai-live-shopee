@@ -251,7 +251,8 @@ class FakeFork:
     def _start_sentence(self, message: dict[str, Any]) -> ReceivedSentence:
         uid = str(message.get("utterance_id"))
         seq = int(message.get("seq", 0))
-        # One talk clip per turn: picked at seq 0, kept for the turn's later sentences (fork-protocol §4).
+        # Simplified: one talk clip per turn, picked at seq 0. The real fork also keeps it across turns inside its hold
+        # and rotates per clip cycle (fork-protocol §4); app tests only need a clip_id that changes between turns.
         if seq == 0 or uid not in self._turn_clip:
             self._turn_clip[uid] = next(self._clips)
         return ReceivedSentence(

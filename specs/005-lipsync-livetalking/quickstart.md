@@ -209,7 +209,7 @@ theo giờ thật; script lái gọi `/api/show/start`, `/api/pause`, `/api/resu
 | Comment hỏi giá (US2 #2) | Trả lời đúng giá trong dữ liệu (259.000đ), chen giữa hai câu kịch bản | Đạt |
 | Bỏ qua 5 lần (SC-004 ≤ 1 s) | Trước sửa: tiếng còn 1,0–1,5 s. Sau sửa: tiếng tắt 0,00–0,56 s sau lệnh, phụ đề xóa ngay | Đạt sau sửa |
 | SC-003 (≥ 20 lượt) | 80 câu trong bản ghi, không câu nào có thẻ kết thúc trước thẻ bắt đầu | Đạt |
-| Giữ clip nói giữa hai câu cùng phân đoạn (US2 #1) | Cả 49 khoảng nghỉ về `idle_01` (chưa có `ClipScheduler`) | **Chưa đạt**, chờ T064–T066 |
+| Giữ clip nói giữa hai câu cùng phân đoạn (US2 #1) | Cả 49 khoảng nghỉ về `idle_01` (chưa có `ClipScheduler`) | **Chưa đạt**, chờ T064–T066 (đạt ở T067: 0/49, xem bước 8) |
 | Khựng hình | 21 lần khung đứng > 200 ms trong 7 phút | Ghi nhận, xử lý ở US4 (T072–T075) |
 
 - Ở các lần chạy sau, tiếng trễ hơn phụ đề 0,8–1,1 s ngay từ đầu show (lần đầu 0,25 s) và số khung hiển thị/giây thấp hơn: có mặt cả
@@ -229,8 +229,34 @@ Kết quả 2026-11-12 (T063, bước 7.4–7.5), cùng show đang chạy; kiể
 ## 8. US3: clip chờ, xoay vòng, chuyển clip (SC-007, SC-008) [GPU laptop]
 
 - Để chờ 3 phút rồi 10 lượt nói, quay màn hình. Đếm lần giật ở chỗ lặp / chuyển clip (đạt ≤ 1). Nếu giật: chỉnh `LIVETALKING_TRANSITION_S`; nếu về clip chờ giữa hai câu: nâng `LIVETALKING_HOLD_S`.
-- Xem `clips_used` trong `GET /api/latency`: hai lượt liền nhau không trùng clip nói (có 2 clip).
+- Xem `clips_used` trong `GET /api/latency` (lượt comment) hoặc `clip` trong bản ghi §11 (câu kịch bản): hai lượt liền nhau đã về clip
+  chờ ở giữa không trùng clip nói (có 2 clip); câu kịch bản liền nhau trong khoảng giữ thì nói tiếp trên cùng clip (spec phiên 2026-11-12).
 - SC-008: cho ≥ 3 người ngoài dự án xem đoạn chờ 1 phút, hỏi "trông như đang sống không".
+
+Kết quả 2026-11-12 (T067, laptop chạy pin; bộ ghi luồng §11 thay cho quay màn hình). Script lái: chờ rồi `POST /api/show/start` với
+`REPLY_ENGINE=fake`, giọng VieNeu thật. `GET /api/latency` không có `clips_used` cho câu kịch bản (chỉ đếm lượt comment), nên clip của
+từng câu đọc từ `clip` + thẻ câu trong `<tên>.jsonl` của bản ghi. Bản ghi trong `out/selfcheck/` (ngoài git).
+
+| Lần chạy | Code | Giật (seams) | Câu liền nhau cùng clip nói | Khoảng nghỉ giữa câu hiện clip chờ | Đổi clip nói → clip nói | Miệng r |
+|---|---|---|---|---|---|---|
+| t067 (chờ 3 phút + 4 phút show, 48 câu) | T066: clip mới ở mỗi `seq 0`, giữ 1,5 s | 0 | 0/47 | 3/49 | 44 | 0,122 |
+| t067b (chờ 3 phút + 4 phút show, 48 câu) | sau sửa: giữ clip qua các câu, đổi sau một vòng, giữ 2,5 s | 0 | 25/47 | 0/49 | 22 | 0,082 |
+| t067c (chờ 20 s + 4 phút show, 44 câu) | như t067b | 0 | 23/43 | 0/49 | 21 | 0,075 |
+| smoke6 (2 câu cách 7 s) | như t067b | 0 | — (2 lượt khác clip: `talk_01` rồi `talk_02`) | về chờ sau 2,5 s, đúng | 0 | 0,201 |
+
+- **SC-007 đạt:** 0 chỗ giật ở mọi lần chạy (đổi clip, lặp đi tới đi lùi, nói ↔ chờ). Đoạn chờ 3 phút: clip chờ đổi đều mỗi ~10,2 s
+  (`idle_01` ↔ `idle_02`, đúng một vòng đi tới đi lùi 242 khung).
+- Lỗi tìm ra ở lần t067 (code T066): mỗi câu kịch bản là một `utterance_id` riêng nên câu nào cũng tới fork là `seq 0`, clip nói đổi ở
+  mọi câu và luôn chạy lại từ khung 0: 3 giây đầu của hai clip nói lặp lại suốt show, và mỗi câu có một lần trộn chồng hình. Giữ 1,5 s
+  không đủ cho khoảng nghỉ p95 2,84 s nên 3 khoảng nghỉ thoáng về clip chờ. Đã sửa (spec phiên 2026-11-12, fork-protocol §4): câu
+  bắt đầu trong khoảng giữ nói tiếp trên clip đang giữ; clip nói chỉ đổi khi đã chạy hết một vòng và tới ranh giới câu;
+  `LIVETALKING_HOLD_S=2.5`.
+- **Miệng r thấp hơn sau sửa (0,08 so với 0,12), không do bộ lập lịch mà do nội dung clip:** `talk_02` từ khung ~64 và `talk_01` khung
+  ~32–60 có đầu ngửa / nghiêng, miệng dán lên mở chỉ khoảng một nửa (độ mở khi to tiếng 0,0032–0,0036 so với 0,0052–0,0073 ở đoạn mặt
+  thẳng, bản ghi t067c). Code cũ luôn bắt đầu câu ở khung 0 (mặt thẳng) nên ít gặp đoạn này. Khung giữ clip nói lúc im lặng có miệng
+  khép như clip chờ (không mấp máy). TODO: người dùng xem lại hai clip nói; đề xuất cắt chỉ lấy đoạn mặt thẳng hoặc làm lại clip nói
+  quay mặt thẳng suốt clip (gói duyệt).
+- `LIVETALKING_TRANSITION_S` giữ 0,3 (không giật). SC-008 (T068) cần người xem ngoài dự án: chưa làm.
 
 ## 9. US4: số đo và chạy 30 phút (SC-006) [GPU laptop]
 
@@ -283,7 +309,8 @@ Kết quả chạy đầu (2026-11-12, `smoke3`, `smoke4`; 2 câu VieNeu, batch 
 - stream, label, audio đạt; miệng đạt với ngưỡng mới (r 0,33 và 0,21, cả hai đỉnh ở lệch 0, mở khi nói gấp ~2,8 lần lúc chờ). Ngưỡng
   ban đầu (r ≥ 0,3, đo phần tối trong vùng dưới mặt) đánh trượt nhầm: vùng tóc và bóng cằm bị tính là miệng mở.
 - **seams trượt:** chuyển `talk_02 → idle_01` cắt cứng (chênh ~29 so với ~1,8 quanh đó). Đúng như chờ đợi: trộn dần
-  `LIVETALKING_TRANSITION_S` thuộc T066 (US3), chưa làm. Dùng bản ghi này làm mốc so sánh cho T066–T067.
+  `LIVETALKING_TRANSITION_S` thuộc T066 (US3), chưa làm. Dùng bản ghi này làm mốc so sánh cho T066–T067 (T067: 0 chỗ giật,
+  xem bước 8).
 - **Khựng lúc bắt đầu nói:** bộ ghi thấy khoảng trống ~1,4–1,6 s ở khung đầu câu (ước lượng khựng ~0,7 s); trình duyệt đo được 10 lần
   khựng 0,28–0,41 s trong 33 s, dồn quanh lúc bắt đầu câu. TODO: tìm nguyên nhân ở T062–T063 (TTS CPU tranh CPU với fork? lô suy luận
   đầu câu chờ đủ 16 khung tiếng?).

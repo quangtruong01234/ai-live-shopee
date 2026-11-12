@@ -23,7 +23,7 @@
 | `RENDERER_ACK_TIMEOUT_S` | `float`, `3` | | Đã có; dùng cho phần sau `playback_started` |
 
 Biến chỉ fork đọc (đặt trong `scripts/livetalking/run.ps1`, không vào config của app): `LIVETALKING_BATCH_SIZE` (mặc định 16, R6),
-`LIVETALKING_LIP_EVERY_N` (1, R8), `LIVETALKING_TRANSITION_S` (0,3, R7), `LIVETALKING_HOLD_S` (1,5, R7: giữ clip nói sau mỗi câu), cùng `AI_LABEL_TEXT`, `AI_LABEL_POSITION`, `AVATAR_DIR`.
+`LIVETALKING_LIP_EVERY_N` (1, R8), `LIVETALKING_TRANSITION_S` (0,3, R7), `LIVETALKING_HOLD_S` (2,5, R7: giữ clip nói sau mỗi câu; 1,5 trước T067), cùng `AI_LABEL_TEXT`, `AI_LABEL_POSITION`, `AVATAR_DIR`.
 Script đọc chúng từ `.env` của repo để chỉ có một nguồn (contracts/fork-protocol.md §5).
 
 ## 2. Nhân vật (`AvatarCharacter`): `AVATAR_DIR/character.json`
