@@ -15,20 +15,22 @@
 ## M1: Demo cho 1 khách (ngoài Shopee)
 
 ### M1a: Logic chạy local (laptop, `AVATAR_MODE=static`)
-- [ ] `pyproject.toml`, lint/format, cấu hình test, cấu hình từ `.env`
-- [ ] Mô hình dữ liệu `Comment`, `Product`; dữ liệu mẫu cho 1 sản phẩm chính và 2–3 sản phẩm phụ trong `data/products/`
-- [ ] `MockSource` cùng trang điều khiển để gõ comment
-- [ ] `CommentQueue` in-process gồm ưu tiên, chống trùng, lọc spam và bỏ comment quá cũ
-- [ ] `ProductStore` (JSON)
+- [x] `pyproject.toml`, lint/format, cấu hình test, cấu hình từ `.env` (001, kiểm 2026-11-13: `uv run pytest` 1929 passed, ruff sạch)
+- [x] Mô hình dữ liệu `Comment`, `Product`; dữ liệu mẫu cho 1 sản phẩm chính và 2–3 sản phẩm phụ trong `data/products/`
+  (`demo.docx`, 3 sản phẩm; 001 T015, T016, T028, T029)
+- [x] `MockSource` cùng trang điều khiển để gõ comment (001 T044, T068; dùng làm công cụ thử cho 003, 005)
+- [x] `CommentQueue` in-process gồm ưu tiên, chống trùng, lọc spam và bỏ comment quá cũ (001, có test unit)
+- [x] `ProductStore`: đổi từ JSON sang file Word theo mẫu (ADR-014), `DocxProductStore` + lệnh `validate` (001 T024–T026)
 - [x] `ReplyEngine` streaming theo câu với guardrail chỉ dùng dữ liệu sản phẩm: chuỗi model free ghim sẵn, tự chuyển khi lỗi (feature 008,
   ADR-035, ADR-037–040; Gemini xuống dự phòng, ADR-018). Kiểm ở quickstart 008 ngày 2026-11-05
 - [x] Bộ 10 câu hỏi mẫu kèm đáp án kỳ vọng, chạy tự động, đạt ≥ 8/10 (`qa_eval run`: `sealion` 10/10, `qwen` 9/10, 2026-11-04)
 - [x] `TTSEngine`: 1 nhà cung cấp chạy được, có thêm `FakeTTS` cho test (feature 003, ADR-024: VieNeu trên CPU mặc định, giọng
   `Thùy Dung` + đoạn mẫu; phiên 30 phút 60/60 lượt, p95 câu đầu → chunk đầu 0,484 s, 2026-11-09). Gemini TTS free (3 RPM / 10 RPD)
   chỉ để thử. Đo cùng lip-sync 005 (T050, 2026-11-12): p95 câu đầu → chunk đầu 0,921 s, đạt ≤ 1,0 s nhưng sát ngưỡng
-- [ ] `StaticRenderer`: ảnh tĩnh + audio phát trên trình duyệt
-- [ ] `ShowDirector`: kịch bản giới thiệu sản phẩm sinh realtime, là nội dung chính (feature 004, ADR-026)
-- [ ] Log độ trễ từng khâu và trang/endpoint xem số liệu
+- [x] `StaticRenderer`: ảnh tĩnh + audio phát trên trình duyệt (001 T050, ADR-016)
+- [ ] `ShowDirector`: kịch bản giới thiệu sản phẩm sinh realtime, là nội dung chính (feature 004, ADR-026). 80/81: còn T079
+  (SC-009 người chấm, tổng duyệt lại ngày riêng khi cắm sạc)
+- [x] Log độ trễ từng khâu và trang/endpoint xem số liệu (`/api/latency`, 001 T073, T078; thêm cột fps và clip ở 005 T083)
 
 ### M1b: Lip-sync (tạm chạy trên GPU laptop, ADR-023; RunPod là dự phòng)
 - [ ] Văn bản đồng ý của người mẫu (hình + giọng) đã ký và lưu ngoài git
