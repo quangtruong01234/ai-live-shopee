@@ -47,7 +47,7 @@
 | Endpoint | Đổi |
 |----------|-----|
 | `GET /avatar-image` | `livetalking`: trả `AVATAR_DIR/face.png` (ảnh dự phòng của chính nhân vật, FR-022) |
-| `GET /api/latency` | Mỗi lượt thêm `render_fps`, `infer_fps`, `clips_used` (có thể `null`); `summary.steps` thêm `render_fps` p50/p95 (FR-020) |
+| `GET /api/latency` | Thêm `turns`: 20 lượt gần nhất, mới nhất trước, mỗi lượt `{utterance_id, outcome, total_s, render_fps, infer_fps, clips_used}` (ba trường cuối `null` ở `static`); thêm `render_fps` và `infer_fps` dạng `StepStats` (p50/p95, chỉ tính lượt có số) cạnh `steps`, không nằm trong `steps` vì là tốc độ chứ không phải số giây (FR-020; lúc implement T070) |
 | `GET /health` | Thêm `avatar: {"configured", "active", "lipsync_connected"}` |
 | `GET /host` | Trang host đọc `AVATAR_MODE` và `LIVETALKING_URL` qua `GET /api/host-config` (§3) |
 
@@ -83,4 +83,4 @@ Trang host ở `livetalking` (`host.js`):
   (`POST /api/avatar/lipsync`). Cập nhật theo sự kiện `avatar_mode` trên `/ws/control`.
 - Ô trạng thái nhỏ: "Nhép miệng: đã nối / mất nối · VRAM … MB · … fps" từ sự kiện `lipsync_health`.
 - Khu debug: chọn file WAV + nút "Thử bằng tiếng có sẵn" (`POST /api/debug/speak-audio`).
-- Bảng độ trễ: thêm cột "fps tạo hình" và "fps suy luận".
+- Bảng độ trễ: thêm hai dòng "fps tạo hình" và "fps suy luận" (số mẫu, trung vị, p95) và bảng "Lượt gần nhất" với cột Tổng (s), fps tạo hình, fps suy luận, Clip (`ảnh tĩnh` khi lượt chạy ở `static`).

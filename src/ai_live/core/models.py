@@ -237,6 +237,9 @@ class LatencySummary:
     # 005 FR-020: frames per second over completed lip-sync turns. A rate, not a duration, so it is kept out of
     # `steps`; static turns have no value and are not counted.
     render_fps: StepStats | None = None
+    infer_fps: StepStats | None = None
+    # Latest turns, newest first, each with its render columns (005 contracts/api.md §2); bounded by the tracker.
+    turns: list[dict[str, Any]] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -250,6 +253,8 @@ class LatencySummary:
             "steps": {name: asdict(stats) for name, stats in self.steps.items()},
             "idle_steps": {name: asdict(stats) for name, stats in self.idle_steps.items()},
             "render_fps": asdict(self.render_fps) if self.render_fps is not None else None,
+            "infer_fps": asdict(self.infer_fps) if self.infer_fps is not None else None,
+            "turns": self.turns,
         }
 
 

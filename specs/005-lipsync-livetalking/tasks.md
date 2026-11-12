@@ -303,22 +303,23 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
 
 ### Test cho US4 (viết trước, phải FAIL trước khi implement)
 
-- [ ] T069 [P] [US4] Test trong `tests/integration/test_avatar_api.py`: `GET /api/latency` có cột `render_fps`, `infer_fps`, `clips_used` theo từng
+- [x] T069 [P] [US4] Test trong `tests/integration/test_avatar_api.py`: `GET /api/latency` có cột `render_fps`, `infer_fps`, `clips_used` theo từng
   lượt (`null` ở `static`) và `render_fps` p50/p95 trong phần tóm tắt (US4 #1, FR-020; phụ thuộc T052 vì cùng file)
 
-- [ ] T083 [P] [US4] Test `vendor/livetalking/ailive_ext/tests/test_lipskip.py` (numpy, không GPU): với `n` = 1, 2, 3 và lô 16 khung chỉ
+- [x] T083 [P] [US4] Test `vendor/livetalking/ailive_ext/tests/test_lipskip.py` (numpy, không GPU): với `n` = 1, 2, 3 và lô 16 khung chỉ
   các khung `i % n == 0` được suy luận; khung còn lại dán miệng của khung suy luận gần nhất trước nó lên khung nền của chính nó, đúng
   tọa độ mặt; `n` < 1 bị từ chối (fork-protocol §4, §6, research R8; phụ thuộc T008) **(ADR-048)**
 
 ### Implement US4
 
-- [ ] T070 [US4] Thêm cột `render_fps`, `infer_fps`, `clips_used` và `render_fps` p50/p95 vào `GET /api/latency` trong
+- [x] T070 [US4] Thêm cột `render_fps`, `infer_fps`, `clips_used` và `render_fps` p50/p95 vào `GET /api/latency` trong
   `src/ai_live/app/routes.py` (contracts/api.md §2; phụ thuộc T019, T058, T069)
-- [ ] T071 [P] [US4] Thêm cột fps và clip vào bảng độ trễ trong `src/ai_live/app/static/control.js` (contracts/api.md §5; phụ thuộc T060)
-- [ ] T072 [US4] Viết `vendor/livetalking/ailive_ext/lipskip.py` và gọi trong `vendor/livetalking/avatars/base_avatar.py`:
+- [x] T071 [P] [US4] Thêm cột fps và clip vào bảng độ trễ trong `src/ai_live/app/static/control.js` (contracts/api.md §5; phụ thuộc T060)
+- [x] T072 [US4] Viết `vendor/livetalking/ailive_ext/lipskip.py` và gọi trong `vendor/livetalking/avatars/base_avatar.py`:
   `LIVETALKING_LIP_EVERY_N = n` chỉ suy luận miệng 1/n khung trong lô, khung khác
   dán lại miệng vừa tạo lên khung nền hiện tại; `LIVETALKING_BATCH_SIZE` truyền vào `batch_size` (fork-protocol §4, research R6, R8, FR-007;
-  phụ thuộc T066, T083) **(ADR-048)**
+  phụ thuộc T066, T083) **(ADR-048)** — Đã làm: `n` đọc trong `base_avatar.__init__`, phép bỏ khung nằm ở
+  `wav2lip_avatar.inference_batch` (nơi gọi model); `LIVETALKING_BATCH_SIZE` đã có sẵn qua `scripts/livetalking/run.ps1` (`--batch_size`).
 - [ ] T073 [GPU] [US4] Quickstart bước 9: 20 lượt rồi chạy show 30 phút; ghi `render_fps`, `infer_fps` p50/p95, bước
   `tts_first_chunk → avatar_first_frame` p50/p95, cả lượt p50/p95, VRAM đỉnh (`avatar.jsonl`), số lần `vram_oom` / `renderer_restarted`,
   khoảng lặng giữa câu p95 và câu đầu show (`segment_requested → avatar_first_frame`, Điều VI) vào `docs/DECISIONS.md` ADR-041 và bảng

@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from ai_live.app.main import AvatarModeError, create_app
 from ai_live.avatar.static_renderer import StaticRenderer
 from ai_live.avatar.switching_renderer import SwitchingRenderer
+from ai_live.core.models import Milestone, RenderTurnStats, TurnOutcome
+from ai_live.director.latency import RECENT_TURNS
 from fixtures.character_builder import CHARACTER_ID, CUSTOMER_ID, READY_PREPARE, make_character_dir
 
 SPEAK_AUDIO = "/api/debug/speak-audio"
@@ -308,3 +310,62 @@ def test_health_avatar_livetalking(lipsync_settings) -> None:
         body = c.get("/health").json()
     assert body["status"] == "ok"
     assert body["avatar"] == {"configured": "livetalking", "active": "livetalking", "lipsync_connected": False}
+
+
+# ---------- GET /api/latency render columns (T069, FR-020, contracts/api.md §2) ----------
+
+
+def add_turn(tracker, uid: str, *, total_s: float, render: RenderTurnStats | None) -> None:
+    """A finished reply turn, as the director records it (`render` is None on the still image)."""
+    tracker.mark(uid, Milestone.COMMENT_RECEIVED, 100.0)
+    tracker.mark(uid, Milestone.TURN_STARTED, 100.1)
+    tracker.mark(uid, Milestone.AVATAR_FIRST_FRAME, 100.0 + total_s)
+    tracker.finish(uid, TurnOutcome.COMPLETED, render=render)
+
+
+def lipsync_stats(uid: str, render_fps: float, infer_fps: float, clips: list[str]) -> RenderTurnStats:
+    return RenderTurnStats(uid, "livetalking", clips_used=clips, frames=100, render_fps=render_fps, infer_fps=infer_fps)
+
+
+def test_latency_turn_columns_are_null_on_the_still_image(client: TestClient) -> None:
+    add_turn(client.app.state.ctx.director.latency, "u-static", total_s=2.0, render=None)
+    body = client.get("/api/latency").json()
+    assert body["turns"] == [
+        {
+            "utterance_id": "u-static",
+            "outcome": "completed",
+            "total_s": 2.0,
+            "render_fps": None,
+            "infer_fps": None,
+            "clips_used": None,
+        }
+    ]
+    assert body["render_fps"]["count"] == 0 and body["render_fps"]["median"] is None
+    assert body["infer_fps"]["count"] == 0
+
+
+def test_latency_turn_columns_carry_the_fork_figures_and_their_p50_p95(client: TestClient) -> None:
+    tracker = client.app.state.ctx.director.latency
+    for i in range(RECENT_TURNS + 5):
+        clips = ["talk_01"] if i % 2 else ["talk_02"]
+        add_turn(tracker, f"u{i:02d}", total_s=3.0, render=lipsync_stats(f"u{i:02d}", 20.0 + i % 5, 30.0, clips))
+    add_turn(tracker, "u-static", total_s=2.5, render=None)
+    body = client.get("/api/latency").json()
+
+    turns = body["turns"]
+    assert len(turns) == RECENT_TURNS  # bounded: the `latency` event carries it on every turn of a 15-hour live
+    assert turns[0]["utterance_id"] == "u-static" and turns[0]["render_fps"] is None  # newest first
+    newest_lipsync = turns[1]
+    assert newest_lipsync == {
+        "utterance_id": f"u{RECENT_TURNS + 4:02d}",
+        "outcome": "completed",
+        "total_s": 3.0,
+        "render_fps": 24.0,
+        "infer_fps": 30.0,
+        "clips_used": ["talk_02"],
+    }
+    # Summary rates cover every lip-sync turn of the session, not just the recent rows; static turns are not counted.
+    assert body["render_fps"]["count"] == RECENT_TURNS + 5
+    assert body["render_fps"]["median"] == 22.0
+    assert body["render_fps"]["p95"] is not None
+    assert body["infer_fps"] == {"count": RECENT_TURNS + 5, "median": 30.0, "p95": 30.0, "note": None}

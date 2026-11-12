@@ -9,6 +9,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from ai_live.core.models import (
     IDLE_QUEUE_WAIT_S,
@@ -35,6 +36,10 @@ STEPS: dict[str, tuple[Milestone, Milestone]] = {
 }
 STEP_NAMES: tuple[str, ...] = tuple(STEPS)
 
+# Rows of `LatencySummary.turns`: the `latency` event re-sends the summary after every turn, so the per-turn list
+# stays short while the step and rate statistics still cover the whole session.
+RECENT_TURNS = 20
+
 
 @dataclass(frozen=True)
 class TurnLatency:
@@ -48,6 +53,18 @@ class TurnLatency:
     render_fps: float | None = None
     infer_fps: float | None = None
     clips_used: list[str] | None = None
+
+    def to_row(self) -> dict[str, Any]:
+        """One row of the latency table (005 contracts/api.md §2); render columns are null on a static turn."""
+        total = self.durations.get("total")
+        return {
+            "utterance_id": self.utterance_id,
+            "outcome": self.outcome.value,
+            "total_s": round(total, 3) if total is not None else None,
+            "render_fps": round(self.render_fps, 2) if self.render_fps is not None else None,
+            "infer_fps": round(self.infer_fps, 2) if self.infer_fps is not None else None,
+            "clips_used": list(self.clips_used) if self.clips_used is not None else None,
+        }
 
 
 def step_durations(marks: Mapping[Milestone, float]) -> dict[str, float]:
@@ -132,6 +149,8 @@ class LatencyTracker:
             idle_threshold_s=self.idle_threshold_s,
             min_samples=self.min_samples,
             render_fps=step_stats([t.render_fps for t in completed if t.render_fps is not None], self.min_samples),
+            infer_fps=step_stats([t.infer_fps for t in completed if t.infer_fps is not None], self.min_samples),
+            turns=[t.to_row() for t in reversed(self._turns[-RECENT_TURNS:])],
         )
 
     def _is_idle(self, turn: TurnLatency) -> bool:

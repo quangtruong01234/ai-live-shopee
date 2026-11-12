@@ -143,8 +143,8 @@ Gắn với `utterance_id` (spec "Lượt tạo hình", "Số đo tạo hình").
 | `error_kind` | `str \| None` | `timeout`, `host_unavailable`, `lipsync_unavailable`, `vram_oom`, `renderer_restarted`, `injected_*` |
 
 `TurnLatency` (004, `core/models.py`) thêm ba trường tùy chọn `render_fps`, `infer_fps`, `clips_used`, mặc định `None`, để bảng độ trễ
-(`GET /api/latency`, trang điều khiển) hiện thêm cột (FR-020). Ở `static` các trường này `None`. `step_stats` thêm `render_fps` p50/p95
-(chỉ tính lượt có số).
+(`GET /api/latency`, trang điều khiển) hiện thêm cột (FR-020). Ở `static` các trường này `None`. `LatencySummary` thêm `render_fps` và `infer_fps` p50/p95
+(chỉ tính lượt có số) và `turns` (20 lượt gần nhất, `TurnLatency.to_row()`; contracts/api.md §2).
 
 ## 6. Sức khỏe phần tạo hình (`LipsyncHealth`)
 

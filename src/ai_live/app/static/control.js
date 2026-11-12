@@ -201,7 +201,11 @@
     return value == null ? "—" : value.toFixed(2);
   }
 
-  function latencyRow(label, stats, cls) {
+  function fps(value) {
+    return value == null ? "—" : value.toFixed(1);
+  }
+
+  function latencyRow(label, stats, cls, format = seconds) {
     const tr = document.createElement("tr");
     if (cls) tr.className = cls;
     const s = stats || { count: 0, median: null, p95: null, note: "chưa đủ mẫu" };
@@ -210,14 +214,14 @@
     const count = document.createElement("td");
     count.textContent = String(s.count);
     const median = document.createElement("td");
-    median.textContent = seconds(s.median);
+    median.textContent = format(s.median);
     const p95 = document.createElement("td");
     if (s.p95 == null) {
       // p95 needs at least `min_samples` turns (research R12); the server sends the note text.
       p95.className = "note";
       p95.textContent = s.note || "chưa đủ mẫu";
     } else {
-      p95.textContent = seconds(s.p95);
+      p95.textContent = format(s.p95);
     }
     tr.append(name, count, median, p95);
     return tr;
@@ -231,11 +235,44 @@
     // Idle-only row: turns that waited < idle_threshold_s in the queue, i.e. pipeline speed without backlog.
     const idle = (summary.idle_steps || {}).total;
     rows.push(latencyRow(`Tổng, chỉ lượt host rảnh (chờ < ${summary.idle_threshold_s} s)`, idle, "idle"));
+    // Lip-sync rates (005 FR-020): frames per second, not seconds; only turns rendered by the fork are counted.
+    rows.push(latencyRow("fps tạo hình (khung/giây)", summary.render_fps, "rate", fps));
+    rows.push(latencyRow("fps suy luận (khung/giây)", summary.infer_fps, "rate", fps));
     $("latency-rows").replaceChildren(...rows);
+    renderLatencyTurns(summary.turns || []);
     $("latency-meta").textContent =
       `Đã xong ${summary.completed} lượt (host rảnh: ${summary.idle_completed}) · ` +
       `lỗi ${summary.errors} · bỏ qua ${summary.skipped} (lượt lỗi và bỏ qua không tính vào số liệu) · ` +
       `p95 cần ít nhất ${summary.min_samples} lượt.`;
+  }
+
+  const OUTCOME_LABELS = { completed: "xong", error: "lỗi", skipped: "bỏ qua" };
+
+  function renderLatencyTurns(turns) {
+    if (!turns.length) return;
+    $("latency-turns").replaceChildren(
+      ...turns.map((t) => {
+        const tr = document.createElement("tr");
+        tr.title = t.utterance_id;
+        const cells = [
+          t.utterance_id.slice(0, 8),
+          OUTCOME_LABELS[t.outcome] || t.outcome,
+          seconds(t.total_s),
+          fps(t.render_fps),
+          fps(t.infer_fps),
+          // null = still image (no clip); an empty list = the fork rendered nothing for this turn.
+          t.clips_used == null ? "ảnh tĩnh" : t.clips_used.join(", ") || "—",
+        ];
+        tr.append(
+          ...cells.map((text) => {
+            const td = document.createElement("td");
+            td.textContent = text;
+            return td;
+          }),
+        );
+        return tr;
+      }),
+    );
   }
 
   async function loadLatency() {
