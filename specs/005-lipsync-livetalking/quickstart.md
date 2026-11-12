@@ -351,7 +351,13 @@ của lần chạy kiểm `20261112-203110`, vì 20 lượt của lần chạy r
 - **Lệch ack ↔ Chrome của lượt bình luận** (khung đầu tới lúc nghe tiếng, cùng cách đo T074): batch 16 0,81 s (n = 5), batch 8 1,32 s,
   batch 4 1,18 s, n = 2 0,33 s; LEAD 0 (T073) 0,47 s (n = 4). Các số này cao hơn số 0,28 s của T074 (đo chủ yếu trên câu kịch bản) và
   dao động mạnh giữa các lần chạy. Cộng thêm phần lệch này, bình luận → nghe tiếng vẫn ~2,2–3,2 s (< 5 s).
-  TODO: lệch ack ↔ Chrome của lượt bình luận lớn hơn T074 là do cấu hình hay do nhiễu? Cần đo lại với nhiều lượt hơn.
+  _Đo lại 2026-11-13 (phiên `20261113-010317`, batch 16, n = 1, LEAD 2,5, 30 lượt bình luận trên host đang chờ, `REPLY_ENGINE=fake`):_
+  khớp 30/30 lượt; lệch p5 0,35 s, trung vị 0,63 s, p95 0,81 s, max 1,02 s. Các số lẻ ở trên (n ≤ 5) đều nằm trong khoảng này, nên
+  phần lớn là dao động giữa các lượt chứ không phải do cấu hình (batch 8 và 4 chưa đo lại với nhiều lượt). Lượt bình luận lệch nhiều
+  hơn câu kịch bản (0,28 s ở T074), có thể vì mỗi lượt bắt đầu từ host đang chờ (fork đổi clip chờ sang clip nói); chưa đo tách.
+  Cùng phiên: tổng bình luận → khung đầu trung vị 1,82 s, p95 2,08 s; `render_fps` 18,5 (p95 22,5), `infer_fps` 25,9; không có
+  `vram_oom` hay `renderer_restarted`. Bình luận → nghe tiếng ≈ 2,5 s trung vị, ≤ 2,9 s ở p95 (cộng p95 hai phần), còn xa ngưỡng 5 s;
+  LLM thật cộng thêm thời gian ra câu đầu.
 - **Đề xuất:** giữ mặc định batch 16, n = 1. Batch 8 là lựa chọn nếu người dùng ưu tiên phản ứng nhanh hơn miệng mượt.
   TODO: người dùng chọn batch 16 hay 8. Bước tiếp theo (bộ clip nhỏ hơn, R8, hoặc [RunPod]) cần người dùng quyết định và hỏi chi phí trước.
 

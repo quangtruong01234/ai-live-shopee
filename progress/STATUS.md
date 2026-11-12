@@ -2,14 +2,14 @@
 
 > Ảnh chụp ngắn, đọc đầu tiên. Mỗi dòng là `key: giá trị`. Sửa theo giao thức ở [README.md](README.md) §3.
 
-- `last_updated`: 2026-11-12
+- `last_updated`: 2026-11-13
 - `branch`: main (không tách branch theo feature, ADR-027)
 - `last_commit`: commit "005 US4 T073–T082" ngay sau 2c7bbf3 (fork `ailive` local: 2455b3c)
 - `current_milestone`: M1a: Logic chạy local — [docs/ROADMAP.md](../docs/ROADMAP.md) mục "M1a"
 - `active_feature`: [004-show-director](FEATURES.md#004-show-director) — feature chính tiếp theo (ADR-026); [008-llm-provider-chain](FEATURES.md#008-llm-provider-chain) Done 2026-11-05, mở khóa T075–T079 của 004
 - `next_step`: `autonomous_plan` xong phần máy tự làm được (2026-11-12). Còn chờ người dùng: gói duyệt (xem [OPEN.md](OPEN.md) §4:
   `LIVETALKING_LEAD_S` 2,5, batch 16 hay 8, bộ clip nhỏ hơn / RunPod, clip nói đầu nghiêng, danh sách claim ADR-050), 004 T079
-  (SC-009 người chấm, tổng duyệt lại ngày riêng, cắm sạc), 005 T068 (3 người xem), T080 (Meet). SEA-LION đang bị `rate_limited` từ 18:00 2026-11-12. Khi hạn mức
+  (SC-009 người chấm, tổng duyệt lại ngày riêng, cắm sạc), 005 T068 (3 người xem), T080 (Meet). SEA-LION hết hạn mức ngày (freellmapi báo reset 07:00 2026-11-13). Khi hạn mức
   reset: chạy lại hồi quy Điều III cho ADR-050 (`qa_eval run` bộ 10 câu hỏi + `qa_eval script` 3 lần bằng SEA-LION), ghi vào ADR-050.
 - `autonomous_plan` (người dùng duyệt 2026-11-12, làm liên tục, tự kiểm bằng Chrome DevTools MCP + bộ ghi luồng; đánh dấu
   `[x]` khi xong từng mục; hết hạn mức thì mục đang dở ghi rõ đã tới đâu):
