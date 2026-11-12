@@ -291,6 +291,14 @@ def test_enable_lipsync_after_fallback(lipsync_settings) -> None:
         assert body["reason"] is None and body["consecutive_errors"] == 0
         assert body["changed_at"] is not None
         assert c.get("/api/avatar").json()["mode"]["active"] == "livetalking"
+    # The app wires `SessionLog.record_avatar`: startup and both mode changes reach the session `avatar.jsonl` (T020).
+    (avatar_log,) = lipsync_settings.session_data_dir.glob("*/avatar.jsonl")
+    modes = [json.loads(line) for line in avatar_log.read_text(encoding="utf-8").splitlines()]
+    assert [(m["kind"], m["active"], m["reason"]) for m in modes] == [
+        ("mode", "livetalking", None),
+        ("mode", "static", "render_errors"),
+        ("mode", "livetalking", None),
+    ]
 
 
 def test_enable_lipsync_409_in_static(client: TestClient) -> None:

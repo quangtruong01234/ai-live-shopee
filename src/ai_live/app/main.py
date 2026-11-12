@@ -105,6 +105,8 @@ def create_app(
         session_log = await SessionLog.open(settings.session_data_dir, session_id)
         # Subscribe before any comment can arrive, so no early drop is missing from `comments.jsonl`.
         drops = bus.subscribe()
+        # Before the renderer exists, so its first mode and health events reach `avatar.jsonl` too (005 T020).
+        avatar_events = bus.subscribe()
         renderer = create_renderer(settings, bus=bus, character=character)
         tts_engine = tts if tts is not None else create_tts(settings)
         await _warm_up_tts(tts_engine, settings)
@@ -163,6 +165,7 @@ def create_app(
             asyncio.create_task(director.run(), name="show_director"),
             asyncio.create_task(queue.run_sweeper(QUEUE_SWEEP_INTERVAL_S), name="queue_sweeper"),
             asyncio.create_task(session_log.record_drops(drops), name="session_drops"),
+            asyncio.create_task(session_log.record_avatar(avatar_events), name="session_avatar"),
         ]
         try:
             yield
