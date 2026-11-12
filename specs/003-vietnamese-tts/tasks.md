@@ -230,9 +230,11 @@ không làm dừng phiên.
   `VIENEU_CPU_THREADS` (2 / 4 / 6) rồi chốt (research R1). Ghi bảng vào research, nối kết quả vào ADR-024, người dùng chốt nguồn mặc
   định và giọng chính thức; sửa giá trị mặc định ở **mọi** chỗ sống (`core/config.py`, `.env.example`, data-model §1, contracts/events.md
   §4, test cấu hình).
-- [ ] T050 [GPU] SC-006 khi có lip-sync: lặp đo T049 bước 2 với nhân vật nhép miệng của feature 005 chạy cùng lúc trên GPU laptop
+- [x] T050 [GPU] SC-006 khi có lip-sync: lặp đo T049 bước 2 với nhân vật nhép miệng của feature 005 chạy cùng lúc trên GPU laptop
   (ADR-023), chỉ ghi số (p95 `tts_first_chunk`, `tts_first_chunk_to_first_frame`) vào bảng của T049. Cần fork LiveTalking của 005 chạy
   được; chưa có thì để task mở và ghi lý do.
+  - Kết quả 2026-11-12 (research "Kết quả SC-003 / SC-006"): 20/20 lượt, p95 câu đầu → chunk đầu 0,921 s, chunk đầu → khung đầu p95
+    1,600 s; laptop chạy pin.
 - [x] T051 📦 SC-005: phiên 30 phút với nguồn mặc định đã chốt, comment mỗi khoảng 30 giây (quickstart "SC-005"); phiên không dừng vì
   nguồn giọng; ghi `tts_usage.json` và số lỗi bước `tts` vào nhật ký cuối file.
 - [x] T052 Chạy `quickstart.md` từ đầu đến cuối (các bước đã làm ở T026, T034, T045, T049, T051 chỉ cần đối chiếu), sửa quickstart nếu

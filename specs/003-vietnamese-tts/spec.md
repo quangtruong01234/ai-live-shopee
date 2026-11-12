@@ -1,7 +1,7 @@
 # Đặc tả tính năng: Giọng tiếng Việt thật cho AI host
 
 - **Feature ID:** `003-vietnamese-tts` · **Branch:** `main` (ADR-027) · **Ngày tạo:** 2026-10-31
-- **Trạng thái:** In progress (2026-11-07) <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
+- **Trạng thái:** Done (2026-11-12) <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** M1a
 - **Mô tả gốc:** "003-vietnamese-tts: Giọng tiếng Việt thật cho AI host qua adapter TTSEngine, streaming theo câu, chuẩn hóa số/giá/đơn vị
   trước khi đọc, cắm vào pipeline 001 thay FakeTTS. Làm song song với 005 (lip-sync cần giọng thật để kiểm tra khớp miệng).

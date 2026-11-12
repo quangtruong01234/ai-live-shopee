@@ -218,6 +218,7 @@ Cách đo (2026-11-09, laptop dev): app thật (`AVATAR_MODE=static`, trang host
 | VieNeu, Thục Đoan | 6 | 20 (0) | 0,405 s | 0,281 s | 0,454 s | 2116 / 28 | — |
 | VieNeu, **Thùy Dung** | 4 | 20 (0) | 0,405 s | 0,281 s | 0,467 s | 2116 / 28 | người dùng muốn cố định vân giọng → thêm đoạn mẫu |
 | VieNeu, **Thùy Dung + đoạn mẫu `lan2`** | 4 | 20 (0) | 0,516 s | 0,360 s | 0,578 s | 2116 / 28 | ổn, kể cả "nắng" (người dùng nghe `out/t049/ref_lan2/`) |
+| VieNeu, Thùy Dung + `lan2`, **cùng nhép miệng 005** (T050) | 4 | 20 (0) | 0,921 s | 0,632 s | 2,408 s (tới khung nhép miệng đầu) | — | (chỉ ghi số, ADR-023) |
 | Gemini | — | không đo 20 lượt (người dùng chốt nguồn mặc định 2026-11-09) | 3,5–4,1 s (đo đơn lẻ T044, T045) | — | — | — | nghe rõ (T045) |
 
 - VieNeu đạt SC-003 ở cả ba mức luồng; 20/20 lượt xong, không lỗi bước `tts`.
@@ -228,4 +229,10 @@ Cách đo (2026-11-09, laptop dev): app thật (`AVATAR_MODE=static`, trang host
   dự phòng, đổi tay bằng `TTS_PROVIDER` (spec không tự chuyển nguồn). Không đo Gemini đủ 20 lượt để giữ hạn mức free tier: số đo
   đơn lẻ đã gấp 3–4 lần ngưỡng SC-003 nên không đổi được kết luận. Giá trị mặc định trong code vẫn là `fake` (test và máy chưa có
   model chạy được ngay, quickstart §0); máy chạy phiên đặt `TTS_PROVIDER=vieneu` trong `.env`.
-- Khi có lip-sync (T050): TODO, cần fork LiveTalking của 005 chạy được.
+- **Khi có lip-sync (T050, 2026-11-12):** cùng 10 câu trả lời × 2, app thật (`TTS_PROVIDER=vieneu`, `AVATAR_MODE=livetalking`), fork
+  LiveTalking của 005 (wav2lip, 25 khung/giây, VRAM 2 656 MB) chạy cùng lúc trên laptop, trang host là Chrome thật nhận WebRTC; laptop
+  chạy pin, chế độ Balanced. 20/20 lượt, 0 lỗi. p95 câu đầu → chunk đầu 0,921 s (trung vị 0,632 s): vẫn đạt SC-003 nhưng sát ngưỡng,
+  chậm hơn chạy riêng khoảng 0,3–0,4 s vì VieNeu (CPU) tranh CPU với fork (đọc tiếng, ghép khung, gửi WebRTC). Chunk đầu → khung
+  nhép miệng đầu: trung vị 1,133 s, p95 1,600 s; tổng nhận comment → miệng bắt đầu nói p95 2,408 s (ngưỡng Điều VI < 5 s). Fork vẫn
+  suy luận 24,6 khung/giây. TODO: đo lại khi cắm sạc, chế độ Best performance (cùng TODO bước 7 quickstart 005); nếu p95 vượt 1,0 s
+  khi chạy show dài thì cân nhắc tăng `VIENEU_CPU_THREADS` (6 luồng nhanh hơn 4 khi chạy riêng).

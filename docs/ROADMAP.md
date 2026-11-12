@@ -25,7 +25,7 @@
 - [x] Bộ 10 câu hỏi mẫu kèm đáp án kỳ vọng, chạy tự động, đạt ≥ 8/10 (`qa_eval run`: `sealion` 10/10, `qwen` 9/10, 2026-11-04)
 - [x] `TTSEngine`: 1 nhà cung cấp chạy được, có thêm `FakeTTS` cho test (feature 003, ADR-024: VieNeu trên CPU mặc định, giọng
   `Thùy Dung` + đoạn mẫu; phiên 30 phút 60/60 lượt, p95 câu đầu → chunk đầu 0,484 s, 2026-11-09). Gemini TTS free (3 RPM / 10 RPD)
-  chỉ để thử. Còn đo VieNeu cùng lip-sync (T050 của 003, cần 005)
+  chỉ để thử. Đo cùng lip-sync 005 (T050, 2026-11-12): p95 câu đầu → chunk đầu 0,921 s, đạt ≤ 1,0 s nhưng sát ngưỡng
 - [ ] `StaticRenderer`: ảnh tĩnh + audio phát trên trình duyệt
 - [ ] `ShowDirector`: kịch bản giới thiệu sản phẩm sinh realtime, là nội dung chính (feature 004, ADR-026)
 - [ ] Log độ trễ từng khâu và trang/endpoint xem số liệu
