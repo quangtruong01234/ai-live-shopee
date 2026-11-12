@@ -330,8 +330,9 @@ class ScriptRunner:
         self._voice_line: _Line | None = None  # the line the voicer is on, and its job
         self._voice_job: asyncio.Task[None] | None = None
         self._play_item: _Voiced | None = None  # taken by the player, maybe still waiting for the floor
-        self._in_speech: _Voiced | None = None  # handed to the renderer; a pause lets it finish
+        self._in_speech: _Voiced | None = None  # handed to the renderer; a pause lets it finish once it is heard
         self._speak_task: asyncio.Task[None] | None = None
+        self._pause_stop: asyncio.Task[None] | None = None  # keeps the pause's `interrupt()` alive until it ran
         self._paused_gap = False  # the next gap includes a pause
         self._comment_gap = False  # the next gap includes a comment turn (US6)
         self._gap_mark: GapKind | None = None  # a sentence was lost since the last one spoken (`fault` or `error`)
@@ -387,7 +388,8 @@ class ScriptRunner:
         """Stop after the sentence speaking now (FR-015). Returns False when the show was not running.
 
         Audio already voiced is dropped and its text goes back to the head of the text queue, so `resume()` voices it
-        again: a long pause never plays stale audio (research R7). No `interrupt()`: the current sentence finishes.
+        again: a long pause never plays stale audio (research R7). The sentence already heard finishes without
+        `interrupt()`; one handed to the renderer but not heard yet is stopped and kept like the queued ones.
         """
         if self.show.state is not ShowState.RUNNING:
             return False
@@ -395,6 +397,19 @@ class ScriptRunner:
         self._unpaused.clear()
         self._paused_gap = True
         kept: list[_TextItem] = []
+        speaking, task = self._in_speech, self._speak_task
+        if (
+            speaking is not None
+            and task is not None
+            and not task.done()
+            and self.renderer.first_playback_at(speaking.sentence.utterance_id) is None
+        ):
+            # Handed to the renderer but not heard yet: the lip-sync fork starts a sentence ~1 s after its audio
+            # arrives, so it would begin after the pause (005 T062). Not started means not "speaking now": it waits for
+            # resume like the queued ones. Discarded now, so it cannot count as played; stopped in one task step
+            # (see `_stop_unheard`).
+            kept.append(self._unvoice(speaking))
+            self._pause_stop = asyncio.create_task(self._stop_unheard(task), name="script_pause_stop")
         taken = self._play_item
         if taken is not None and taken is not self._in_speech:
             kept.append(self._unvoice(taken))  # its slot was released when the player took it
@@ -531,6 +546,18 @@ class ScriptRunner:
             reason=PAUSED_DROP_REASON,
         )
         return _Line(item.segment, item.sentence)
+
+    async def _stop_unheard(self, task: asyncio.Task[None]) -> None:
+        """Cut the sentence a pause took back before it was heard.
+
+        Cancel and stop with no await in between, as `skip()` does: once the cancelled `speak` unwinds, the renderer
+        no longer knows the sentence and would not send `stop` for it.
+        """
+        task.cancel()
+        try:
+            await self.renderer.interrupt()
+        except Exception as exc:  # nobody awaits this task; the next sentence surfaces a dead renderer
+            log_event(logger, "pause_stop_failed", logging.WARNING, show_id=self.show.show_id, error=str(exc))
 
     def _drop_queued_audio(self) -> None:
         """Stop the TTS streams of voiced sentences that will never play."""
@@ -1185,8 +1212,8 @@ class ScriptRunner:
             self._speak_task = None
             if not task.done():
                 task.cancel()
-        if task.cancelled():
-            return False
+        if task.cancelled() or item.discarded:
+            return False  # a discarded one was taken back by a pause and is spoken again on resume
         task.result()
         return True
 

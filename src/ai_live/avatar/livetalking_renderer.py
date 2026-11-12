@@ -228,6 +228,9 @@ class LiveTalkingRenderer:
             return
         self._interrupted = True
         for utterance_id in list(self._active):
+            # A sentence stopped before it was heard (a pause, 004 FR-015) is spoken again later: it starts a new
+            # turn at seq 0, so the fork picks a talk clip again instead of continuing on the idle one.
+            self._next_seq.pop(utterance_id, None)
             ws = self._ws
             if ws is not None:
                 with contextlib.suppress(ConnectionClosed):
@@ -273,9 +276,10 @@ class LiveTalkingRenderer:
             self._release(utterance_id, seq, started, played, counted)
 
     def _release(self, utterance_id: str, seq: int, *futures: asyncio.Future[None]) -> None:
-        self._waiters.pop(("playback_started", utterance_id, seq), None)
-        self._waiters.pop(("sentence_played", utterance_id, seq), None)
-        self._waiters.pop(("stats", utterance_id, seq), None)
+        for kind, fut in zip(("playback_started", "sentence_played", "stats"), futures, strict=True):
+            # Only our own waiter: a stopped sentence spoken again reuses its key (`interrupt` resets the seq).
+            if self._waiters.get((kind, utterance_id, seq)) is fut:
+                del self._waiters[(kind, utterance_id, seq)]
         for fut in futures:
             if not fut.done():
                 fut.cancel()

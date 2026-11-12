@@ -197,6 +197,24 @@ Kết quả 2026-11-11 (T047, SC-002, FR-010):
 5. Tắt fork (Ctrl+C ở terminal 1) giữa show → 2 lượt lỗi rồi tự về ảnh tĩnh, show không dừng. Bật lại fork, bấm "Bật lại" → video quay lại,
    log `renderer_restarted`.
 
+Kết quả 2026-11-12 (T062, bước 7.1–7.3; laptop chạy pin, chế độ Balanced). Cách đo không cần người xem: bộ ghi luồng của fork (§11) ghi
+khung + tiếng + thẻ câu; Chrome mở `/host` qua Chrome DevTools, một đoạn script đo mức tiếng của luồng WebRTC, phụ đề và khung hiển thị
+theo giờ thật; script lái gọi `/api/show/start`, `/api/pause`, `/api/resume`, `/api/comments`, `/api/skip`. File trong `out/selfcheck/`
+(ngoài git, có mặt và giọng người mẫu).
+
+| Mục | Kết quả | Đạt? |
+|---|---|---|
+| Show 7 phút | 31 phân đoạn, 75 câu, phụ đề hiện đúng câu đang nói | Đạt |
+| Tạm dừng / tiếp tục (FR-015) | Chạy như 004. Lỗi tìm ra: dừng lúc một câu đã gửi fork mà chưa phát thì câu đó vẫn phát +1,41 s sau khi dừng. Đã sửa (tasks T062); chạy lại 12 lần dừng/tiếp tục: không câu nào bắt đầu trong lúc dừng, câu bị giữ lại được nói lại đúng một lần | Đạt sau sửa |
+| Comment hỏi giá (US2 #2) | Trả lời đúng giá trong dữ liệu (259.000đ), chen giữa hai câu kịch bản | Đạt |
+| Bỏ qua 5 lần (SC-004 ≤ 1 s) | Trước sửa: tiếng còn 1,0–1,5 s. Sau sửa: tiếng tắt 0,00–0,56 s sau lệnh, phụ đề xóa ngay | Đạt sau sửa |
+| SC-003 (≥ 20 lượt) | 80 câu trong bản ghi, không câu nào có thẻ kết thúc trước thẻ bắt đầu | Đạt |
+| Giữ clip nói giữa hai câu cùng phân đoạn (US2 #1) | Cả 49 khoảng nghỉ về `idle_01` (chưa có `ClipScheduler`) | **Chưa đạt**, chờ T064–T066 |
+| Khựng hình | 21 lần khung đứng > 200 ms trong 7 phút | Ghi nhận, xử lý ở US4 (T072–T075) |
+
+- Ở các lần chạy sau, tiếng trễ hơn phụ đề 0,8–1,1 s ngay từ đầu show (lần đầu 0,25 s) và số khung hiển thị/giây thấp hơn: có mặt cả
+  trước khi bỏ qua nên không do bản sửa; nghi do laptop chạy pin. TODO: chạy lại khi cắm sạc, chế độ Best performance, để xác nhận.
+
 ## 8. US3: clip chờ, xoay vòng, chuyển clip (SC-007, SC-008) [GPU laptop]
 
 - Để chờ 3 phút rồi 10 lượt nói, quay màn hình. Đếm lần giật ở chỗ lặp / chuyển clip (đạt ≤ 1). Nếu giật: chỉnh `LIVETALKING_TRANSITION_S`; nếu về clip chờ giữa hai câu: nâng `LIVETALKING_HOLD_S`.

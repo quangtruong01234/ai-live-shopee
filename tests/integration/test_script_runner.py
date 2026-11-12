@@ -500,6 +500,8 @@ async def test_pause_finishes_the_sentence_drops_voiced_audio_and_resume_revoice
         await wait_until(
             lambda: any(ln["utterance_id"] not in started for ln in _events(json_log_lines, "tts_first_chunk"))
         )
+        # Heard already: only a sentence that started playing finishes through a pause (004 FR-015).
+        await wait_until(lambda: rig.renderer.first_playback_at(speaking) is not None)
 
         assert rig.runner.pause() is True
         assert rig.runner.pause() is False  # idempotent
@@ -562,6 +564,7 @@ async def test_segment_being_generated_at_pause_is_not_lost(tmp_path, settings):
     rig = ScriptRig(tmp_path, settings, engine, ack_delay_s=0.1)
     async with rig:
         await wait_until(lambda: len(_starts(rig)) >= 1)
+        await wait_until(lambda: rig.renderer.first_playback_at(_starts(rig)[0]["utterance_id"]) is not None)
         assert rig.runner.pause() is True
         # The writer keeps going while paused; nothing more is spoken.
         await asyncio.sleep(1.2)
@@ -1393,6 +1396,7 @@ async def test_lipsync_show_speaks_on_the_fork_with_subtitles_and_pause_resume_k
 
         # US2 #1 (004): pause lets the sentence on the fork finish without a stop, and nothing new starts.
         speaking = rig.fork_uids()[-1]
+        await wait_until(lambda: rig.renderer.first_playback_at(speaking) is not None)
         assert rig.runner.pause() is True
         await wait_until(lambda: speaking in rig.cleared())
         count = len(rig.fork.sentences)
@@ -1413,3 +1417,39 @@ async def test_lipsync_show_speaks_on_the_fork_with_subtitles_and_pause_resume_k
     assert stats[first.utterance_id]["clips_used"] == ["talk_01"] and stats[first.utterance_id]["frames"] > 0
     rows = {r["utterance_id"]: r["status"] for r in rig.jsonl("script_sentences.jsonl")}
     assert rows[first.utterance_id] == rows[speaking] == rows[nxt] == "spoken"
+
+
+async def test_lipsync_pause_stops_a_sentence_sent_but_not_heard_and_resume_speaks_it_again(
+    fork, tmp_path, settings, json_log_lines
+):
+    # 005 T062: the fork starts a sentence ~1 s after its audio arrives. One sent but not heard at the pause would
+    # begin after it; it is stopped and spoken again on resume (004 FR-015).
+    fork.time_scale = 0.2
+    fork.ack_delay_s = 0.6
+    rig = LipsyncScriptRig(fork, tmp_path, settings, FakeReplyEngine())
+    async with rig:
+        await wait_until(lambda: len(rig.fork.sentences) >= 2)
+        waiting = rig.fork_uids()[-1]
+        assert rig.renderer.first_playback_at(waiting) is None
+        assert rig.runner.pause() is True
+
+        await wait_until(lambda: rig.fork.stopped == [waiting])
+        assert [m["utterance_id"] for m in rig.host.json_messages("stop")] == [waiting]
+        count = len(rig.fork.sentences)
+        await asyncio.sleep(1.0)
+        assert len(rig.fork.sentences) == count
+        assert waiting not in {m["utterance_id"] for m in rig.host.json_messages("subtitle")}
+        dropped = [ln for ln in _events(json_log_lines, "sentence_dropped") if ln["reason"] == "paused_discard"]
+        assert waiting in {ln["utterance_id"] for ln in dropped}
+
+        assert rig.runner.resume() is True
+        await wait_until(lambda: len(rig.fork.sentences) > count, timeout_s=3.0)
+        again = rig.fork.sentences[count]
+        # The same sentence, a new turn: seq 0, so the fork picks a talk clip again.
+        assert (again.utterance_id, again.seq) == (waiting, 0)
+        await wait_until(lambda: waiting in {ln["utterance_id"] for ln in _events(json_log_lines, "render_stats")})
+        await rig.stop()
+
+    assert rig.renderer.mode.active == "livetalking" and rig.renderer.mode.consecutive_errors == 0
+    rows = [r["status"] for r in rig.jsonl("script_sentences.jsonl") if r["utterance_id"] == waiting]
+    assert rows == ["spoken"]

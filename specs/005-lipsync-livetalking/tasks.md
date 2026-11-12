@@ -233,10 +233,16 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
   đang suy luận và `vram_peak_mb` khi OOM (thêm vào fork-protocol §3); app bỏ phần tiếng còn lại của câu đó. Test fork:
   `ailive_ext/tests/test_ingest.py`, `test_inference_error.py` (chạy vòng `inference` thật, không GPU). Câu khác đã xếp trong fork bị
   `flush_talk()` bỏ sẽ hết hạn ack ở app và tính lỗi; chấp nhận vì OOM hiếm, 2 lượt lỗi thì về ảnh tĩnh._
-- [ ] T062 [GPU] [US2] Quickstart bước 7.1–7.3: show có phụ đề, tạm dừng / tiếp tục (FR-015); quay màn hình: giữa hai câu cùng phân đoạn
+- [x] T062 [GPU] [US2] Quickstart bước 7.1–7.3: show có phụ đề, tạm dừng / tiếp tục (FR-015); quay màn hình: giữa hai câu cùng phân đoạn
   nhân vật giữ clip nói với miệng khép, không về clip chờ (US2 #1); gửi một comment mock hỏi giá qua `/api/comments`
   (US2 #2); bỏ qua 5 lần, đo bằng quay màn hình ≤ 1 s (SC-004); ≥ 20 lượt không lượt nào tiếng xong trước khi miệng bắt đầu, xem
   `GET /api/latency` (SC-003) (phụ thuộc T045, T054–T061)
+  _Ghi chú 2026-11-12: tự kiểm bằng bộ ghi luồng (quickstart §11) + Chrome DevTools đo tiếng ở trang host; kết quả ở quickstart §7.
+  Sửa hai lỗi tìm ra: (1) bỏ qua còn tiếng 1,0–1,5 s vì `stop` chỉ xóa đệm, không xóa phần đã suy luận và hàng đợi WebRTC → fork bỏ mọi
+  tiếng nói vào trước `stop` (fork-protocol §2, test `ailive_ext/tests/test_stop_drop.py`), sau sửa 0,00–0,56 s; (2) tạm dừng lúc một
+  câu đã gửi fork mà chưa phát thì câu đó vẫn phát sau khi dừng (+1,41 s) → `ScriptRunner.pause()` dừng và giữ lại câu đó như câu đang
+  xếp hàng, `LiveTalkingRenderer.interrupt()` cho câu nói lại bắt đầu lượt mới `seq 0`. US2 #1 (giữ clip nói giữa hai câu) **chưa đạt**:
+  cả 49 khoảng nghỉ cùng phân đoạn về `idle_01`; phần này thuộc T064–T066 (US3), không sửa trong T062._
 - [ ] T063 [GPU] [US2] Quickstart bước 7.4–7.5: `POST /api/debug/fault` bước `render` `count: 1` rồi `count: 2` → về ảnh tĩnh + dải cảnh báo, bấm
   bật lại → video (SC-005, FR-022); tắt fork giữa show → 2 lượt lỗi rồi ảnh tĩnh, show không dừng; bật lại fork + bấm bật lại → log
   `renderer_restarted` (FR-017, FR-021) (phụ thuộc T062)

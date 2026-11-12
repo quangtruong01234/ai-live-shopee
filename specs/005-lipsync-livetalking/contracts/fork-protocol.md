@@ -24,7 +24,7 @@ Các endpoint upstream khác (`/human`, `/humanaudio`, `/record`, `/set_audiotyp
 | `sentence_start` | JSON | `utterance_id: str`, `seq: int`, `text: str`, `sample_rate: 16000` | Ghi nhớ câu đang nhận. `sample_rate` khác 16000 → `error {kind:"bad_audio"}`. `seq == 0` = lượt mới → chọn clip nói (§4) |
 | (nhị phân) | bytes | PCM16 LE mono 16 kHz, độ dài bất kỳ (số chẵn byte) | Ghép đệm, cắt khung 320 mẫu, đổi float32 `/32768`, `put_audio_frame(chunk, datainfo)`. Khung đầu câu có `datainfo={"status":"start","utterance_id","seq"}` |
 | `sentence_end` | JSON | `utterance_id`, `seq` | Khung lẻ cuối được độn im lặng cho đủ 320 mẫu; khung cuối mang `datainfo={"status":"end",...}` |
-| `stop` | JSON | `utterance_id` | `flush_talk()`, bỏ phần đệm, về clip chờ (§4); không gửi `sentence_played` cho câu bị dừng |
+| `stop` | JSON | `utterance_id` | `flush_talk()`, bỏ phần đệm, về clip chờ (§4); không gửi `sentence_played` cho câu bị dừng. Bỏ **mọi** tiếng nói đã vào fork trước `stop`, kể cả phần đã qua hàng đợi tiếng: đặc trưng chưa suy luận thành im lặng, khung đã suy luận bị bỏ, hàng đợi gửi WebRTC (~1 s) bị xả cả hình lẫn tiếng. Mất kết nối `/ailive/ws` làm như `stop` (T062: thiếu bước này làm tiếng còn chạy 1–1,5 s sau khi bỏ qua) |
 | `ping` | JSON | — | Trả `pong` |
 
 Fork tự đệm, app được gửi nhanh hơn thời gian thật (hàng đợi tiếng của LiveTalking không giới hạn, R3).
