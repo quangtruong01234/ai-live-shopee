@@ -40,7 +40,7 @@ Thư mục khác ở gốc repo:
 | `tests/` | Unit test và bộ 10 câu hỏi mẫu (regression cho prompt); chạy được không cần GPU | Có |
 | `data/products/` | Dữ liệu sản phẩm **mẫu** cho dev và test | Có (chỉ dữ liệu mẫu) |
 | `data/eval/` | Bộ câu hỏi mẫu để chấm (`demo_questions.json`); kết quả ở `data/eval/runs/`, kết quả tự kiểm tra kịch bản ở `data/eval/script_runs/` | Có (trừ `runs/`, `script_runs/`, gitignore) |
-| `data/rules/` | Từ cấm, từ khóa ưu tiên, cụm từ nền tảng (`platform_phrases.txt`) cho bộ lọc và guard | Có |
+| `data/rules/` | Từ cấm, từ khóa ưu tiên, cụm từ nền tảng (`platform_phrases.txt`), cụm khẳng định không có căn cứ (`claim_phrases.txt`, ADR-050) cho bộ lọc và guard | Có |
 | `data/sessions/` | Log phiên (comment, lượt nói, lỗi, tổng hợp độ trễ; với show thêm `script_sentences.jsonl`, `show_summary_<show_id>.json`) | Không (gitignore) |
 | `data/customers/` | Dữ liệu thật của khách | Không (gitignore) |
 | `scripts/runpod/` | Script dựng và khởi động môi trường GPU (xem `docs/RUNPOD.md`) | Có |

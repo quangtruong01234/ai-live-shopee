@@ -205,6 +205,7 @@ class Settings(BaseSettings):
     script_max_tokens: int = Field(600, gt=0)
     # Only the path here; loading it (and failing on a missing file) belongs to the guard wiring.
     platform_phrases_path: Path = Path("data/rules/platform_phrases.txt")
+    claim_phrases_path: Path = Path("data/rules/claim_phrases.txt")
 
     # ---------- Data ----------
     product_data_path: Path = Path("data/products/demo.docx")

@@ -135,6 +135,8 @@ class GuardReason(StrEnum):
     UNKNOWN_PERCENT = "unknown_percent"
     LINK = "link"
     PLATFORM_PHRASE = "platform_phrase"
+    # ADR-050: safety, skin feel, testimonials, stock and urgency phrases the content file does not hold (FR-010)
+    UNSUPPORTED_CLAIM = "unsupported_claim"
 
     @property
     def label(self) -> str:
@@ -148,6 +150,7 @@ _GUARD_LABELS = {
     GuardReason.UNKNOWN_PERCENT: "phần trăm không có trong dữ liệu",
     GuardReason.LINK: "chứa link",
     GuardReason.PLATFORM_PHRASE: "cơ chế nền tảng shop không có",
+    GuardReason.UNSUPPORTED_CLAIM: "khẳng định không có trong dữ liệu",
 }
 
 

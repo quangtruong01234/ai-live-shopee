@@ -1,0 +1,50 @@
+# TODO: người dùng xem lại danh sách cụm khẳng định không có căn cứ này (ADR-050, 004 FR-010).
+# Mỗi dòng một cụm; dòng trống và dòng bắt đầu bằng # bị bỏ qua. Guard so khớp nguyên từ trên dạng không dấu, chữ thường (đ -> d).
+# Cụm nào có trong file nội dung sản phẩm thì được phép nói. Chỉ ghi cụm mà host hay tự thêm khi hết thông tin (G5 của 004),
+# không ghi từ mô tả chung như "dịu nhẹ", "hiệu quả" vì file nội dung thường có.
+# So khớp bỏ dấu nên tránh cụm trùng với cụm thường gặp khi bỏ dấu: "có sẵn" trùng "có sản (phẩm)", "còn hàng" trùng "con hàng",
+# "cũng ưng" trùng "cung ứng".
+
+# Độ an toàn, cảm giác trên da
+an toàn cho da
+an toàn cho mọi loại da
+an toàn tuyệt đối
+kích ứng
+da nhạy cảm
+mềm mại
+mịn màng
+căng bóng
+không bết dính
+không nhờn rít
+
+# Lời khen, trải nghiệm của khách
+feedback
+review
+khách khen
+được khen
+cũng khen
+nhiều khách
+ai dùng cũng
+đánh giá cao
+năm sao
+5 sao
+bán chạy
+hot nhất
+ưa chuộng
+dùng cũng ưng
+dùng cũng rất ưng
+
+# Tồn kho và hối thúc theo thời gian
+vẫn còn hàng
+đang còn hàng
+còn ít hàng
+hàng còn ít
+sẵn hàng
+hết hàng
+cháy hàng
+số lượng có hạn
+số lượng giới hạn
+sắp hết
+bất cứ lúc nào
+chỉ hôm nay
+chỉ trong hôm nay

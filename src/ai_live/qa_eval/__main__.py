@@ -29,7 +29,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ai_live.brain.factory import create_reply_engine
-from ai_live.brain.guard import GuardConfigError, OutputGuard, load_platform_phrases
+from ai_live.brain.guard import GuardConfigError, load_guard
 from ai_live.core.config import Settings
 from ai_live.core.models import Topic
 from ai_live.core.protocols import ReplyEngine, ReplyEngineError
@@ -194,7 +194,7 @@ def _questions(args: argparse.Namespace, settings: Settings, engine: ReplyEngine
         return 1
 
     try:
-        guard = OutputGuard(load_platform_phrases(settings.platform_phrases_path))
+        guard = load_guard(settings.platform_phrases_path, settings.claim_phrases_path)
     except GuardConfigError as exc:
         print(f"Lỗi cấu hình guard: {exc}")
         return 1

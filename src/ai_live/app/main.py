@@ -1,8 +1,8 @@
 """App FastAPI: `uv run uvicorn ai_live.app.main:app --port 8000` (contracts/api.md; FR-007, FR-015, FR-021).
 
 Startup stops outright (no "degraded" mode) on bad config, an empty AI label, an invalid content file or a missing
-platform phrase list (`GuardConfigError`, 004 FR-013), or a model chain whose startup check fails (`config_error`,
-008 FR-011): going live with wrong data is worse than not going live.
+platform or claim phrase list (`GuardConfigError`, 004 FR-013, ADR-050), or a model chain whose startup check fails
+(`config_error`, 008 FR-011): going live with wrong data is worse than not going live.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from ai_live.app.errors import install_error_handlers
 from ai_live.avatar.character import AvatarModeError
 from ai_live.avatar.factory import avatar_image_path, create_renderer, load_session_character
 from ai_live.brain.factory import create_reply_engine
-from ai_live.brain.guard import OutputGuard, load_platform_phrases
+from ai_live.brain.guard import load_guard
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
 from ai_live.comments.classifier import PriorityClassifier
 from ai_live.comments.filters import CommentFilter
@@ -77,8 +77,8 @@ def create_app(
         configure_logging(settings.log_level, session_id)
         bus = EventBus()
         store = _load_store(settings, bus)
-        # Raises GuardConfigError when the file is missing; read off the loop like every other file.
-        platform_phrases = await asyncio.to_thread(load_platform_phrases, settings.platform_phrases_path)
+        # Raises GuardConfigError when a phrase file is missing; read off the loop like every other file.
+        guard = await asyncio.to_thread(load_guard, settings.platform_phrases_path, settings.claim_phrases_path)
         # 005 FR-004: someone else's or an unprepared character stops the start here (AvatarModeError).
         character = await asyncio.to_thread(load_session_character, settings)
         # One injector for step faults (004) and entry faults (008): the route queues on `director.faults` and the
@@ -129,7 +129,7 @@ def create_app(
             latency=LatencyTracker(),
             session_log=session_log,
             llm_model=_llm_label(settings),
-            guard=OutputGuard(platform_phrases),
+            guard=guard,
             settings=settings,
             faults=faults,
         )

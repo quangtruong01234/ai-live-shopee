@@ -1,7 +1,7 @@
 """Grade scripted sentences for the script self-check (004 US4, FR-025, research R15).
 
 A sentence is graded on its **raw** text, before `clean_spoken()`, so a weak prompt shows up even where the cleaner
-would hide it. Invented amounts and percents, forbidden claims, links and platform phrases go through the very
+would hide it. Invented amounts and percents, forbidden claims, links, platform and claim phrases go through the very
 `OutputGuard` of the live path, so "passes the check" means "passes the guard on live". Two kinds only the grader
 knows: a wrong pronoun (`bad_pronoun`) and formatting symbols (`formatting`). A segment whose sentence count is out
 of its min-max range only gets a warning: the live path accepts it too.
@@ -31,6 +31,7 @@ VIOLATION_KINDS: tuple[str, ...] = (
     GuardReason.FORBIDDEN_CLAIM.value,
     GuardReason.LINK.value,
     GuardReason.PLATFORM_PHRASE.value,
+    GuardReason.UNSUPPORTED_CLAIM.value,
     BAD_PRONOUN,
     FORMATTING,
 )

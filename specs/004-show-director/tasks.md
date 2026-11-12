@@ -333,16 +333,20 @@ cho SC-003.
 > `tests/live/test_chain_engine.py` (marker `live_llm`, từng mục ghim bằng `only=`); muốn kiểm riêng một model thì dùng
 > `qa_eval run --entry <nhãn>` / `qa_eval script --entry <nhãn>`. Vẫn chờ T055 của 008 (quickstart cùng người dùng) và người dùng đồng ý.
 
-- [ ] T075 **(LLM thật, G1)** Chạy test `live_llm` của `narrate()` với engine 008 và quickstart US1 bước 4; ghi số request thật theo từng
+- [x] T075 **(LLM thật, G1)** Chạy test `live_llm` của `narrate()` với engine 008 và quickstart US1 bước 4; ghi số request thật theo từng
   model trong chuỗi vào "Kết quả kiểm chứng" của `specs/004-show-director/quickstart.md` (cần người dùng đồng ý)
-- [ ] T076 **(LLM thật, G2)** Hồi quy Điều III sau khi đổi guard và bộ làm sạch: `uv run python -m ai_live.qa_eval run` với bộ 10 câu của 001,
+- [x] T076 **(LLM thật, G2)** Hồi quy Điều III sau khi đổi guard và bộ làm sạch: `uv run python -m ai_live.qa_eval run` với bộ 10 câu của 001,
   điểm không thấp hơn lần chạy trước trong `data/eval/runs/`; cùng ngày chạy `qa_eval script` lần 1. Người dùng xem danh sách "sai xưng hô"
   và `data/rules/platform_phrases.txt` trong báo cáo (research R9, R15 `TODO:`)
-- [ ] T077 **(LLM thật, G3)** SC-008: `qa_eval script` 3 lần liên tiếp đều 0 vi phạm, mỗi lần một ngày nếu RPD thấp; ghi vào "Kết quả kiểm chứng"
-- [ ] T078 **(LLM thật, G4)** SC-001: quickstart US1 bước 7 (10 lần **Bắt đầu show** → **Kết thúc**), ghi vào "Kết quả kiểm chứng"
+- [x] T077 **(LLM thật, G3)** SC-008: `qa_eval script` 3 lần liên tiếp đều 0 vi phạm, mỗi lần một ngày nếu RPD thấp; ghi vào "Kết quả kiểm chứng"
+- [x] T078 **(LLM thật, G4)** SC-001: quickstart US1 bước 7 (10 lần **Bắt đầu show** → **Kết thúc**), ghi vào "Kết quả kiểm chứng"
+  > Kết quả 2026-11-12 (T075–T078, cùng một ngày, 121 request, 0 lỗi 429): `narrate()` 2/2 model đạt; giá đúng file; `qa_eval run` 9/10 rồi 10/10; `qa_eval script` 3/3 lần 0 vi phạm (SC-008 đạt); SC-001 10/10 ≤ 5 s (2,0–2,67 s). Chi tiết: quickstart "G1–G4, engine 008".
 - [ ] T079 **(LLM thật, G5)** Tổng duyệt ngày riêng: quickstart US3 (SC-002 đến SC-006, SC-010, có SC-003 chấm bằng `qa_eval script --session`),
   US6 bước 5 (SC-011), SC-009 theo cách người dùng chọn ở `TODO:` quickstart US3 bước 4; ghi vào "Kết quả kiểm chứng"
-- [ ] T080 Cập nhật `docs/RISKS.md` Q14 và `specs/004-show-director/research.md` R14 bằng số request thật từ T075–T079
+  > Chạy một phần 2026-11-12 (cùng ngày G1–G4, laptop chạy pin; chưa đóng): SC-005, SC-006, SC-010 đạt; SC-002 p95 2,845 s và SC-011 p95 7,41 s
+  > chưa đạt; SC-004 0,4902 sát ngưỡng; SC-003 chấm lại có 24 câu `unsupported_claim` nên thêm ADR-050 (prompt + guard). Còn: SC-009
+  > (người chấm), tổng duyệt lại ngày riêng sau khi sửa. Chi tiết: quickstart "G5".
+- [x] T080 Cập nhật `docs/RISKS.md` Q14 và `specs/004-show-director/research.md` R14 bằng số request thật từ T075–T079
 - [ ] T081 Chạy `/update-context`
 
 ## Phụ thuộc và thứ tự

@@ -904,3 +904,38 @@
 - **Phương án đã loại:**
   - Tăng `TTS_TIMEOUT_S` lên 15: câu dài hơn vẫn bị cắt, engine treo bị phát hiện chậm.
   - Thêm biến riêng cho thời gian chờ giữa hai chunk: chưa có số đo cần hai giá trị khác nhau.
+
+## ADR-050: Guard chặn cụm "khẳng định không có căn cứ" (`unsupported_claim`) khi file nội dung không có
+- **Ngày:** 2026-11-12 · **Trạng thái:** Đã áp dụng (sửa lỗi theo FR-010 của 004 và ràng buộc 7). `TODO:` người dùng duyệt danh sách
+  `data/rules/claim_phrases.txt`, như danh sách cơ chế nền tảng ở ADR-033.
+- **Bối cảnh:** tổng duyệt G5 của 004 (phiên `data/sessions/20261112-170251`): khoảng 30/279 câu đã nói có khẳng định file nội dung
+  không có. Đó là "an toàn cho da", "không gây kích ứng", "kể cả da nhạy cảm", "da mềm mại", lời khen bịa ("nhiều khách hàng feedback",
+  "ai dùng cũng ưng"), tồn kho ("có sẵn hàng", "số lượng có hạn") và hối thúc ("khuyến mãi có thể kết thúc bất cứ lúc nào"). Host hay
+  thêm các câu này khi đã nói hết thông tin của chủ đề mà còn thiếu câu. Bộ chấm SC-003 không bắt được vì guard chỉ kiểm số, phần trăm,
+  khẳng định bị cấm, link và cơ chế nền tảng.
+- **Quyết định:**
+  - Prompt kịch bản (`SCRIPT_RULES`) dặn thêm: không kể lời khen hay trải nghiệm của khách, không tự thêm công dụng, cảm giác trên da hay
+    độ an toàn, không nói còn hàng, số lượng có hạn hay hối thúc theo thời gian, hết thông tin thì nói lại ý đã có hoặc mời nhắn shop.
+  - Guard thêm kiểm tra tất định `unsupported_claim` (nhãn "khẳng định không có trong dữ liệu"). Kiểm tra chạy **sau** `platform_phrase`,
+    cùng cách so khớp: so nguyên từ trên `word_form` (bỏ dấu, chữ thường). Cụm có trong chữ của file nội dung thì được nói.
+  - Danh sách ở `data/rules/claim_phrases.txt` (biến `CLAIM_PHRASES_PATH`). File thiếu thì app, `brain` CLI và `qa_eval` không chạy
+    (`GuardConfigError`). Mọi chỗ chạy thật tạo guard qua `load_guard(platform_path, claim_path)`.
+  - Áp cho cả hai đường. Câu kịch bản bị chặn thì bỏ câu đó; câu trả lời comment bị chặn thì nói câu từ chối (R9).
+  - Danh sách ban đầu có 38 cụm, lấy từ câu thật của G5. Không ghi cụm trùng với cách nói thường gặp khi bỏ dấu ("có sẵn" trùng "có sản
+    phẩm", "còn hàng" trùng "con hàng", "cũng ưng" trùng "cung ứng").
+- **Số đo:**
+  - Chạy danh sách trên các câu khác nhau trong log phiên 2026-11-10 đến 2026-11-12 (835 câu kịch bản, 687 câu trong
+    `utterances.jsonl`): bắt 31 câu kịch bản. Câu bị bắt trong `utterances.jsonl` là cùng các câu đó. Câu nào bị bắt cũng là câu bịa thật,
+    không chặn nhầm câu nào.
+  - Chấm lại phiên G5 bằng `qa_eval script --session`: 24 vi phạm `unsupported_claim` trên 73 phân đoạn (trước đây 0).
+  - Prompt mới, `qa_eval script --entry qwen` (`20261112-181302`, SEA-LION đang bị `rate_limited`): 1 vi phạm ("da nhạy cảm") trên 13
+    phân đoạn chấm được; 8 phân đoạn lỗi `rate_limited` của Groq. `TODO:` đo lại bằng SEA-LION khi hạn mức reset (3 lần, SC-008).
+- **Lý do:** prompt không tất định (ADR-017). Danh sách cụm có thể sửa mà không đổi code. Cách làm giống `platform_phrases` đã có test.
+- **Hệ quả:**
+  - Guard đổi là đường comment đổi: chạy lại bộ 10 câu hỏi mẫu và bộ câu gài của 001 (Điều III).
+  - Câu trả lời trung thực kiểu "shop chưa có thông tin về kích ứng" cũng bị chặn và thay bằng câu từ chối. Ý nghĩa vẫn giữ (mời hỏi shop).
+  - Danh sách chỉ bắt cách nói đã gặp; cách nói mới vẫn lọt. Thêm cụm khi thấy trong `qa_eval script --session`.
+- **Phương án đã loại:**
+  - Chỉ siết prompt: G5 cho thấy model vẫn độn câu khi thiếu thông tin.
+  - Dùng LLM thứ hai để chấm căn cứ: tốn hạn mức và thêm độ trễ trước TTS.
+  - Gộp vào `platform_phrases.txt`: lý do chặn khác nhau, người vận hành cần thấy đúng lý do.

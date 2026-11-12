@@ -37,6 +37,7 @@ from fixtures.fake_openai import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PLATFORM_PHRASES = _REPO_ROOT / "data" / "rules" / "platform_phrases.txt"
+_CLAIM_PHRASES = _PLATFORM_PHRASES.with_name("claim_phrases.txt")
 
 
 @pytest.fixture
@@ -59,6 +60,7 @@ def fake_env(monkeypatch):
     monkeypatch.setenv("TTS_PROVIDER", "fake")
     # Absolute path: the default is relative to the cwd, and the brain CLI loads this file from 004 T026 on.
     monkeypatch.setenv("PLATFORM_PHRASES_PATH", str(_PLATFORM_PHRASES))
+    monkeypatch.setenv("CLAIM_PHRASES_PATH", str(_CLAIM_PHRASES))
 
 
 def _product_ids(path: Path) -> dict[str, str]:
@@ -250,6 +252,7 @@ def chain_cli(monkeypatch) -> _ChainCli:
     monkeypatch.setenv("REPLY_ENGINE", "chain")
     monkeypatch.setenv("TTS_PROVIDER", "fake")
     monkeypatch.setenv("PLATFORM_PHRASES_PATH", str(_PLATFORM_PHRASES))
+    monkeypatch.setenv("CLAIM_PHRASES_PATH", str(_CLAIM_PHRASES))
     monkeypatch.setenv("LLM_CHAIN", json.dumps([_CHAIN_ENTRY]))
     monkeypatch.setenv("FREELLMAPI_KEY", _CHAIN_KEY)
     cli = _ChainCli()
@@ -415,6 +418,7 @@ def qa_chain(monkeypatch, tmp_path) -> _QaChain:
         llm_chain=[_SEALION_ENTRY, _CHAIN_ENTRY],
         freellmapi_key=_CHAIN_KEY,
         platform_phrases_path=_PLATFORM_PHRASES,
+        claim_phrases_path=_CLAIM_PHRASES,
         session_data_dir=tmp_path / "sessions",
     )
     qa = _QaChain(settings)

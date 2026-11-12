@@ -25,7 +25,7 @@ from fixtures.content_builder import valid_docx
 CATALOG = load_catalog(valid_docx(), "valid.docx", 5_000_000)
 # Known numbers in the test catalog: 250.000 / 420.000 (variants), 159.000, 1.250.000, promo 30.000 / 500.000,
 # plus 50, 100, 2, 1 from specs and promotions. "chữa khỏi mụn" is the main product's forbidden claim.
-GUARD = OutputGuard(("giỏ hàng", "voucher"))
+GUARD = OutputGuard(("giỏ hàng", "voucher"), ("an toàn cho da",))
 
 
 def kinds(text: str) -> list[str]:
@@ -39,6 +39,7 @@ def test_violation_kinds_follow_data_model_order():
         "forbidden_claim",
         "link",
         "platform_phrase",
+        "unsupported_claim",
         "bad_pronoun",
         "formatting",
     )
@@ -58,6 +59,7 @@ def test_clean_grounded_sentence_has_no_violation():
         ("Kem này chữa khỏi mụn luôn đó anh chị.", "forbidden_claim", "chữa khỏi mụn"),
         ("Anh chị xem thêm ở https://example.com nha.", "link", None),
         ("Anh chị thêm vào giỏ hàng giúp em nha.", "platform_phrase", "giỏ hàng"),
+        ("Kem này rất an toàn cho da đó anh chị.", "unsupported_claim", "an toàn cho da"),
     ],
 )
 def test_guard_kinds_are_reported_with_detail(text, kind, detail):

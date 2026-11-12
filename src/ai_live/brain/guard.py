@@ -58,14 +58,26 @@ def load_platform_phrases(path: Path) -> tuple[str, ...]:
     A missing file is a configuration error: running without it would let the host name platform mechanics
     the shop never offered (FR-013).
     """
+    return _load_phrase_file(path, "cụm từ cơ chế nền tảng", "PLATFORM_PHRASES_PATH")
+
+
+def load_claim_phrases(path: Path) -> tuple[str, ...]:
+    """Same file format as `load_platform_phrases`; a missing file is a configuration error too (FR-010, ADR-050)."""
+    return _load_phrase_file(path, "cụm khẳng định không có căn cứ", "CLAIM_PHRASES_PATH")
+
+
+def load_guard(platform_phrases_path: Path, claim_phrases_path: Path) -> OutputGuard:
+    """The guard every running entry point uses: both phrase files loaded (`GuardConfigError` when one is missing)."""
+    return OutputGuard(load_platform_phrases(platform_phrases_path), load_claim_phrases(claim_phrases_path))
+
+
+def _load_phrase_file(path: Path, what: str, env_name: str) -> tuple[str, ...]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError as exc:
-        raise GuardConfigError(
-            f"Không tìm thấy file cụm từ cơ chế nền tảng: {path}. Kiểm tra PLATFORM_PHRASES_PATH trong .env."
-        ) from exc
+        raise GuardConfigError(f"Không tìm thấy file {what}: {path}. Kiểm tra {env_name} trong .env.") from exc
     except (OSError, UnicodeDecodeError) as exc:
-        raise GuardConfigError(f"Không đọc được file cụm từ cơ chế nền tảng {path}: {exc}") from exc
+        raise GuardConfigError(f"Không đọc được file {what} {path}: {exc}") from exc
     return tuple(p for line in lines if (p := line.strip()) and not p.startswith("#"))
 
 
@@ -88,16 +100,15 @@ def _link_detail(sentence: str) -> str:
 
 
 class OutputGuard:
-    """`platform_phrases` comes from `load_platform_phrases(settings.platform_phrases_path)` in running code.
+    """`platform_phrases` and `claim_phrases` come from `load_platform_phrases` / `load_claim_phrases` in running code.
 
-    It is optional so 001 call sites and tests keep working: with no phrases the `platform_phrase` check is skipped
-    and the other four still run (analyze A4).
+    Both are optional so 001 call sites and tests keep working: with no phrases that check is skipped and the
+    others still run (analyze A4).
     """
 
-    def __init__(self, platform_phrases: Sequence[str] = ()) -> None:
-        # Longest first: when phrases overlap, the reported detail is the most specific one.
-        pairs = {(form, p) for p in platform_phrases if (form := word_form(p))}
-        self._phrases: tuple[tuple[str, str], ...] = tuple(sorted(pairs, key=lambda fp: (-len(fp[0]), fp[0])))
+    def __init__(self, platform_phrases: Sequence[str] = (), claim_phrases: Sequence[str] = ()) -> None:
+        self._phrases = _phrase_forms(platform_phrases)
+        self._claims = _phrase_forms(claim_phrases)
         self._catalog_key: ProductCatalog | None = None
         self._catalog_form = ""
 
@@ -129,14 +140,25 @@ class OutputGuard:
         for text in (sentence, _drop_format_chars(sentence)):
             if contains_link(text):
                 return GuardResult.blocked(GuardReason.LINK, _link_detail(text))
-        if self._phrases:
+        if self._phrases or self._claims:
             catalog_form = self._catalog_word_form(catalog)
             padded = {_padded(form) for form in forms}
-            for form, phrase in self._phrases:
-                needle = _padded(form)
-                if any(needle in f for f in padded) and needle not in catalog_form:
-                    return GuardResult.blocked(GuardReason.PLATFORM_PHRASE, phrase)
+            # A phrase the shop wrote itself is allowed: the content file is the ground truth (FR-010, FR-013).
+            for phrases, reason in (
+                (self._phrases, GuardReason.PLATFORM_PHRASE),
+                (self._claims, GuardReason.UNSUPPORTED_CLAIM),
+            ):
+                for form, phrase in phrases:
+                    needle = _padded(form)
+                    if any(needle in f for f in padded) and needle not in catalog_form:
+                        return GuardResult.blocked(reason, phrase)
         return GuardResult.passed()
+
+
+def _phrase_forms(phrases: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    # Longest first: when phrases overlap, the reported detail is the most specific one.
+    pairs = {(form, p) for p in phrases if (form := word_form(p))}
+    return tuple(sorted(pairs, key=lambda fp: (-len(fp[0]), fp[0])))
 
 
 def _drop_format_chars(text: str) -> str:

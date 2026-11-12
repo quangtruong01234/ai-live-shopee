@@ -79,6 +79,7 @@ SCRIPT_DEFAULTS = {
     "script_history_sentences": 12,
     "script_max_tokens": 600,
     "platform_phrases_path": Path("data/rules/platform_phrases.txt"),
+    "claim_phrases_path": Path("data/rules/claim_phrases.txt"),
 }
 
 

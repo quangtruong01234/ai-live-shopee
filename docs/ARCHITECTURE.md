@@ -159,7 +159,8 @@ class ReplyEngine(Protocol):
     def narrate(self, request: SegmentRequest, catalog: ProductCatalog) -> AsyncIterator[str]: ...
     # narrate(): câu kịch bản của 004 (ADR-030). Lỗi ném ReplyEngineError; engine không tự cắt số câu, ScriptRunner cắt.
     # Câu ra từ reply() và narrate() đều qua clean_spoken() (brain/sanitize.py) rồi OutputGuard. Guard kiểm theo thứ tự
-    # forbidden_claim → unknown_amount → unknown_percent → link → platform_phrase (ADR-017, mở rộng ở ADR-031).
+    # forbidden_claim → unknown_amount → unknown_percent → link → platform_phrase → unsupported_claim
+    # (ADR-017, mở rộng ở ADR-031 và ADR-050).
 
 class TTSEngineError(RuntimeError):
     """Lỗi ở bước tts (spec 003). kind: quota_exhausted | rate_limited | api_error | config_error | model_error;

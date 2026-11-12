@@ -18,6 +18,7 @@
     unknown_percent: "phần trăm không có trong dữ liệu",
     link: "chứa link",
     platform_phrase: "cơ chế nền tảng shop không có",
+    unsupported_claim: "khẳng định không có trong dữ liệu",
   };
   // Same wording as ShowState.label in core/models.py.
   const SHOW_STATE_LABELS = {

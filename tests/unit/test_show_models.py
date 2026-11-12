@@ -111,6 +111,8 @@ def test_new_guard_and_drop_reasons():
     assert GuardReason.LINK.value == "link"
     assert GuardReason.UNKNOWN_PERCENT.value == "unknown_percent"
     assert GuardReason.PLATFORM_PHRASE.value == "platform_phrase"
+    assert GuardReason.UNSUPPORTED_CLAIM.value == "unsupported_claim"
+    assert all(reason.label for reason in GuardReason)
     assert DropReason.SHOW_ENDED.value == "show_ended"
     assert DropReason.SHOW_ENDED.label == "phiên đã kết thúc"
     # Every drop reason still has a label (the control page shows it).

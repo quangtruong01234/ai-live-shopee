@@ -5,7 +5,7 @@
     uv run python -m ai_live.brain narrate --topic opening|closing [--content f.docx]
 
 Prints each sentence with the time since sending; a sentence blocked by the guard prints the reason (and, for `ask`,
-the refusal sentence), then stops like the real pipeline. The guard is the live one, with the platform phrases.
+the refusal sentence), then stops like the real pipeline. The guard is the live one, with both phrase lists.
 Every sentence is cleaned with `clean_spoken` before the guard, as on the live path (ADR-031).
 With `REPLY_ENGINE=chain` (feature 008) the chain is checked first with `preflight()` (one `GET /models` per provider);
 a failed check prints which entry is wrong and why, never the key, and no `/chat/completions` call is made. The engine
@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from ai_live.brain.factory import create_reply_engine
-from ai_live.brain.guard import GuardConfigError, OutputGuard, load_platform_phrases, refusal_sentence
+from ai_live.brain.guard import GuardConfigError, OutputGuard, load_guard, refusal_sentence
 from ai_live.brain.prompt import addressee
 from ai_live.brain.sanitize import clean_spoken
 from ai_live.core.config import Settings
@@ -138,7 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        guard = OutputGuard(load_platform_phrases(settings.platform_phrases_path))
+        guard = load_guard(settings.platform_phrases_path, settings.claim_phrases_path)
     except GuardConfigError as exc:
         print(f"Lỗi cấu hình guard: {exc}")
         return 1

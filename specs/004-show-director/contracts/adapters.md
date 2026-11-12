@@ -58,20 +58,25 @@ def clean_spoken(text: str) -> str: ...
 
 ```python
 class OutputGuard:
-    def __init__(self, platform_phrases: Sequence[str] = ()) -> None: ...   # new param, loaded from PLATFORM_PHRASES_PATH
+    def __init__(self, platform_phrases: Sequence[str] = (), claim_phrases: Sequence[str] = ()) -> None: ...
+    # platform_phrases from PLATFORM_PHRASES_PATH; claim_phrases from CLAIM_PHRASES_PATH (ADR-050)
     def check(self, sentence: str, catalog: ProductCatalog) -> GuardResult: ...
 ```
 Tham số `platform_phrases` không bắt buộc (mặc định rỗng = bỏ kiểm `platform_phrase`) để test cũ gọi `OutputGuard()` vẫn chạy. Mọi chỗ
 tạo guard trong code chạy thật (`app/main.py` → `ShowDirector`, `brain/__main__.py`, `qa_eval/runner.py`) **phải** truyền cụm từ đã nạp từ
-`PLATFORM_PHRASES_PATH` (analyze A4, người dùng duyệt 2026-11-01).
+`PLATFORM_PHRASES_PATH` (analyze A4, người dùng duyệt 2026-11-01). Từ ADR-050, chỗ chạy thật tạo guard bằng
+`load_guard(platform_phrases_path, claim_phrases_path)`; `claim_phrases` rỗng thì bỏ kiểm `unsupported_claim`.
 
-Thứ tự kiểm (dừng ở lỗi đầu tiên): `forbidden_claim` → `unknown_amount` → `unknown_percent` → `link` → `platform_phrase`.
+Thứ tự kiểm (dừng ở lỗi đầu tiên): `forbidden_claim` → `unknown_amount` → `unknown_percent` → `link` → `platform_phrase` →
+`unsupported_claim` (ADR-050).
 - `unknown_percent`: số ngay trước `%` hoặc trước "phần trăm" (cho phép khoảng trắng) không có trong tập số của catalog.
   `detail = "<số>%"`.
 - `link`: `core.text.contains_link(sentence)`. `detail` = phần khớp, đã cắt còn 40 ký tự.
 - `platform_phrase`: so trên `word_form`. Cụm có trong `word_form` của chữ toàn bộ catalog (gồm promotions, faq, description) thì được
   phép. `detail` = cụm khớp.
-- Nạp `platform_phrases.txt`: mỗi dòng một cụm; dòng trống và dòng bắt đầu bằng `#` bị bỏ. File thiếu thì app không khởi động (lỗi
+- `unsupported_claim` (ADR-050): như `platform_phrase` nhưng với danh sách `claim_phrases.txt` (an toàn, kích ứng, lời khen của khách,
+  tồn kho, hối thúc). `detail` = cụm khớp dài nhất.
+- Nạp `platform_phrases.txt` và `claim_phrases.txt`: mỗi dòng một cụm; dòng trống và dòng bắt đầu bằng `#` bị bỏ. File thiếu thì app không khởi động (lỗi
   cấu hình rõ ràng), như `profanity.txt` của 001.
 
 ## 5. `director/segment_planner.py` (thuần, không asyncio)

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_live.brain.factory import create_reply_engine
-from ai_live.brain.guard import OutputGuard, load_platform_phrases, word_form
+from ai_live.brain.guard import OutputGuard, load_guard, word_form
 from ai_live.brain.sanitize import clean_spoken
 from ai_live.core.config import Settings
 from ai_live.core.models import SegmentRequest, SpokenHistory, SpokenLine, Topic
@@ -502,6 +502,7 @@ _KIND_LABELS = {
     "forbidden_claim": "khẳng định bị cấm",
     "link": "đọc link",
     "platform_phrase": "cơ chế nền tảng shop không có",
+    "unsupported_claim": "khẳng định không có trong file",
     "bad_pronoun": "sai xưng hô",
     "formatting": "ký hiệu định dạng",
 }
@@ -652,14 +653,14 @@ async def run_script_check(
     """Run one check, compare it with the previous run of the same content and mode, and save it.
 
     Generate mode by default; `session_dir` regrades that session instead (no LLM call). `guard` defaults to the live
-    guard built from `PLATFORM_PHRASES_PATH` (`GuardConfigError` when the file is missing). `engine` is owned by the
-    caller; without one, `create_reply_engine(settings, only=only)` builds it (`ReplyEngineError` on a configuration
-    error) and the chain is preflighted and closed here. `only` is the pinned `LLM_CHAIN` label (`--entry`), used for
-    the engine label too. `pace_s` defaults to `GEMINI_PACE_S` for any real LLM and 0 for the fake engine. The CLI
-    exits non-zero when `result.violation_count > 0`.
+    guard built from `PLATFORM_PHRASES_PATH` and `CLAIM_PHRASES_PATH` (`GuardConfigError` when a file is missing).
+    `engine` is owned by the caller; without one, `create_reply_engine(settings, only=only)` builds it
+    (`ReplyEngineError` on a configuration error) and the chain is preflighted and closed here. `only` is the pinned
+    `LLM_CHAIN` label (`--entry`), used for the engine label too. `pace_s` defaults to `GEMINI_PACE_S` for any real LLM
+    and 0 for the fake engine. The CLI exits non-zero when `result.violation_count > 0`.
     """
     if guard is None:
-        guard = OutputGuard(load_platform_phrases(settings.platform_phrases_path))
+        guard = load_guard(settings.platform_phrases_path, settings.claim_phrases_path)
     if session_dir is not None:
         run = await grade_session(session_dir, catalog, guard=guard, now=now)
     else:

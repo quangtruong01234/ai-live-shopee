@@ -19,7 +19,8 @@ Thêm vào enum có sẵn:
 - `Milestone.SEGMENT_REQUESTED = "segment_requested"`.
   - `REQUIRED_MILESTONES` của 001 giữ nguyên cho lời trả lời comment.
   - Thêm `REQUIRED_SCRIPT_MILESTONES = (SEGMENT_REQUESTED, LLM_FIRST_SENTENCE, TTS_FIRST_CHUNK, AVATAR_FIRST_FRAME)` (Điều VIII).
-- `GuardReason`: `LINK = "link"`, `UNKNOWN_PERCENT = "unknown_percent"`, `PLATFORM_PHRASE = "platform_phrase"` (research R9).
+- `GuardReason`: `LINK = "link"`, `UNKNOWN_PERCENT = "unknown_percent"`, `PLATFORM_PHRASE = "platform_phrase"` (research R9),
+  `UNSUPPORTED_CLAIM = "unsupported_claim"` (ADR-050, thêm 2026-11-12).
 - `DropReason.SHOW_ENDED = "show_ended"`, nhãn "phiên đã kết thúc" (FR-030).
 
 ## 2. `Utterance` (sửa của 001)
@@ -179,7 +180,7 @@ Chỉ ghi khi cả hai câu đều là câu kịch bản đã nói (kể cả c�
 | `run_id`, `started_at`, `finished_at` | | |
 | `engine`, `model`, `content_source`, `catalog_version` | `str` | |
 | `segments` | `list[ScriptEvalSegment]` | mỗi phần tử: `product_id`, `topic`, `sentences: [{raw_text, violations: [{kind, detail}]}]`, `sentence_count_warning: bool`, `error` |
-| `totals` | `dict[str, int]` | theo loại vi phạm: `unknown_amount`, `unknown_percent`, `forbidden_claim`, `link`, `platform_phrase`, `bad_pronoun`, `formatting` |
+| `totals` | `dict[str, int]` | theo loại vi phạm: `unknown_amount`, `unknown_percent`, `forbidden_claim`, `link`, `platform_phrase`, `unsupported_claim`, `bad_pronoun`, `formatting` |
 | `violation_count` | `int` | tổng |
 | `previous` | `{run_id, violation_count, totals} \| null` | lần chạy trước cùng `content_source` |
 | `delta` | `dict[str, int] \| null` | `totals − previous.totals` |

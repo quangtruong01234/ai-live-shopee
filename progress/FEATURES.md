@@ -55,10 +55,10 @@ Mỗi thẻ có cùng các key: `folder`, `status`, `artifacts`, `tasks`, `analy
   [research](../specs/004-show-director/research.md) · [data-model](../specs/004-show-director/data-model.md) ·
   [contracts](../specs/004-show-director/contracts/) · [quickstart](../specs/004-show-director/quickstart.md) ·
   [tasks](../specs/004-show-director/tasks.md)
-- `tasks`: 74/81 (Setup T001–T004, Foundational T005–T015, US1 T016–T039, US2 T040–T046, US3 T047–T053, US4 T054–T060, US5 T061–T068, US6 T069–T071, Phase 9 T072–T074 xong 2026-11-03; G1 đã chạy 2026-11-02: T038 2 passed; T046 SC-007 đạt 10/10 mỗi lệnh với fake)
+- `tasks`: 79/81 (2026-11-12: T075–T078, T080 xong; T079 chạy một phần, chờ SC-009 và tổng duyệt ngày riêng; ADR-050 thêm guard `unsupported_claim`; còn T081) (Setup T001–T004, Foundational T005–T015, US1 T016–T039, US2 T040–T046, US3 T047–T053, US4 T054–T060, US5 T061–T068, US6 T069–T071, Phase 9 T072–T074 xong 2026-11-03; G1 đã chạy 2026-11-02: T038 2 passed; T046 SC-007 đạt 10/10 mỗi lệnh với fake)
 - `analyze`: 2026-11-01 Sẵn sàng implement (0 CRITICAL, 1 HIGH, 6 MEDIUM, 3 LOW). HIGH: contract test Gemini `narrate()` ở T013
   (Foundational) nhưng Gemini làm ở T028 (US1), checkpoint Foundational không xanh được; đã xử lý bằng `xfail(strict=True)` cho case Gemini (đã gỡ ở US1). A4 đã sửa (guard: tham số không bắt buộc, code chạy thật phải truyền cụm từ; T017, T024, T026, T034, T035); A2 thêm vào T069, A3 thêm vào T047
-- `adrs`: ADR-017, 018, 026, 029, 030, 031, 032, 033 (030–033 đã chốt 2026-11-01)
+- `adrs`: ADR-017, 018, 026, 029, 030, 031, 032, 033 (030–033 đã chốt 2026-11-01), 050 (2026-11-12)
 - `depends_on`: 001 (guard chặn giá bịa, ReplyEngine, trang điều khiển); 003 (giọng thật, không bắt buộc cho P1)
 - `agents`: ai-orchestrator (`director/`, `app/`, `core/`), ai-brain (`brain/` narrate, prompt, sanitize, guard; `qa_eval/` script),
   ai-comments (`data/rules/platform_phrases.txt`), ai-qa (contract test, fixture). ai-media: không cần (host.js không đổi)

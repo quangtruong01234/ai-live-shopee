@@ -78,8 +78,10 @@ class ScriptRig:
         wall_clock: Callable[[], datetime] | None = None,
         make_renderer: Callable[[EventBus, float], StaticRenderer | SwitchingRenderer] | None = None,
         ready_message: dict | None = None,
+        interleave=None,
     ) -> None:
         self.tmp_path = tmp_path
+        self.interleave = interleave if interleave is not None else NoComments()
         self.settings = settings.model_copy(
             update={
                 "script_segment_min_sentences": 2,
@@ -131,7 +133,7 @@ class ScriptRig:
             renderer=self.renderer,
             store=self.store,
             floor=asyncio.Lock(),
-            interleave=NoComments(),
+            interleave=self.interleave,
             faults=self.faults,
             stats=self.stats,
             log=self.log,
@@ -1036,6 +1038,71 @@ async def test_tts_stall_after_the_first_chunk_is_a_timeout(tmp_path, settings):
         lost = _row(rig, TTS_LINES[1])
         errors = [e for e in rig.jsonl("errors.jsonl") if e.get("utterance_id") == lost["utterance_id"]]
         assert [(e["step"], e["type"]) for e in errors] == [("tts", "timeout")]
+
+
+class _Gate:
+    """An interleave gate the test opens and shuts, standing in for a comment turn that runs or waits."""
+
+    def __init__(self, busy: bool = False) -> None:
+        self.busy = busy
+
+    def pending(self) -> bool:
+        return self.busy
+
+    async def wait_clear(self) -> None:
+        while self.busy:  # noqa: ASYNC110
+            await asyncio.sleep(0.01)
+
+
+class _RecordingTTS(FakeTTS):
+    """Records each sentence when its synthesis starts."""
+
+    def __init__(self) -> None:
+        super().__init__(sample_rate=16000)
+        self.started: list[str] = []
+
+    async def synthesize(self, text: str):
+        self.started.append(text)
+        async for chunk in super().synthesize(text):
+            yield chunk
+
+
+async def test_no_scripted_synthesis_starts_while_a_comment_turn_is_pending(tmp_path, settings):
+    # SC-011: a one-sentence-at-a-time engine (VieNeu) serves the reply's sentences, not the script queued between them.
+    gate, tts = _Gate(busy=True), _RecordingTTS()
+    rig = ScriptRig(tmp_path, settings, FakeReplyEngine(), tts=tts, interleave=gate)
+    async with rig:
+        await wait_until(lambda: len(rig.engine.narrate_requests) > 0)
+        await asyncio.sleep(0.3)
+        assert tts.started == []
+
+        gate.busy = False
+        await wait_until(lambda: len(_starts(rig)) >= 2)
+        gate.busy = True
+        started = len(tts.started)
+        await asyncio.sleep(0.3)
+        assert len(tts.started) == started
+
+        gate.busy = False
+        await wait_until(lambda: len(_starts(rig)) >= 4)
+        await rig.stop()
+
+    assert not rig.jsonl("errors.jsonl")
+
+
+async def test_closing_is_voiced_while_a_comment_turn_is_pending(tmp_path, settings):
+    engine = FakeReplyEngine(script={(None, Topic.CLOSING): CLOSING_LINES})
+    gate = _Gate()
+    rig = ScriptRig(tmp_path, settings, engine, interleave=gate)
+    async with rig:
+        await wait_until(lambda: len(_starts(rig)) >= 1)
+        gate.busy = True
+        assert rig.runner.close() is True
+        await wait_until(lambda: _ended(rig), timeout_s=5.0)
+        rig._task.result()
+        await rig.stop()
+
+    assert rig.started_texts()[-2:] == CLOSING_LINES[:2]
 
 
 def _ends(rig: ScriptRig) -> list[dict]:

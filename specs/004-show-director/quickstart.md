@@ -10,7 +10,7 @@
 Giống quickstart 001 §0, thêm:
 
 ```bash
-# .env: thêm các biến SCRIPT_* (mặc định trong .env.example, plan.md "Biến môi trường") và PLATFORM_PHRASES_PATH
+# .env: thêm các biến SCRIPT_* (mặc định trong .env.example, plan.md "Biến môi trường"), PLATFORM_PHRASES_PATH và CLAIM_PHRASES_PATH (ADR-050)
 uv run pytest                                    # không cần mạng, key hay GPU
 uv run uvicorn ai_live.app.main:app --port 8000
 ```
@@ -152,15 +152,15 @@ Số vi phạm không được tăng so với lần gần nhất. Sửa `guard.p
 
 | Ngày | Mục | Kết quả | Ghi chú |
 |------|-----|---------|---------|
-| | SC-001 (Start → câu đầu, 10 lần) | | giọng, máy |
-| | SC-002 (khoảng lặng p95 / max, 30 phút) | | giọng, máy, số câu |
-| | SC-003 / SC-005 / SC-004 (phiên 30 phút) | | |
-| | SC-006 (≥ 3 lỗi llm, ≥ 3 lỗi tts) | | khoảng lặng `fault` lớn nhất |
+| 2026-11-12 | SC-001 (Start → câu đầu, 10 lần) | Đạt: 10/10 ≤ 5 s; 2,000–2,672 s, trung vị 2,39 s | VieNeu (Thùy Dung) + nhép miệng 005 (wav2lip, laptop GTX 1650 Ti, chạy pin), engine `chain` (SEA-LION 30/30). Chi tiết ở "G1–G4, engine 008" |
+| 2026-11-12 | SC-002 (khoảng lặng p95 / max, 30 phút) | **Chưa đạt:** p95 2,845 s (> 1,5 s), max 3,031 s (≤ 5 s); 257 khoảng | VieNeu + nhép miệng 005 wav2lip, laptop chạy pin, `LIVETALKING_LEAD_S=0`; 279 câu. Khoảng lặng chủ yếu là thời gian nhép miệng mỗi câu (005 T073). Chi tiết ở "G5" |
+| 2026-11-12 | SC-003 / SC-005 / SC-004 (phiên 30 phút) | SC-003: 0 vi phạm theo các loại cũ, nhưng chấm lại bằng guard ADR-050 thì **24 câu `unsupported_claim`** (đã sửa prompt + guard). SC-005 **đạt**: 0% câu trùng, 0 phân đoạn giống hệt. SC-004 **sát ngưỡng**: sản phẩm chính 0,4902 (< 0,50); mỗi khoảng 10 phút đủ cả 2 sản phẩm phụ | 61 phân đoạn (53 done, 7 failed do giả lập lỗi, 1 discarded). Chi tiết ở "G5" |
+| 2026-11-12 | SC-006 (≥ 3 lỗi llm, ≥ 3 lỗi tts) | Đạt: 7 lỗi llm (error 5, timeout 2), 3 lệnh lỗi tts; show không dừng; khoảng lặng `fault` lớn nhất 2,64 s (≤ 8 s); lỗi `llm ×3` liền làm chuyển chế độ `fallback` 35 s rồi về `normal` | 7 phân đoạn failed; `errors.jsonl` có 7 dòng `llm` và 7 dòng `tts` của show, cộng 6 dòng `tts` của comment (SC-011) |
 | 2026-11-02 | SC-007 (bỏ qua / tạm dừng / tiếp tục, ≥ 10 lần mỗi lệnh) | Đạt: 10/10 mỗi lệnh; `latency_ms` lớn nhất 0,0 (pause, resume, skip) | fake engine + `FakeTTS`, script giả lập host; 0,0 là dưới độ phân giải đồng hồ Windows (~15,6 ms). Chi tiết ở "US2 bước 1–5" |
-| | SC-008 (bộ tự kiểm tra, 3 lần) | | số lần gọi, ngày chạy |
-| | SC-009 (10 phân đoạn) | | người chấm |
-| | SC-010 (ảnh chụp nhãn AI) | | |
-| | SC-011 (≥ 10 comment chen) | | p95 `total` |
+| 2026-11-12 | SC-008 (bộ tự kiểm tra, 3 lần) | Đạt: 3/3 lần liên tiếp mã thoát 0, 0 vi phạm trên 21 phân đoạn mỗi lần | 63 request, cùng một ngày (RPD đủ, xem G1–G4). Chi tiết ở "G1–G4, engine 008" |
+| | SC-009 (10 phân đoạn) | `TODO:` cần người dùng nghe và chấm | bản ghi `out/selfcheck/` (có mặt người mẫu, không đưa ra ngoài máy) |
+| 2026-11-12 | SC-010 (ảnh chụp nhãn AI) | Đạt: 27/27 ảnh chụp có nhãn AI, gồm lúc tạm dừng và chào kết | `out/selfcheck/g5_shot*.png`. Không chụp được đúng 35 s chế độ `fallback` |
+| 2026-11-12 | SC-011 (≥ 10 comment chen) | **Chưa đạt độ trễ:** sau khi sửa (giữ câu kịch bản mới khi có comment chờ), 12/12 comment được trả lời, 0 lỗi, không câu kịch bản nào bị cắt giữa chừng; `comment_received` → `avatar_first_frame` trung vị 6,57 s, p95 7,41 s (> 5 s) | Trước khi sửa (G5): 7/13 trả lời, 6 lỗi TTS, p95 7,72 s. `TODO:` người dùng quyết có cho cắt câu kịch bản ở dấu phẩy không (bước 3 US6) |
 
 ### US1 bước 1–6, `REPLY_ENGINE=fake` (T039, 2026-11-01)
 
@@ -197,6 +197,41 @@ không gặp 429.
   khi gặp 429, nên thời gian chờ nằm ở phía API. CLI `narrate` không áp `SCRIPT_LLM_TIMEOUT_S`; trong show, các lần này sẽ hết hạn ở
   10 s và chuyển sang câu dự phòng. TODO: chậm do free tier xếp hàng hay do model/thinking? Cần đo lại ở G3 (SC-001, 10 lần) trước
   khi kết luận về mục tiêu câu đầu ≤ 5 s.
+
+### G1–G4, engine 008 (T075–T078, 2026-11-12)
+
+Laptop dev (GTX 1650 Ti 4GB, chạy pin), `REPLY_ENGINE=chain` với chuỗi mặc định (SEA-LION `gemma-sea-lion-v4-27b` qua freellmapi →
+Cloudflare, rồi Qwen `qwen/qwen3.8-27b` trên Groq), `data/products/demo.docx` (version `2a1a52d5ae99`). Số request đếm từ log
+`llm_usage` / `llm_attempt`. Cả ngày không gặp 429, không lượt nào phải chuyển sang Qwen (trừ test ghim `only=qwen`).
+
+| Giai đoạn | Việc | Kết quả | Request (theo model) |
+|-----------|------|---------|----------------------|
+| G1 (T075) | `pytest -m live_llm tests/live/test_chain_engine.py -k narrate` | 2 passed trong 3,48 s (mỗi mục ghim `only=` một lần) | 2 (SEA-LION 1, Qwen 1) |
+| G1 (T075) | US1 bước 4: `narrate --topic price`, 3 sản phẩm × 2 lần | Giá đúng file cả 6 lần: 259.000đ (50 ml) / 439.000đ (100 ml), 159.000đ (120 ml), 189.000đ (150 ml); khuyến mãi (túi đựng mỹ phẩm, mua kèm giảm 20.000đ) đúng file. Câu đầu 0,61–1,11 s | 6 (SEA-LION 6; lượt đầu 3 lần CLI chưa bật log, lượt hai bật log qua wrapper, đều SEA-LION) |
+| G2 (T076) | `qa_eval run --questions data/eval/demo_questions.json`, 2 lần | `20261112-165030`: 9/10; `20261112-165202`: 10/10 (ngưỡng 8/10). Lần chạy trước cùng engine `chain` (`20261104-172051`): 10/10 | 20 (SEA-LION 20) |
+| G2 (T076) | `qa_eval script` lần 1 | `20261112-165330`: 0 vi phạm / 21 phân đoạn, mã thoát 0 | 21 (SEA-LION 21) |
+| G3 (T077) | `qa_eval script` lần 2, 3 | `20261112-165648`, `20261112-165942`: 0 vi phạm, mã thoát 0. Cảnh báo (không tính vi phạm): FAQ kem chống nắng 8 rồi 9 câu, ngoài khoảng min–max | 42 (SEA-LION 42) |
+| G4 (T078) | US1 bước 7: 10 lần **Bắt đầu show** → chạy 20 s → **Kết thúc** (app thật, VieNeu + nhép miệng 005, host trong Chrome) | `show_first_sentence_s` trong `show_summary_*.json`: 2,672 / 2,281 / 2,437 / 2,454 / 2,344 / 2,125 / 2,531 / 2,000 / 2,312 / 2,438 s, 10/10 ≤ 5 s; cả 10 lần về `ended`; 0 lỗi kịch bản | 30 (SEA-LION 30: mở màn, 1 phân đoạn, chào kết mỗi lần) |
+
+- Tổng ngày 2026-11-12: **121 request LLM**, 0 lỗi dịch vụ. Prompt khoảng 1.340 token vào, 100–135 token ra mỗi lượt `narrate`.
+- q10 lần 1 (9/10): model tự nói câu từ chối ("Dạ phần này em chưa có thông tin…"), câu thứ hai nhắc tới "nám" nên guard chặn
+  (`forbidden_claim`) và thay bằng đúng câu từ chối đó, nên host nói **trùng một câu hai lần** và thiếu giá thật. An toàn (không nhận
+  "trị nám", không nhận giá 199k), nhưng nghe lặp. `TODO:` người dùng quyết có bỏ câu từ chối nếu trùng câu vừa nói hay không (đổi
+  hành vi, cần sửa spec 001 trước).
+- G1 theo R14 còn "một show ngắn 5 phút": thay bằng 10 vòng show của G4 (cùng engine, cùng máy). Show 30 phút để ở G5.
+
+### G5, tổng duyệt 30 phút (T079, 2026-11-12)
+
+Cùng máy và chuỗi model như G1–G4 (laptop chạy pin, SEA-LION trả lời mọi lượt), VieNeu + nhép miệng 005 (wav2lip), host trong Chrome.
+Khác R14: chạy **cùng ngày** với G1–G4 (không phải ngày riêng) và laptop chạy pin. `TODO:` tổng duyệt lại ngày riêng, cắm sạc.
+
+| Phần | Kết quả | Ghi chú |
+|------|---------|---------|
+| Show 30 phút + lỗi giả lập (phiên `data/sessions/20261112-170251`, show `6e54cee7…`) | 61 phân đoạn, 279 câu, câu đầu 2,422 s; tạm dừng 33 s rồi tiếp tục bình thường; về `ended` | Kịch bản điều khiển: 13 comment, 7 lỗi llm, 3 lệnh lỗi tts, 1 lần tạm dừng |
+| Khoảng lặng (SC-002) | p95 2,845 s, max 3,031 s; trong phân đoạn p95 2,859 s, giữa phân đoạn p95 2,781 s | Chưa đạt p95 ≤ 1,5 s; thử `LIVETALKING_LEAD_S` ở 005 T073 |
+| Comment chen (SC-011) | 7/13 trả lời; 6 comment lỗi TTS vì VieNeu bận câu kịch bản | Đã sửa (`_yield_to_comments`) và chạy lại, xem dòng dưới |
+| Chạy lại SC-011 sau khi sửa (phiên `20261112-175320`, show `93e70f43…`, 10 phút) | 12/12 trả lời, 0 lỗi; trung vị 6,57 s, p95 7,41 s. Từ phút thứ 7 SEA-LION bị `rate_limited`, chuỗi chuyển sang Qwen (15 lượt), không mất lượt nào | Chia nhỏ (trung vị): nhận → câu đầu LLM 0,85 s; → chunk TTS đầu 2,24 s; → khung hình đầu 2,94 s (chờ câu kịch bản đang nói + nhép miệng) |
+| Chấm lại lịch sử (`qa_eval script --session`) | 24 câu `unsupported_claim` / 73 phân đoạn (trước ADR-050: 0) | Ví dụ: "an toàn cho da", "không gây kích ứng", "nhiều khách hàng feedback", "số lượng có hạn". Đã siết prompt và thêm guard (ADR-050) |
 
 ### US2 bước 1–5, `REPLY_ENGINE=fake` (T046, 2026-11-02)
 

@@ -183,6 +183,9 @@
   - Dùng LLM thứ hai để chấm: tốn hạn mức và độ trễ.
 - **ADR:** ADR-031 (đề xuất).
 - Danh sách `platform_phrases.txt` ban đầu (26 cụm) người dùng duyệt 2026-11-01 (ADR-033). Thêm cụm mới khi gặp cách nói riêng của Shopee.
+- Thêm 2026-11-12 (ADR-050): kiểm tra thứ năm `unsupported_claim`, chạy sau `platform_phrase`, cùng cách so khớp, danh sách
+  `data/rules/claim_phrases.txt`. Lý do: G5 cho thấy host tự thêm "an toàn cho da", lời khen của khách, "số lượng có hạn" khi hết thông tin.
+  `TODO:` người dùng duyệt danh sách cụm này.
 
 ## R10. Chế độ dự phòng (FR-021, US3 #3)
 
@@ -295,6 +298,25 @@ của Google, có nguy cơ bị khóa đúng ngày demo.
   `SCRIPT_SEGMENT_MAX_SENTENCES` lên 5–8 để giảm số lần gọi mỗi phút show.
 - Đổi `LLM_MODEL`, prompt kịch bản, guard hoặc bộ làm sạch: chạy lại G2 và G3 (Điều III), ở ngày khác ngày tổng duyệt hoặc demo.
 - Ghi số request thật của mỗi giai đoạn (log `llm_usage`) vào "Kết quả kiểm chứng" của `quickstart.md`, để thay các số ước tính ở trên.
+
+**Số đo thật 2026-11-12 (T080).** G1–G5 chạy hết trong **một ngày** (không theo lịch ngày riêng ở trên), engine 008, máy dev:
+
+| Giai đoạn | Request LLM thật | Ước tính ở trên |
+|-----------|------------------|-----------------|
+| G1 | 8 | 30–40 (không chạy show 5 phút, thay bằng G4) |
+| G2 | 20 + 21 | 10 + 30 |
+| G3 | 42 (2 lần) | 60 |
+| G4 | 30 | 30–40 |
+| G5, show 30 phút | 57 (50 phân đoạn + 7 câu trả lời; 7 phân đoạn lỗi giả lập không gọi model) | 70–130 |
+| Chạy lại SC-011, show 10 phút | 31 (SEA-LION 16, Qwen 15) | — |
+
+- Tổng: khoảng **194 request SEA-LION thành công** thì freellmapi bắt đầu trả `rate_limited` cho SEA-LION (18:00 giờ máy). Từ đó chuỗi tự
+  chuyển sang Qwen trên Groq và mọi lượt vẫn có lời (`llm_switch`, nghỉ 60 s rồi thử lại SEA-LION, lần nào cũng bị chặn). Lần chạy
+  `qa_eval script --entry sealion` ngay sau đó: 42/42 phân đoạn lỗi `rate_limited`.
+- Một show 30 phút thật tốn khoảng 2 request/phút, đúng khoảng ước tính dưới (60–120).
+- Kết luận: một ngày dồn G1–G5 đã chạm giới hạn của SEA-LION. Ngày demo **chỉ chạy phiên demo**, như lịch trên. Qwen là dự phòng đủ dùng.
+- `TODO:` giới hạn SEA-LION là theo ngày hay theo cửa sổ ngắn hơn, và reset lúc mấy giờ? (xem log freellmapi / bảng điều khiển Cloudflare
+  của người dùng). Nếu reset theo ngày UTC thì là 07:00 giờ Việt Nam.
 - `TODO:` sau khi có RPD thật (mục trên), xem có gộp được G1 với G2, G3 với G4 không. Không gộp G5 với bất cứ việc gì.
 - Phương án hợp lệ nếu hạn mức vẫn thiếu (đều cần người dùng duyệt): thêm adapter LLM thứ hai (cần ADR; đã chọn: ADR-035, feature 008), hoặc chỉ bật trả phí riêng
   ngày demo (ADR-019).

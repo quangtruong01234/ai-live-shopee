@@ -28,8 +28,9 @@ Operator control (US2, research R7, R13):
 Comments (US6, FR-028, FR-029, research R8): after every sentence the player asks the `InterleaveGate` and, while a
 comment turn runs or waits, waits in `wait_clear()` without holding `_floor`, so the reply speaks next. The sentence
 it holds and the one voiced behind it are kept, so the interrupted segment goes on with its next sentence and no
-scripted sentence is cut. The gap that spans a reply is `comment`, kept out of SC-002 like `paused`. Replies never
-reach the planner: the rotation is unchanged.
+scripted sentence is cut. The voicer also starts no new synthesis while the gate is pending, so the reply's sentences
+never queue behind scripted ones at a one-sentence-at-a-time TTS engine. The gap that spans a reply is `comment`, kept
+out of SC-002 like `paused`. Replies never reach the planner: the rotation is unchanged.
 """
 
 from __future__ import annotations
@@ -105,6 +106,8 @@ SNAPSHOT_RECENT = 10
 LLM_RETRY_DELAY_S = 1.0
 NO_SLOT_RETRY_S = 1.0
 HOST_POLL_S = 0.1
+# How often a held voicer checks whether the comment turn is over; the gate has no "became clear" event.
+VOICE_HOLD_POLL_S = 0.05
 DEFAULT_ACK_TIMEOUT_S = 3.0
 
 _OPENING = PlannedSlot(None, Topic.OPENING, SegmentOrigin.ROTATION)
@@ -1007,11 +1010,23 @@ class ScriptRunner:
         slots = self._voice_slots
         await slots.acquire()
         try:
+            await self._yield_to_comments()
             if item.segment.status not in FINAL_SEGMENT_STATUSES:
                 await self._synthesize(item, slots)
         finally:
             if not item.handed:
                 slots.release()
+
+    async def _yield_to_comments(self) -> None:
+        """Start no scripted synthesis while a comment turn runs or waits (SC-011).
+
+        A CPU engine voices one sentence at a time (VieNeu holds its lock per sentence, FIFO), so a scripted sentence
+        started here would slot in before the reply's next sentence and push that wait past `TTS_TIMEOUT_S`. The player
+        usually holds a voiced sentence for right after the reply, so holding the voicer adds no gap. Closing never
+        waits: the closing segment must be voiced.
+        """
+        while self.show.state is not ShowState.CLOSING and self._interleave.pending():  # noqa: ASYNC110
+            await asyncio.sleep(VOICE_HOLD_POLL_S)
 
     async def _synthesize(self, item: _Line, slots: asyncio.Semaphore) -> None:
         """TTS one sentence; hand it to the player once the first chunk exists, then wait for the rest of its audio."""

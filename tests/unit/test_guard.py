@@ -1,4 +1,7 @@
-"""T032 (001) and T017 (004): per-sentence output guard (001 research R8; 004 research R9, contracts/adapters.md §4)."""
+"""T032 (001) and T017 (004): per-sentence output guard (001 research R8; 004 research R9, contracts/adapters.md §4).
+
+The claim-phrase check is ADR-050 (004 FR-010).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from ai_live.brain.guard import GuardConfigError, OutputGuard, load_platform_phrases, refusal_sentence
+from ai_live.brain.guard import (
+    GuardConfigError,
+    OutputGuard,
+    load_claim_phrases,
+    load_guard,
+    load_platform_phrases,
+    refusal_sentence,
+)
 from ai_live.core.models import GuardReason
 from ai_live.products.docx_loader import load_catalog
 from fixtures.content_builder import build_docx, product_blocks, valid_docx
@@ -262,3 +272,78 @@ def test_missing_platform_phrases_file_is_config_error(tmp_path):
     message = str(exc.value)
     assert str(missing) in message
     assert "Không tìm thấy" in message
+
+
+# ---------------------------------------------------------------- 004: unsupported claim phrase (ADR-050, FR-010)
+
+REPO_CLAIMS = REPO_PHRASES.with_name("claim_phrases.txt")
+
+
+@pytest.fixture
+def live_guard():
+    return load_guard(REPO_PHRASES, REPO_CLAIMS)
+
+
+@pytest.mark.parametrize(
+    ("sentence", "detail"),
+    [
+        # Ungrounded filler the host said in the 004 G5 rehearsal.
+        ("Em thấy sản phẩm này không chứa cồn, rất an toàn cho da đó ạ.", "an toàn cho da"),
+        ("Sản phẩm này làm sạch nhẹ nhàng, không gây kích ứng cho da đâu nha.", "kích ứng"),
+        ("Sữa rửa mặt này dùng được cho mọi loại da, kể cả da nhạy cảm nha.", "da nhạy cảm"),
+        ("Rửa mặt xong, da sẽ mềm mại, không hề bị căng rát đâu anh chị.", "mềm mại"),
+        ("Em thấy nhiều bạn feedback là dùng lên da không bị vệt trắng.", "feedback"),
+        # The longest matched phrase is reported.
+        ("Em thấy nhiều khách hàng feedback là dùng kem rất thoải mái.", "nhiều khách"),
+        ("Hiện tại em đang có sẵn hàng, anh chị nào muốn mua thì nhắn em liền nha.", "sẵn hàng"),
+        ("Anh chị nhớ tranh thủ nha, số lượng có hạn thôi đó.", "số lượng có hạn"),
+        ("Khuyến mãi có thể kết thúc bất cứ lúc nào đó ạ.", "bất cứ lúc nào"),
+        ("Da kem nay AN TOAN CHO DA lam nha.", "an toàn cho da"),
+    ],
+)
+def test_unsupported_claim_blocked_when_not_in_file(live_guard, catalog, sentence, detail):
+    result = live_guard.check(sentence, catalog)
+    assert not result.ok
+    assert result.reason is GuardReason.UNSUPPORTED_CLAIM
+    assert result.detail == detail
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Unaccented matching must not hit these:
+        # "có sản phẩm" ~ "có sẵn", "con hàng" ~ "còn hàng", "cung ứng" ~ "cũng ưng".
+        "Chắc chắn sẽ có sản phẩm phù hợp với da của anh chị đó.",
+        "Con hàng này là kem chống nắng X nha anh chị.",
+        "Shop cung ứng kem chống nắng X chính hãng nha.",
+        "Dạ kem không chứa cồn, dùng cho da dầu được nha.",
+    ],
+)
+def test_claim_phrases_leave_grounded_sentences_alone(live_guard, catalog, sentence):
+    assert live_guard.check(sentence, catalog).ok
+
+
+def test_unsupported_claim_allowed_when_file_has_it(live_guard):
+    blocks = product_blocks("Sữa rửa mặt Y", description="Làm sạch dịu nhẹ, phù hợp da nhạy cảm, không gây kích ứng.")
+    catalog = load_catalog(build_docx(blocks), "claims.docx", 5_000_000)
+    assert live_guard.check("Sữa rửa mặt Y hợp da nhạy cảm và không gây kích ứng nha.", catalog).ok
+
+
+def test_platform_phrase_is_checked_before_claim_phrase(catalog):
+    guard = OutputGuard(["giỏ hàng"], ["sẵn hàng"])
+    result = guard.check("Em có sẵn hàng, anh chị thêm vô giỏ hàng nha.", catalog)
+    assert result.reason is GuardReason.PLATFORM_PHRASE
+
+
+def test_repo_claim_phrases_file_loads():
+    claims = load_claim_phrases(REPO_CLAIMS)
+    assert "an toàn cho da" in claims
+    assert all(p and not p.startswith("#") for p in claims)
+
+
+def test_missing_claim_phrases_file_is_config_error(tmp_path):
+    missing = tmp_path / "khong-co.txt"
+    with pytest.raises(GuardConfigError) as exc:
+        load_guard(REPO_PHRASES, missing)
+    assert str(missing) in str(exc.value)
+    assert "CLAIM_PHRASES_PATH" in str(exc.value)

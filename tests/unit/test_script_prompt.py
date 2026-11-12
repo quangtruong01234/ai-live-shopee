@@ -85,6 +85,11 @@ def test_rules_style(needle):
         "Không đọc link",
         "250.000đ",  # money written as in the data (FR-011)
         "nhắn shop",  # Constraint 7: missing data -> invite to ask the shop
+        # FR-010 filler the G5 rehearsal heard: invented testimonials, effects, stock and urgency.
+        "lời khen hay trải nghiệm của khách hàng",
+        "không gây kích ứng",
+        "còn hàng",
+        "không bịa thêm cho đủ câu",
     ],
 )
 def test_rules_grounding(needle):

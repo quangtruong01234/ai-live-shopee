@@ -153,6 +153,7 @@ src/ai_live/
     ├── routes.py               # SỬA: /api/show/*, /api/state có `show`
     └── static/control.{html,js}# SỬA: khu điều khiển show (FR-019)
 data/rules/platform_phrases.txt # MỚI: cụm cơ chế nền tảng (commit)
+data/rules/claim_phrases.txt    # MỚI (ADR-050): cụm khẳng định không có căn cứ (commit)
 .env.example                    # SỬA: biến mới
 tests/
 ├── unit/test_segment_planner.py, test_script_prompt.py, test_sanitize.py, test_show_stats.py, test_script_grader.py
@@ -195,6 +196,7 @@ Cập nhật `src/README.md` khi implement (module mới trong `director/`, `bra
 | `SCRIPT_HISTORY_SENTENCES` | `12` | số câu gần nhất gửi kèm prompt (R4) |
 | `SCRIPT_MAX_TOKENS` | `600` | `max_output_tokens` của `narrate()` |
 | `PLATFORM_PHRASES_PATH` | `data/rules/platform_phrases.txt` | FR-013 |
+| `CLAIM_PHRASES_PATH` | `data/rules/claim_phrases.txt` | FR-010, thêm ở ADR-050 |
 
 Biến của 001 không đổi. Giả lập lỗi dùng lại `POST /api/debug/fault` (bước `llm` áp dụng cho cả `narrate()`, FR-024).
 

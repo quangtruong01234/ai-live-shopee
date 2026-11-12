@@ -29,6 +29,7 @@ from fixtures.fake_openai import FakeOpenAI, ModelRow, models_error, models_list
 
 FAKE_KEY = "AIzaSyTEST-not-a-real-key-0123456789abcd"
 PLATFORM_PHRASES = Path(__file__).resolve().parents[2] / "data" / "rules" / "platform_phrases.txt"
+CLAIM_PHRASES = PLATFORM_PHRASES.with_name("claim_phrases.txt")
 
 HOST_UNAVAILABLE_MESSAGE = "Màn hình host chưa sẵn sàng. Mở /host và bấm Bắt đầu."
 NO_CONTENT_MESSAGE = "Chưa nạp file nội dung sản phẩm hợp lệ."
@@ -51,6 +52,7 @@ def show_settings(app_settings):
     return app_settings.model_copy(
         update={
             "platform_phrases_path": PLATFORM_PHRASES,
+            "claim_phrases_path": CLAIM_PHRASES,
             "script_segment_min_sentences": 2,
             "script_segment_max_sentences": 3,
         }
@@ -278,12 +280,33 @@ def test_app_guard_blocks_platform_phrase_from_the_script(show_settings):
     assert row["guard_reason"] == "platform_phrase"
 
 
-def test_missing_platform_phrases_file_stops_startup(show_settings, tmp_path):
-    s = show_settings.model_copy(update={"platform_phrases_path": tmp_path / "missing.txt"})
+@pytest.mark.parametrize("field", ["platform_phrases_path", "claim_phrases_path"])
+def test_missing_phrases_file_stops_startup(show_settings, tmp_path, field):
+    s = show_settings.model_copy(update={field: tmp_path / "missing.txt"})
 
     with pytest.raises(GuardConfigError):
         with TestClient(create_app(s)):
             pass
+
+
+def test_app_guard_blocks_unsupported_claim_from_the_script(show_settings):
+    # ADR-050: filler the content file does not back ("an toàn cho da") never reaches TTS.
+    blocked = "Kem này rất an toàn cho da đó anh chị."
+    engine = FakeReplyEngine(
+        script={
+            (None, Topic.OPENING): [blocked, "Chào cả nhà, em là host AI nha.", "Hôm nay em có nhiều sản phẩm nha."]
+        }
+    )
+    with TestClient(create_app(show_settings, reply_engine=engine)) as c:
+        with c.websocket_connect("/ws/host") as host:
+            host.send_json({"type": "ready"})
+            _wait_host_ready(c)
+            _start(c)
+            texts = [_sentence_start(_host_play_one(host))["text"] for _ in range(2)]
+
+    assert blocked not in texts
+    row = next(s for s in _jsonl(show_settings, "script_sentences.jsonl") if s["raw_text"] == blocked)
+    assert row["guard_reason"] == "unsupported_claim"
 
 
 # --- T041: pause, resume, skip and end with a show (US2; FR-015 to FR-017, contracts/api.md §2-§3) ---
