@@ -215,6 +215,17 @@ theo giờ thật; script lái gọi `/api/show/start`, `/api/pause`, `/api/resu
 - Ở các lần chạy sau, tiếng trễ hơn phụ đề 0,8–1,1 s ngay từ đầu show (lần đầu 0,25 s) và số khung hiển thị/giây thấp hơn: có mặt cả
   trước khi bỏ qua nên không do bản sửa; nghi do laptop chạy pin. TODO: chạy lại khi cắm sạc, chế độ Best performance, để xác nhận.
 
+Kết quả 2026-11-12 (T063, bước 7.4–7.5), cùng show đang chạy; kiểm trang host và trang điều khiển bằng Chrome DevTools, log app:
+
+| Mục | Kết quả | Đạt? |
+|---|---|---|
+| Lỗi `count: 1` | Một câu `script_error` (`fault_injected`), câu sau phát bình thường, vẫn video, `consecutive_errors` về 0 | Đạt |
+| Lỗi `count: 2` (SC-005) | `avatar_fallback`, `GET /api/avatar` báo `active: static`, `reason: render_errors`; trang host hiện `face.png` + nhãn CSS "AI"; trang điều khiển hiện "Nhân vật nhép miệng lỗi 2 lượt liền, đang dùng ảnh tĩnh." + nút bật lại; show không dừng | Đạt |
+| Bấm "Bật lại nhân vật nhép miệng" | `avatar_lipsync_enabled`, video quay lại ngay, nhãn AI trong khung hình | Đạt |
+| Tắt fork giữa show | Mất kết nối → câu đang phát và câu đã xếp lỗi (`lipsync_unavailable`), về ảnh tĩnh cùng lúc; show nói tiếp bằng ảnh tĩnh | Đạt |
+| Bật lại fork | Trang host tự nối lại WebRTC, app tự nối `/ailive/ws`, log `renderer_restarted` (boot_id mới); vẫn ảnh tĩnh tới khi bấm bật lại (`POST /api/avatar/lipsync`) | Đạt |
+| Video sau khi bật lại | Lỗi tìm ra: luồng mới đến lúc video đang ẩn và tắt tiếng nên Chrome không tự phát; bật lại thì video đứng ở khung đầu (nhãn CSS vẫn hiện nên không mất nhãn). Đã sửa `host.js` (`showVideo` gọi `play()`); chạy lại tắt/bật fork: video phát ngay, không cần tải lại trang | Đạt sau sửa |
+
 ## 8. US3: clip chờ, xoay vòng, chuyển clip (SC-007, SC-008) [GPU laptop]
 
 - Để chờ 3 phút rồi 10 lượt nói, quay màn hình. Đếm lần giật ở chỗ lặp / chuyển clip (đạt ≤ 1). Nếu giật: chỉnh `LIVETALKING_TRANSITION_S`; nếu về clip chờ giữa hai câu: nâng `LIVETALKING_HOLD_S`.

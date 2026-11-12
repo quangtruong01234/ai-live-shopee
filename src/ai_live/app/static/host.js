@@ -129,6 +129,9 @@
   function showVideo(on) {
     video.hidden = !on;
     avatar.hidden = on;
+    // A stream that arrived while the video was hidden and muted (fork restarted during a fallback) never
+    // autoplays; the "Bắt đầu" click is the user activation that lets this unmuted play() start.
+    if (on && video.paused && video.srcObject) video.play().catch(() => {});
     updateLabel();
   }
 

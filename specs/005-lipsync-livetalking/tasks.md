@@ -243,9 +243,11 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
   câu đã gửi fork mà chưa phát thì câu đó vẫn phát sau khi dừng (+1,41 s) → `ScriptRunner.pause()` dừng và giữ lại câu đó như câu đang
   xếp hàng, `LiveTalkingRenderer.interrupt()` cho câu nói lại bắt đầu lượt mới `seq 0`. US2 #1 (giữ clip nói giữa hai câu) **chưa đạt**:
   cả 49 khoảng nghỉ cùng phân đoạn về `idle_01`; phần này thuộc T064–T066 (US3), không sửa trong T062._
-- [ ] T063 [GPU] [US2] Quickstart bước 7.4–7.5: `POST /api/debug/fault` bước `render` `count: 1` rồi `count: 2` → về ảnh tĩnh + dải cảnh báo, bấm
+- [x] T063 [GPU] [US2] Quickstart bước 7.4–7.5: `POST /api/debug/fault` bước `render` `count: 1` rồi `count: 2` → về ảnh tĩnh + dải cảnh báo, bấm
   bật lại → video (SC-005, FR-022); tắt fork giữa show → 2 lượt lỗi rồi ảnh tĩnh, show không dừng; bật lại fork + bấm bật lại → log
   `renderer_restarted` (FR-017, FR-021) (phụ thuộc T062)
+  - Kết quả 2026-11-12 (quickstart §7): cả 5 mục đạt. Lỗi tìm ra và đã sửa: fork bật lại trong lúc đang ảnh tĩnh thì luồng WebRTC mới
+    không tự phát (video ẩn + tắt tiếng), bật lại thì video đứng; `host.js` `showVideo` nay gọi `play()`.
 
 **Checkpoint:** `uv run pytest` xanh (T048–T053); quickstart bước 7 đạt; SC-003, SC-004, SC-005 có kết quả.
 
