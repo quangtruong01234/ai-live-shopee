@@ -13,7 +13,7 @@
 | Tavus (CVI, Phoenix-4) | API hội thoại avatar realtime | Trả phí. TODO | Quảng cáo phản hồi < 600 ms |
 | D-ID | API avatar realtime | Trả phí. TODO | |
 | Anam, bitHuman, Beyond Presence | API avatar realtime | TODO | Có plugin sẵn trong LiveKit Agents |
-| LiveTalking (Wav2Lip / MuseTalk), tự host | Mã nguồn mở, chạy trên GPU thuê (`docs/RUNPOD.md`) | Tiền thuê GPU theo giờ | Phương án hiện tại của feature 005; license yêu cầu watermark (`docs/RISKS.md`) |
+| LiveTalking + Wav2Lip (`wav2lip256`), tự host | Mã nguồn mở. **Đang dùng** (feature 005): fork chạy process riêng ngoài git trên laptop GTX 1650 Ti (ADR-023, ADR-042); RunPod chỉ là dự phòng (`docs/RUNPOD.md`) | Miễn phí trên laptop; tiền thuê GPU theo giờ nếu phải dùng RunPod | Đã cài theo ADR-048, chọn Wav2Lip thay MuseTalk vì VRAM 4 GB (ADR-041). Đo 2026-11-12: `render_fps` p50 ~24–25, VRAM 2,6 GB (quickstart 005 bước 9). License yêu cầu giữ watermark "LiveTalking" (ADR-044); license checkpoint `wav2lip256.pth` chưa rõ (`docs/RISKS.md`) |
 
 Cần so sánh trước khi chọn: độ tự nhiên, độ trễ, **chi phí mỗi giờ live** (mục tiêu ~15 giờ/ngày), có cho dùng ảnh/giọng người mẫu riêng
 không, và điều khoản xử lý dữ liệu người mẫu (phải nằm trong phạm vi văn bản đồng ý).

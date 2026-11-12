@@ -100,6 +100,8 @@ class LiveTalkingRenderer:
         self._waiters: dict[tuple[str, str, int], asyncio.Future[None]] = {}
         # Unfinished sentences per turn; with `lead_s` a sentence keeps playing after `speak` returned.
         self._active: dict[str, int] = {}
+        # Turns with a handed-off sentence still playing: resolved when the last one is released (`turn_settled`).
+        self._settled: dict[str, asyncio.Future[None]] = {}
         self._interrupted = False
 
     # ---------- Extra state ----------
@@ -160,7 +162,11 @@ class LiveTalkingRenderer:
             render_fps=render_fps,
             infer_fps=sum(turn.infer_fps) / len(turn.infer_fps) if turn.infer_fps else None,
             first_frame_at=turn.first_frame_at,
+            last_played_at=turn.last_played_at,
         )
+
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None:
+        return self._settled.get(utterance_id) if self._active.get(utterance_id) else None
 
     async def speak(self, utterance_id: str, text: str, audio: AsyncIterator[bytes], sample_rate: int) -> None:
         # A closed host page drops the WebRTC session and with it the fork link: report the page, as 001 does,
@@ -205,6 +211,7 @@ class LiveTalkingRenderer:
                     await asyncio.wait_for(asyncio.shield(played), max(0.0, duration_s - self.lead_s))
                 except TimeoutError:
                     handed_off = True
+                    self._settled.setdefault(utterance_id, asyncio.get_running_loop().create_future())
                     self._spawn(self._finish(utterance_id, seq, played, started, counted, duration_s))
                     return
             else:
@@ -262,6 +269,7 @@ class LiveTalkingRenderer:
             await asyncio.wait_for(played, duration_s + self.ack_timeout_s)
             if not self._interrupted:
                 await self._host.send_to_host({"type": "subtitle_clear", "utterance_id": utterance_id, "seq": seq})
+                await asyncio.wait({counted}, timeout=_STATS_GRACE_S)  # the turn's figures wait for this (R15)
         except (TimeoutError, RendererError) as exc:
             # Nobody awaits this sentence any more; the next one surfaces a dead fork through its own acks.
             log_event(
@@ -291,6 +299,9 @@ class LiveTalkingRenderer:
             self._active[utterance_id] = left
         else:
             self._active.pop(utterance_id, None)
+            settled = self._settled.pop(utterance_id, None)
+            if settled is not None and not settled.done():
+                settled.set_result(None)
 
     def _spawn(self, coro: Any) -> None:
         task = asyncio.get_running_loop().create_task(coro)

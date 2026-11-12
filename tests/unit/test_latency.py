@@ -271,3 +271,16 @@ def test_summary_json_has_render_fps():
     body = tracker.summary().to_json()
     assert body["render_fps"] == {"count": 1, "median": 25.0, "p95": None, "note": NOT_ENOUGH_SAMPLES}
     assert list(body["steps"]) == list(STEP_NAMES)
+
+
+def test_attach_render_fills_a_recorded_turn():
+    # LIVETALKING_LEAD_S: the turn is recorded before the fork's figures for its last sentence are in (005 R15).
+    tracker = LatencyTracker()
+    tracker.record(_turn("u1"))
+    tracker.record(_turn("u2"))
+    assert tracker.attach_render("u1", _render("u1", 22.0, 30.0, ("talk_01",))) is True
+    turn = tracker.turns[0]
+    assert (turn.render_fps, turn.infer_fps, turn.clips_used) == (22.0, 30.0, ["talk_01"])
+    assert tracker.summary().render_fps.count == 1
+    assert tracker.attach_render("u9", _render("u9", 20.0)) is False
+    assert tracker.attach_render("u2", None) is False

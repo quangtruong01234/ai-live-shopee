@@ -35,6 +35,13 @@ class RenderStatsSource(Protocol):
     def render_stats(self, utterance_id: str) -> RenderTurnStats | None: ...
 
 
+@runtime_checkable
+class RenderSettleSource(Protocol):
+    """A renderer whose `speak` can return before the turn's last sentence has played (R15, LIVETALKING_LEAD_S)."""
+
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None: ...  # None = nothing still playing
+
+
 class RendererError(RuntimeError):
     """Render-step failure reported by the renderer itself; `kind` goes to errors.jsonl (FR-021)."""
 
@@ -50,6 +57,13 @@ Lõi gọi:
 - Khi ghi `TurnLatency`, nếu `isinstance(renderer, RenderStatsSource)` thì chép `render_fps`, `infer_fps`, `clips_used` và log
   `render_stats` (events.md §2) khi renderer trả số liệu (lượt `livetalking`). Câu kịch bản không có `TurnLatency` (004 research R2), nên
   `ScriptRunner` chỉ log `render_stats` cho mỗi câu đã nói (sửa 2026-11-11 khi làm T051).
+- Với `LIVETALKING_LEAD_S > 0`, câu cuối của lượt còn đang phát khi `speak` trả về, nên số đo chưa đủ. Nếu renderer là
+  `RenderSettleSource` và `turn_settled(uid)` trả một future, lõi lấy số đo (và log `render_stats`) sau khi future xong, tối đa 30 giây;
+  `TurnLatency` đã ghi thì được bổ sung số đo. Còn lại thì lấy ngay như trước. Sửa 2026-11-12 khi làm T075: trước đó số đo của câu trả về sớm
+  bị mất.
+- `ScriptRunner` tính `sentence_gap` từ `RenderTurnStats.last_played_at` của câu trước (lúc fork báo `sentence_played`) khi renderer có
+  số này. Nếu không có thì dùng lúc `speak` trả về như trước. Sửa 2026-11-12 khi làm T075: với `LEAD_S`, lúc `speak` trả về sớm hơn lúc phát
+  xong tới `lead_s` giây, nên khoảng lặng bị tính dư.
 - `_render_error_kind` của `ShowDirector` thêm nhánh `getattr(exc, "kind", ...)` như `_error_kind` của `ScriptRunner`, để `RendererError.kind`
   vào `errors.jsonl`.
 
@@ -81,6 +95,8 @@ class LiveTalkingRenderer:
     def first_playback_at(self, utterance_id) -> float | None: ...
     # RenderStatsSource
     def render_stats(self, utterance_id) -> RenderTurnStats | None: ...
+    # RenderSettleSource: a future resolved when the turn's handed-off sentences are played and counted
+    def turn_settled(self, utterance_id) -> asyncio.Future[None] | None: ...
     # extra
     @property
     def ready(self) -> bool: ...            # fork socket open and hello received for the host's current session
@@ -95,7 +111,7 @@ Hành vi `speak` (giống `StaticRenderer`, khác đích gửi):
    `kind`; bản thiết kế ghi `TimeoutError`); câu `seq == 0` ghi `first_playback_at`. Ngay khi có ack, gửi
    `{"type":"subtitle", utterance_id, seq, text}` tới trang host.
 4. Chờ `sentence_played` ≤ thời lượng tiếng + `ack_timeout_s`; xong gửi `{"type":"subtitle_clear", utterance_id, seq}`. Với
-   `lead_s > 0`, `speak` trả về sớm `lead_s` giây trước khi câu phát xong; một tác vụ nền chờ `sentence_played` rồi mới gửi `subtitle_clear`.
+   `lead_s > 0`, `speak` trả về sớm `lead_s` giây trước khi câu phát xong; một tác vụ nền chờ `sentence_played` rồi mới gửi `subtitle_clear`, chờ thêm `stats` (≤ 0,5 giây) rồi mới coi câu đã xong (`turn_settled`).
 5. Tin `error` từ fork khi đang chờ → `RendererError(kind, message)`. Mất kết nối khi đang chờ → `RendererError("lipsync_unavailable")`.
    `hello` với `boot_id` khác lần trước → log `renderer_restarted`, các câu đang chờ lỗi `RendererError("renderer_restarted")`.
 
@@ -116,7 +132,7 @@ class SwitchingRenderer:
         clock: Callable[[], datetime] = ...,
     ) -> None: ...
     lipsync: LipsyncRenderer; static: StaticRenderer           # public: routes read lipsync.health / ready
-    # AvatarRenderer + RenderOutcomeSink + RenderStatsSource: delegate to the renderer chosen for the turn
+    # AvatarRenderer + RenderOutcomeSink + RenderStatsSource + RenderSettleSource: delegate to the renderer chosen for the turn
     @property
     def mode(self) -> AvatarModeState: ...
     async def enable_lipsync(self) -> AvatarModeState: ...   # POST /api/avatar/lipsync
@@ -205,6 +221,6 @@ bảng kết quả tiếng Việt. `run` tiêm được để test không cần 
 | 1 | Ghi chú tích hợp: TODO chọn (a) hay (b) | Chọn (b): TTS của mình đẩy PCM vào fork qua `/ailive/ws` | ADR-042, ADR-043; sửa ghi chú khi chốt |
 | 2 | `OutputSink` "làm ở 005" | **Không làm.** LiveTalking tự xuất WebRTC tới trang host; nhãn AI cũng nằm trong fork | ADR-043, ADR-044; ghi lại `OutputSink` để feature OBS/RTMP |
 | 3 | `AvatarRenderer` không có `first_playback_at` | Đã có trong code từ 004, ARCHITECTURE chưa ghi | Bổ sung vào ARCHITECTURE §3 lúc implement (sửa tài liệu cho khớp code) |
-| 4 | Không có | Protocol tùy chọn `RenderOutcomeSink`, `RenderStatsSource`, lỗi `RendererError` | ADR-046 |
+| 4 | Không có | Protocol tùy chọn `RenderOutcomeSink`, `RenderStatsSource`, `RenderSettleSource` (thêm 2026-11-12), lỗi `RendererError` | ADR-046 |
 | 5 | Implementations: `StaticRenderer`, `LiveTalkingRenderer` | Thêm `SwitchingRenderer` (lớp bọc chọn renderer theo lượt) | ADR-046 |
 | 6 | Bảng biến chọn adapter có `OUTPUT_MODE` | Không dùng ở 005 | Không đổi |

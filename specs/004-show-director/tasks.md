@@ -347,7 +347,7 @@ cho SC-003.
   > chưa đạt; SC-004 0,4902 sát ngưỡng; SC-003 chấm lại có 24 câu `unsupported_claim` nên thêm ADR-050 (prompt + guard). Còn: SC-009
   > (người chấm), tổng duyệt lại ngày riêng sau khi sửa. Chi tiết: quickstart "G5".
 - [x] T080 Cập nhật `docs/RISKS.md` Q14 và `specs/004-show-director/research.md` R14 bằng số request thật từ T075–T079
-- [ ] T081 Chạy `/update-context`
+- [x] T081 Chạy `/update-context` — Đã chạy 2026-11-12 (cùng 005 T082)
 
 ## Phụ thuộc và thứ tự
 

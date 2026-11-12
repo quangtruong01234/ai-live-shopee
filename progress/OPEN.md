@@ -24,6 +24,9 @@ Không có. Hiến pháp ở 1.2.0 (sửa 2026-11-01, [ADR-029](../docs/DECISION
 
 | Nguồn | Câu hỏi |
 |-------|---------|
+| [ADR-047](../docs/DECISIONS.md), [005 quickstart](../specs/005-lipsync-livetalking/quickstart.md) bước 9 | Đổi mặc định `LIVETALKING_LEAD_S` trong `.env.example` từ 0 thành 2,5? (lặng giữa câu nghe được p95 2,98 s → 0,76–1,0 s, 0 lỗi; phải nhỏ hơn `LIVETALKING_FIRST_FRAME_TIMEOUT_S`) |
+| [ADR-041](../docs/DECISIONS.md), 005 quickstart bước 9 (T075) | Chọn `LIVETALKING_BATCH_SIZE` 16 (show ~24 khung/giây, khung đầu 1,36 s) hay 8 (~20 khung/giây, khung đầu 0,73 s)? Có làm bộ clip nhỏ hơn (R8) hoặc thử RunPod (tốn tiền) không? |
+| [005 quickstart](../specs/005-lipsync-livetalking/quickstart.md) bước 9 | Xem bản ghi một lượt trả lời comment: miệng chỉ ~18 khung/giây vì VieNeu vừa tổng hợp vừa phát. Chấp nhận được không? |
 | [ADR-050](../docs/DECISIONS.md), `data/rules/claim_phrases.txt` | Duyệt danh sách 38 cụm "khẳng định không có căn cứ" mà guard chặn. Câu trả lời comment trung thực kiểu "chưa có thông tin về kích ứng" cũng bị chặn và thay bằng câu từ chối: chấp nhận được không? |
 | [005 quickstart](../specs/005-lipsync-livetalking/quickstart.md) bước 8 | Clip nói có đoạn đầu ngửa/nghiêng (`talk_02` khung ~64–120, `talk_01` ~32–60), miệng dán mở chỉ ~một nửa: cắt chỉ lấy đoạn mặt thẳng hay làm lại clip nói? Và duyệt sửa spec 005 phiên 2026-11-12 (giữ clip nói qua các câu, `HOLD_S` 2,5) |
 | [PRD.md](../docs/PRD.md) §3 số 1 | Có chấm độ khớp miệng theo thang 1–5 không? |

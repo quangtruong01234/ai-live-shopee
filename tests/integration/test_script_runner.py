@@ -1419,13 +1419,21 @@ async def fork() -> AsyncIterator[FakeFork]:
 class LipsyncScriptRig(ScriptRig):
     """`ScriptRig` with the app's lip-sync wiring: `SwitchingRenderer` over `LiveTalkingRenderer` (fake fork)."""
 
-    def __init__(self, fork: FakeFork, tmp_path: Path, settings, engine: FakeReplyEngine, **kwargs) -> None:
+    def __init__(
+        self, fork: FakeFork, tmp_path: Path, settings, engine: FakeReplyEngine, *, lead_s: float = 0.0, **kwargs
+    ) -> None:
         self.fork = fork
 
         def make(bus: EventBus, ack_timeout_s: float) -> SwitchingRenderer:
             static = StaticRenderer(ack_timeout_s=ack_timeout_s, bus=bus)
             lipsync = LiveTalkingRenderer(
-                fork.url, static, first_frame_timeout_s=1.0, ack_timeout_s=ack_timeout_s, reconnect_max_s=0.2, bus=bus
+                fork.url,
+                static,
+                first_frame_timeout_s=1.0,
+                ack_timeout_s=ack_timeout_s,
+                reconnect_max_s=0.2,
+                lead_s=lead_s,
+                bus=bus,
             )
             return SwitchingRenderer(lipsync, static, fallback_after=2, bus=bus)
 
@@ -1484,6 +1492,29 @@ async def test_lipsync_show_speaks_on_the_fork_with_subtitles_and_pause_resume_k
     assert stats[first.utterance_id]["clips_used"] == ["talk_01"] and stats[first.utterance_id]["frames"] > 0
     rows = {r["utterance_id"]: r["status"] for r in rig.jsonl("script_sentences.jsonl")}
     assert rows[first.utterance_id] == rows[speaking] == rows[nxt] == "spoken"
+
+
+async def test_lipsync_lead_gap_is_measured_from_when_the_fork_finished_playing(
+    fork, tmp_path, settings, json_log_lines
+):
+    # 005 R15: with LIVETALKING_LEAD_S `speak` returns before the sentence ends; the gap the viewer hears starts at
+    # the fork's `sentence_played`, and each sentence's figures are logged once they are in.
+    fork.time_scale = 0.5
+    rig = LipsyncScriptRig(fork, tmp_path, settings, FakeReplyEngine(), lead_s=5.0)
+    async with rig:
+        await wait_until(lambda: len(_events(json_log_lines, "sentence_gap")) >= 2, timeout_s=5.0)
+        await rig.stop()
+        gaps = _events(json_log_lines, "sentence_gap")[:2]
+        for gap in gaps:
+            before = rig.renderer.render_stats(gap["from_utterance_id"])
+            after = rig.renderer.first_playback_at(gap["to_utterance_id"])
+            assert before is not None and before.last_played_at is not None and after is not None
+            assert gap["seconds"] == pytest.approx(max(0.0, after - before.last_played_at), abs=2e-3)
+        await wait_until(
+            lambda: (
+                gaps[0]["from_utterance_id"] in {ln["utterance_id"] for ln in _events(json_log_lines, "render_stats")}
+            )
+        )
 
 
 async def test_lipsync_pause_stops_a_sentence_sent_but_not_heard_and_resume_speaks_it_again(

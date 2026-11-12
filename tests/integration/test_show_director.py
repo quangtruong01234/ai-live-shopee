@@ -1393,13 +1393,19 @@ class LipsyncRig(Rig):
     """`Rig` with the app's lip-sync wiring: `SwitchingRenderer` over `LiveTalkingRenderer` (fake fork) and the still
     image, the host page reporting its WebRTC session in `ready` (contracts/api.md §4)."""
 
-    def __init__(self, fork: FakeFork, engine=None, **kwargs) -> None:
+    def __init__(self, fork: FakeFork, engine=None, *, lead_s: float = 0.0, **kwargs) -> None:
         self.fork = fork
 
         def make(bus: EventBus) -> SwitchingRenderer:
             static = StaticRenderer(ack_timeout_s=1.0, bus=bus)
             lipsync = LiveTalkingRenderer(
-                fork.url, static, first_frame_timeout_s=1.0, ack_timeout_s=1.0, reconnect_max_s=0.2, bus=bus
+                fork.url,
+                static,
+                first_frame_timeout_s=1.0,
+                ack_timeout_s=1.0,
+                reconnect_max_s=0.2,
+                lead_s=lead_s,
+                bus=bus,
             )
             return SwitchingRenderer(lipsync, static, fallback_after=2, bus=bus)
 
@@ -1463,6 +1469,25 @@ async def test_lipsync_comment_reply_is_spoken_by_the_fork_with_subtitles(fork, 
     assert stats[0]["utterance_id"] == uid and stats[0]["clips_used"] == ["talk_01"]
     assert stats[0]["frames"] > 0 and stats[0]["infer_fps"] == pytest.approx(30.0)
     assert rig.renderer.mode.active == "livetalking" and rig.renderer.mode.consecutive_errors == 0
+
+
+async def test_lipsync_lead_turn_gets_its_figures_after_the_last_sentence_played(fork, json_log_lines):
+    # 005 R15: with LIVETALKING_LEAD_S the turn finishes while its last sentence still plays; the figures follow.
+    fork.time_scale = 1.0
+    fork.stats_delay_s = 0.1
+    rig = LipsyncRig(fork, FakeReplyEngine(THREE_SENTENCES), lead_s=0.5)
+    async with rig:
+        await rig.put("giá bao nhiêu?", "c1")
+        await wait_until(lambda: len(rig.finished) >= 1)
+        uid = rig.finished[0].utterance_id
+        assert rig.director.latency.turns[-1].clips_used is None
+        await wait_until(lambda: rig.director.latency.turns[-1].clips_used is not None, 5.0)
+
+    turn = rig.director.latency.turns[-1]
+    assert turn.utterance_id == uid and turn.clips_used == ["talk_01"] and turn.render_fps is not None
+    [stats] = [ln for ln in json_log_lines if ln["event"] == "render_stats"]
+    assert stats["utterance_id"] == uid
+    assert stats["frames"] == sum(round(s.duration_s * fork.fps) for s in fork.sentences if s.utterance_id == uid)
 
 
 async def test_lipsync_skip_stops_the_fork_within_one_second(fork):

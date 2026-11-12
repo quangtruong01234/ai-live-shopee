@@ -134,7 +134,18 @@
   R12 của 004 đã loại).
 - **Nguồn:** `avatars/base_avatar.py` (`inference`, `render`), `asr/base.py` (`stride_left_size = opt.l`, `stride_right_size = opt.r`),
   `config.yaml` (`l: 10`, `r: 10`, `batch_size: 16`) của LiveTalking; ARCHITECTURE §4.
-- **TODO:** đo lệch giữa ack và lúc Chrome vẽ khung (quay màn hình 60 fps cùng log, ≥ 10 câu); ghi vào quickstart US4.
+- **Số đo lệch ack ↔ hiển thị (2026-11-12, T074, phiên `20261112-192347`):**
+  - Cách đo (thay cho quay màn hình 60 fps, chính xác hơn và không cần ghi hình mặt): đầu đo chạy trong trang `/host` của Chrome thật.
+    WebAudio đọc tiếng của luồng WebRTC, lấy lúc tiếng bắt đầu sau ≥ 1 s im lặng (RMS < 0,003). Ghép với giờ ack (`t_mono` của
+    `avatar_first_frame`, đổi sang giờ đồng hồ bằng độ lệch trung vị của `comment_received` / `tts_first_chunk`, chênh 22 ms) trong cửa
+    sổ −0,5…+2,5 s. `requestVideoFrameCallback` cho độ trễ từ lúc khung tới trình duyệt đến lúc dự kiến vẽ.
+  - Ack → Chrome phát tiếng: 326/342 ack ghép được, trung vị 275 ms, p95 644 ms, nhỏ nhất 208 ms, lớn nhất 938 ms. Số này gồm cả đoạn gần
+    im lặng ở đầu tiếng TTS nên là cận trên.
+  - Khung nhận → vẽ (n = 16 467): trung vị 211 ms, p95 525 ms.
+  - Kết luận: tiếng và hình đi cùng một luồng WebRTC, Chrome tự đồng bộ hai bên, nên lệch này chung cho cả hai: không có cảnh "tiếng xong
+    trước miệng", không cần chỉnh `LIVETALKING_LEAD_S` vì lệch này. Khoảng lặng giữa câu gần như không đổi vì cả hai đầu cùng dịch. Mọi
+    số độ trễ ghi theo ack thấp hơn lúc người xem thấy chừng 0,2–0,3 s (p95 ~0,65 s).
+- **TODO:** không có.
 
 ## R7. Clip nền: chuẩn bị nhân vật, xoay vòng, chuyển clip mượt
 
@@ -285,4 +296,14 @@
   mục tiêu lặng p95 ≤ 1,5 s của Điều VI. Trả về sớm giải quyết trong renderer, không đổi lõi hay Protocol.
 - **Phương án đã cân nhắc:** lõi gửi trước câu kế tiếp (đổi `ShowDirector`/`ScriptRunner`, trái Điều IV); gộp cả lượt thành một câu với fork
   (mất ack từng câu cho phụ đề).
-- **TODO:** đo khoảng lặng giữa câu ở US4 với `LIVETALKING_LEAD_S=0`, rồi chọn giá trị (gợi ý bằng độ trễ khung đầu p50). Khoảng lặng này không làm nhân vật về clip chờ nhờ `LIVETALKING_HOLD_S` (R7); nếu lặng thật p95 lớn hơn `LIVETALKING_HOLD_S` thì nâng `LIVETALKING_HOLD_S` hoặc bật `LIVETALKING_LEAD_S` (T073).
+- ~~**TODO:** đo khoảng lặng giữa câu ở US4 với `LIVETALKING_LEAD_S=0`, rồi chọn giá trị (gợi ý bằng độ trễ khung đầu p50). Khoảng lặng này không làm nhân vật về clip chờ nhờ `LIVETALKING_HOLD_S` (R7); nếu lặng thật p95 lớn hơn `LIVETALKING_HOLD_S` thì nâng `LIVETALKING_HOLD_S` hoặc bật `LIVETALKING_LEAD_S` (T073).~~
+- **Số đo (2026-11-12, T073/T075; bảng ở quickstart bước 9, mục "Thử `LIVETALKING_LEAD_S`"):** đo khoảng lặng ở chỗ Chrome nghe.
+  - `LEAD_S` 0: p95 3,19 s, vượt cả `LIVETALKING_HOLD_S` 2,5 s.
+  - `LEAD_S` 1,3: p95 1,96 s.
+  - `LEAD_S` 2,5: p95 0,76–1,00 s, đạt.
+  - Đề xuất `LIVETALKING_LEAD_S=2.5`, chờ người dùng duyệt đổi mặc định; không cần nâng `LIVETALKING_HOLD_S`.
+  - Ràng buộc: câu xếp hàng chờ khung đầu lâu hơn chừng `LEAD_S`, nên `LEAD_S` phải nhỏ hơn hẳn `LIVETALKING_FIRST_FRAME_TIMEOUT_S`.
+- **Sửa khi đo (2026-11-12):**
+  - `LEAD_S` làm `sentence_gap` bị tính dư (tính từ lúc `speak` trả về) và làm mất số đo của câu trả về sớm.
+  - Thêm `RenderTurnStats.last_played_at` và Protocol tùy chọn `RenderSettleSource` (contracts/adapters.md §2, data-model §5). Đây là
+    Protocol tùy chọn, nên lõi không phụ thuộc vào renderer cụ thể.

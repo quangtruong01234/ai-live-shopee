@@ -595,6 +595,8 @@ class RenderTurnStats:
     render_fps: float | None = None
     infer_fps: float | None = None
     first_frame_at: float | None = None  # time.monotonic() of the first `playback_started` = avatar_first_frame
+    # time.monotonic() of the latest `sentence_played`: with LIVETALKING_LEAD_S `speak` returns before it (R15)
+    last_played_at: float | None = None
     error_kind: str | None = None
 
 

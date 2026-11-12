@@ -72,6 +72,20 @@ cd /workspace/ai-live && AVATAR_MODE=livetalking uvicorn ai_live.app.main:app --
 6. (Tùy chọn) YouTube: bật RTMP output tới YouTube Unlisted và cấu hình `YouTubeChatSource`.
 7. Theo dõi log độ trễ trong suốt buổi.
 
+### Chạy fork LiveTalking của feature 005 trên RunPod (thêm 2026-11-12, T077)
+
+Trên laptop, fork được dựng và chạy bằng `scripts/livetalking/` (quickstart 005 bước 1, 3, 5):
+- `setup.ps1` clone upstream vào `vendor/livetalking/` (ngoài git), ghim commit, tạo nhánh `ailive` và venv riêng Python 3.12;
+  không tải model.
+- `run.ps1` đọc `.env.example` rồi `.env` và truyền `LIVETALKING_BATCH_SIZE`, `LIVETALKING_LIP_EVERY_N`, nhãn AI… cho fork.
+  App nói chuyện với fork chỉ qua `LIVETALKING_URL` (`/ailive/health`, `/ailive/ws`), không import code fork (ADR-042, ADR-043).
+
+Khi phải dùng RunPod, làm cùng các bước đó trên pod: cài fork, tải model theo ADR-048, chép bộ clip đã `prepare` của đúng một khách,
+rồi trỏ `LIVETALKING_URL` của app tới cổng fork trên pod.
+- TODO: hai script là PowerShell cho Windows. Trên pod Linux, dùng `pwsh` hay viết bản bash (`scripts/runpod/`)?
+- TODO: nhánh `ailive` của fork chỉ nằm trên laptop (chưa đẩy lên đâu). Đưa lên pod bằng cách nào: repo riêng private hay chép thư mục?
+- TODO: bộ clip `prepare` gắn với commit fork (`avatar_prepared_with_other_fork`). Chép bộ đã chuẩn bị, hay chạy lại `prepare` trên pod?
+
 ## 5. Tắt máy (bắt buộc)
 
 - [ ] **Stop pod** ngay khi xong. Nếu không cần nữa thì **Terminate**, vì volume vẫn giữ dữ liệu.

@@ -78,12 +78,13 @@ from ai_live.core.protocols import (
     AvatarRenderer,
     ProductStore,
     RendererUnavailable,
+    RenderStatsSource,
     ReplyEngine,
     TTSEngine,
     TTSEngineError,
 )
 from ai_live.director.faults import FaultInjector, InjectedFault
-from ai_live.director.render_report import collect_render_stats, report_render_outcome
+from ai_live.director.render_report import collect_render_stats_when_settled, report_render_outcome
 from ai_live.director.segment_planner import NoSlotAvailable, PlannedSlot, SegmentPlanner
 from ai_live.director.session_log import (
     SessionLog,
@@ -1196,7 +1197,7 @@ class ScriptRunner:
             t_mono=played_at,
         )
         # No `TurnLatency` for scripted sentences (004 R2): the figures go to the log only.
-        collect_render_stats(self.renderer, sentence.utterance_id)
+        collect_render_stats_when_settled(self.renderer, sentence.utterance_id)
         self.history.add(SpokenLine(sentence.text, sentence.word_form, segment.product_id, _source(segment)))
         self._write_sentence(segment, sentence)
         utt = Utterance(
@@ -1273,6 +1274,11 @@ class ScriptRunner:
         if last is None or first is None:
             return
         last_id, last_segment, last_played_at = last
+        # With LIVETALKING_LEAD_S `speak` returned up to `lead_s` before the sentence finished playing: the
+        # renderer's own `sentence_played` time is the silence the viewer heard (005 R15).
+        played = self.renderer.render_stats(last_id) if isinstance(self.renderer, RenderStatsSource) else None
+        if played is not None and played.last_played_at is not None and played.last_played_at <= first:
+            last_played_at = played.last_played_at
         if paused:
             kind = GapKind.PAUSED  # the operator's pause, not the pipeline, made this silence (research R12)
         elif comment:

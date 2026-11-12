@@ -320,35 +320,35 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
   dán lại miệng vừa tạo lên khung nền hiện tại; `LIVETALKING_BATCH_SIZE` truyền vào `batch_size` (fork-protocol §4, research R6, R8, FR-007;
   phụ thuộc T066, T083) **(ADR-048)** — Đã làm: `n` đọc trong `base_avatar.__init__`, phép bỏ khung nằm ở
   `wav2lip_avatar.inference_batch` (nơi gọi model); `LIVETALKING_BATCH_SIZE` đã có sẵn qua `scripts/livetalking/run.ps1` (`--batch_size`).
-- [ ] T073 [GPU] [US4] Quickstart bước 9: 20 lượt rồi chạy show 30 phút; ghi `render_fps`, `infer_fps` p50/p95, bước
+- [x] T073 [GPU] [US4] Quickstart bước 9: 20 lượt rồi chạy show 30 phút; ghi `render_fps`, `infer_fps` p50/p95, bước
   `tts_first_chunk → avatar_first_frame` p50/p95, cả lượt p50/p95, VRAM đỉnh (`avatar.jsonl`), số lần `vram_oom` / `renderer_restarted`,
   khoảng lặng giữa câu p95 và câu đầu show (`segment_requested → avatar_first_frame`, Điều VI) vào `docs/DECISIONS.md` ADR-041 và bảng
   ở `specs/005-lipsync-livetalking/quickstart.md` bước 9 (spec SC-006 chỉ trỏ tới). Nếu lặng p95 > 1,5 s: đề xuất `LIVETALKING_LEAD_S`
   (gợi ý bằng độ trễ khung đầu p50) cho người dùng duyệt, chạy lại 20 lượt và ghi so sánh; nếu lặng p95 > `LIVETALKING_HOLD_S` thì
-  nâng `LIVETALKING_HOLD_S` (research R15) (US4 #1, #2; phụ thuộc T063, T070)
-- [ ] T074 [GPU] [US4] Đo lệch ack ↔ hiển thị: quay màn hình 60 fps cùng log, ≥ 10 câu; ghi vào `specs/005-lipsync-livetalking/research.md` R6;
-  nếu lệch làm tiếng xong trước miệng thì đề xuất giá trị `LIVETALKING_LEAD_S` cho người dùng duyệt (FR-019, SC-003) (phụ thuộc T073)
+  nâng `LIVETALKING_HOLD_S` (research R15) (US4 #1, #2; phụ thuộc T063, T070) — Đã làm 2026-11-12: bảng ở quickstart bước 9 và ADR-041; lặng p95 2,98 s nên thử `LIVETALKING_LEAD_S` 0 / 1,3 / 2,5, giá trị 2,5 đưa lặng nghe được p95 xuống 0,76–1,00 s; đổi mặc định `.env.example` chờ người dùng duyệt; không cần nâng `LIVETALKING_HOLD_S`.
+- [x] T074 [GPU] [US4] Đo lệch ack ↔ hiển thị: quay màn hình 60 fps cùng log, ≥ 10 câu; ghi vào `specs/005-lipsync-livetalking/research.md` R6;
+  nếu lệch làm tiếng xong trước miệng thì đề xuất giá trị `LIVETALKING_LEAD_S` cho người dùng duyệt (FR-019, SC-003) (phụ thuộc T073) — Đã làm 2026-11-12: đo bằng đầu đo WebAudio + `requestVideoFrameCallback` trong Chrome thay quay màn hình (326 câu); lệch trung vị 0,28 s, p95 0,64 s, chung cho tiếng và hình nên không cần `LIVETALKING_LEAD_S` vì lệch này (R6).
 - [ ] T075 [GPU] [US4] Chỉnh `LIVETALKING_BATCH_SIZE` (16, 8, 4) và, nếu fps < 25, thử `LIVETALKING_LIP_EVERY_N=2`; nếu vẫn < 25, nút (2)
   của R8 (bộ clip nhỏ hơn, ví dụ 360×624, rồi chạy lại `prepare`): dừng hỏi người dùng cách tạo bộ clip đó trước khi làm; ghi bảng so
   sánh vào `docs/DECISIONS.md` ADR-041. Nếu mọi cách đều dưới 25 khung/giây và người dùng thấy không đạt: dừng, báo người dùng, **hỏi chi phí trước khi
-  tính RunPod** (`docs/RUNPOD.md`) (FR-007, SC-006; phụ thuộc T072, T073)
+  tính RunPod** (`docs/RUNPOD.md`) (FR-007, SC-006; phụ thuộc T072, T073) — Đã đo 2026-11-12 batch 16 / 8 / 4 và `LIP_EVERY_N` 2 (bảng ở quickstart bước 9, ADR-041); chỉ batch 16 gần 25 khung/giây ở show; phần còn lại (bộ clip nhỏ hơn hoặc RunPod) chờ người dùng quyết nên chưa đánh dấu xong.
 
 **Checkpoint:** `uv run pytest` xanh; test `lipskip` xanh trong venv fork; SC-006 có số thật ghi vào ADR-041 và quickstart bước 9.
 
 ## Phase 7: Hoàn thiện và việc chung
 
-- [ ] T076 [P] Cập nhật `docs/ARCHITECTURE.md` §3 theo contracts/adapters.md §8 (Protocol tùy chọn, `LiveTalkingRenderer`, `SwitchingRenderer`,
-  `HostLink`, fork process riêng) (phụ thuộc T001)
-- [ ] T077 [P] Cập nhật `docs/VENDORS.md` (LiveTalking + Wav2Lip đã dùng, ADR-041/048) và `docs/RUNPOD.md` (chạy fork bằng
-  `scripts/livetalking/` khi phải dùng RunPod) (phụ thuộc T001, T002)
-- [ ] T078 [P] Cập nhật `src/README.md`: các module mới trong `src/ai_live/avatar/`, `scripts/livetalking/`, `vendor/livetalking/` ngoài git
-- [ ] T079 [P] Cập nhật `docs/RISKS.md` các mục license và GPU của plan (§Rủi ro mới) bằng số đo và kết quả thật từ T008, T073, T075; điều chưa rõ
-  (license checkpoint `wav2lip256.pth`) giữ `TODO:` kèm câu hỏi cụ thể
+- [x] T076 [P] Cập nhật `docs/ARCHITECTURE.md` §3 theo contracts/adapters.md §8 (Protocol tùy chọn, `LiveTalkingRenderer`, `SwitchingRenderer`,
+  `HostLink`, fork process riêng) (phụ thuộc T001) — Đã làm 2026-11-12 (thêm `RenderSettleSource`)
+- [x] T077 [P] Cập nhật `docs/VENDORS.md` (LiveTalking + Wav2Lip đã dùng, ADR-041/048) và `docs/RUNPOD.md` (chạy fork bằng
+  `scripts/livetalking/` khi phải dùng RunPod) (phụ thuộc T001, T002) — Đã làm 2026-11-12; RUNPOD còn 3 `TODO:` (script PowerShell trên Linux, nơi giữ nhánh `ailive`, chép hay chạy lại `prepare`)
+- [x] T078 [P] Cập nhật `src/README.md`: các module mới trong `src/ai_live/avatar/`, `scripts/livetalking/`, `vendor/livetalking/` ngoài git
+- [x] T079 [P] Cập nhật `docs/RISKS.md` các mục license và GPU của plan (§Rủi ro mới) bằng số đo và kết quả thật từ T008, T073, T075; điều chưa rõ
+  (license checkpoint `wav2lip256.pth`) giữ `TODO:` kèm câu hỏi cụ thể — Đã làm 2026-11-12: G9–G12 có số đo thật, L1 và L11 giữ TODO.
 - [ ] T080 [GPU] Quickstart bước 10: chia sẻ tab `/host` có tiếng vào Google Meet; bên kia thấy nhân vật, nhãn "AI", nghe tiếng khớp miệng
   (FR-018) (phụ thuộc T063)
-- [ ] T081 Chạy quickstart bước 0: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .` xanh, không test nào cần
-  `vendor/livetalking` hay GPU; và `vendor/livetalking/.venv/Scripts/python -m pytest vendor/livetalking/ailive_ext/tests` xanh
-- [ ] T082 Chạy `/update-context`
+- [x] T081 Chạy quickstart bước 0: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .` xanh, không test nào cần
+  `vendor/livetalking` hay GPU; và `vendor/livetalking/.venv/Scripts/python -m pytest vendor/livetalking/ailive_ext/tests` xanh — Đã chạy 2026-11-12: 1929 passed (14 deselected, 11 xfailed), ruff sạch, fork 114 passed.
+- [x] T082 Chạy `/update-context` — Đã chạy 2026-11-12
 
 ## Phụ thuộc và thứ tự
 

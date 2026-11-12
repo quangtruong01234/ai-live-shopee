@@ -722,8 +722,22 @@
 - **Số đo (2026-11-11, T046):** nhép miệng trên 1650 Ti với 12 đoạn tiếng VieNeu (5,0–34,9 s, thêm 1 đoạn im lặng):
   `first_frame_s` 0,92–1,16 s, `render_fps` 24,8–25,3, VRAM 2 656 MB không tăng sau đoạn 34,9 s. Người dùng chấm khớp miệng 10/10.
   Chi tiết ở quickstart 005 bước 6.
+- **Số đo (2026-11-12, T073, SC-006):** fork `477d4e4`, batch 16, `LIP_EVERY_N` 1, VieNeu trên CPU, engine trả lời giả (không tính LLM).
+  - 20 lượt bình luận: 0 lỗi; `tts_first_chunk → avatar_first_frame` p50 1,29 s / p95 1,71 s; cả lượt p50 1,84 s / p95 2,15 s;
+    `render_fps` p50 18,0 nhưng `infer_fps` p50 24,8 (tiếng VieNeu tới chậm hơn thời gian thực khi vừa tổng hợp vừa phát).
+  - Show 30 phút: 322 câu, 0 lỗi tts/render, 0 `vram_oom` / `renderer_restarted`, cùng một `boot_id`; `render_fps` p50 25,1 (p5 23,8);
+    VRAM 2 656 MB không đổi suốt 30 phút; câu đầu show 1,64 s; lặng giữa câu p95 2,98 s (vượt 1,5 s của Điều VI).
+  - VRAM đỉnh trong `avatar.jsonl` thiếu vì lỗi nối log (sửa ở commit `2c7bbf3`).
+  - Chi tiết, so sánh `LIVETALKING_LEAD_S` và `LIVETALKING_BATCH_SIZE` (T075): quickstart 005 bước 9.
+- **Số đo (2026-11-12, T075, `LIVETALKING_LEAD_S` 2,5, show 3 phút mỗi cấu hình):**
+  - Show `render_fps` p50 (p5): batch 16 24,0 (21,6), batch 8 20,0 (18,6), batch 4 19,1 (15,8), batch 16 với `LIP_EVERY_N` 2 20,1 (16,0).
+  - Khung đầu lượt bình luận p50: 1,36 / 0,73 / 0,45 / 1,06 s; lặng nghe được p95: 0,86 / 0,58 / 1,03 / 1,05 s.
+  - VRAM 2 656 / 1 004 / 894 / 2 660 MB; 0 lỗi, 0 `vram_oom` ở mọi cấu hình.
+  - `LIP_EVERY_N` 2 gần gấp đôi `infer_fps` (38) nhưng không tăng `render_fps`, nên nút cổ chai không nằm ở suy luận.
+  - Giữ mặc định batch 16, `LIP_EVERY_N` 1. TODO: người dùng chọn batch 16 (mượt hơn) hay 8 (phản ứng nhanh hơn); bước bộ clip nhỏ hơn
+    hoặc RunPod chờ người dùng. Bảng đầy đủ: quickstart 005 bước 9.
 - **TODO:**
-  - Đo fps và VRAM khi chạy 30 phút, độ trễ bước tạo hình p50/p95 (SC-006).
+  - ~~Đo fps và VRAM khi chạy 30 phút, độ trễ bước tạo hình p50/p95 (SC-006).~~ _Đã đo 2026-11-12 (T073), xem trên._
   - Xác minh license và nguồn gốc checkpoint (RISKS L11).
 
 ## ADR-042: Tích hợp LiveTalking bằng fork chạy process riêng, venv riêng, ngoài git
@@ -854,8 +868,14 @@
   - Ước từ thời lượng audio: 004 R12 đã loại.
   - Lõi gửi trước câu kế tiếp: phải đổi `ShowDirector` / `ScriptRunner`.
 - **TODO:**
-  - Đo lệch giữa ack và lúc hiển thị (RISKS G13).
-  - Chọn giá trị `LIVETALKING_LEAD_S` theo số đo.
+  - ~~Đo lệch giữa ack và lúc hiển thị (RISKS G13).~~ _Đã đo 2026-11-12 (T074): Chrome phát tiếng chậm hơn ack trung vị 0,28 s, p95
+    0,64 s, chung cho tiếng và hình; chi tiết research 005 R6._
+  - ~~Chọn giá trị `LIVETALKING_LEAD_S` theo số đo.~~ _Đã đo 2026-11-12 (T073/T075, quickstart 005 bước 9): khoảng lặng nghe được trong
+    Chrome có p95 3,19 s với `LEAD_S` 0, 1,96 s với 1,3, và 0,76–1,00 s với 2,5. Đề xuất `LIVETALKING_LEAD_S=2.5`. TODO: người dùng duyệt đổi mặc
+    định `.env.example` từ 0 thành 2,5._
+- **Bổ sung 2026-11-12 (sửa lỗi đo, T075):** với `LEAD_S > 0`, lúc `speak` trả về không còn là lúc câu phát xong. Vì vậy `sentence_gap`
+  tính từ `RenderTurnStats.last_played_at` (ack `sentence_played`). Số đo của lượt lấy sau khi renderer báo lượt đã xong qua Protocol tùy
+  chọn `RenderSettleSource.turn_settled`; `TurnLatency` đã ghi thì được bổ sung (contracts 005 adapters.md §2).
 
 ## ADR-048: Dependency và model cho feature 005
 - **Ngày:** 2026-11-06 · **Trạng thái:** Đã chốt (plan 005). Phần **repo app** (khai báo `websockets`) người dùng duyệt 2026-11-06;

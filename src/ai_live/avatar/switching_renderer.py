@@ -43,6 +43,7 @@ class LipsyncRenderer(Protocol):
     def is_speaking(self) -> bool: ...
     def first_playback_at(self, utterance_id: str) -> float | None: ...
     def render_stats(self, utterance_id: str) -> RenderTurnStats | None: ...
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None: ...
 
 
 class SwitchingRenderer:
@@ -163,6 +164,12 @@ class SwitchingRenderer:
         renderer = self._turn_renderer.get(utterance_id)
         stats = getattr(renderer, "render_stats", None)
         return stats(utterance_id) if stats is not None else None
+
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None:
+        # The still image's `speak` returns only once played, so only a lip-sync turn can still be playing.
+        renderer = self._turn_renderer.get(utterance_id)
+        settled = getattr(renderer, "turn_settled", None)
+        return settled(utterance_id) if settled is not None else None
 
     async def speak(self, utterance_id: str, text: str, audio: AsyncIterator[bytes], sample_rate: int) -> None:
         renderer = self._turn_renderer.get(utterance_id)

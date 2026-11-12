@@ -37,10 +37,13 @@
 - [ ] Dựng RunPod theo `RUNPOD.md`; thời gian từ lúc bật pod đến lúc sẵn sàng < 15 phút (TODO: mục tiêu này có hợp lý không?)
 - [ ] Kiểm tra WebRTC từ RunPod về Chrome laptop (rủi ro UDP)
 - [ ] Benchmark Wav2Lip vs MuseTalk: độ trễ, chất lượng miệng, VRAM; ghi ADR chọn model. Một phần: ADR-041 chọn Wav2Lip cho laptop
-  (MuseTalk không đủ 4 GB, chưa benchmark); số đo laptop 2026-11-11: `render_fps` 24,8–25,3, VRAM 2 656 MB; còn chạy 30 phút (SC-006 của 005)
+  (MuseTalk không đủ 4 GB, chưa benchmark); số đo laptop 2026-11-11: `render_fps` 24,8–25,3, VRAM 2 656 MB; chạy 30 phút 2026-11-12 (005 T073): 322 câu, 0 lỗi, `render_fps` p50 25,1, VRAM 2 656 MB không đổi; so sánh batch 16/8/4 và
+  `LIP_EVERY_N` 2 (T075, ADR-041): giữ batch 16. Còn benchmark MuseTalk trên GPU lớn (RunPod, hỏi chi phí trước)
 - [x] Chuẩn bị dữ liệu avatar (video/ảnh nền) theo yêu cầu của model đã chọn: 4 clip Wan 2.2 (ADR-036), làm mượt bằng
   `scripts/avatar_clips/smooth_clips.py`, `prepare` cho Wav2Lip; người dùng duyệt hết rung 2026-11-10 (005 T044, T045)
 - [x] Nhãn "AI" ghép vào frame (ADR-044): 12/12 ảnh chụp `/host` lúc chờ và lúc nói có nhãn trong khung hình, 2026-11-11 (005 T047, SC-002)
+- [ ] Duyệt số đo 005 US4 (gói duyệt 2026-11-12): đổi mặc định `LIVETALKING_LEAD_S` 0 → 2,5 (lặng giữa câu p95 2,98 s → 0,76–1,0 s),
+  chọn batch 16 hay 8, xem bản ghi một lượt bình luận (`render_fps` ~18 khi VieNeu vừa tổng hợp vừa phát)
 - [ ] Bố cục cảnh live quanh host (bàn, sản phẩm hai bên/phía sau, thẻ giá): đề xuất `009-live-scene-layout`, làm sau 003
 - [ ] ~~Đo độ trễ end-to-end < 5 giây (p95) với comment mock~~ tạm hoãn (ADR-026); đo tốc độ nhân vật theo spec 005
 

@@ -140,6 +140,7 @@ Gắn với `utterance_id` (spec "Lượt tạo hình", "Số đo tạo hình").
 | `render_fps` | `float \| None` | khung đã gửi / thời gian từ `playback_started` câu đầu tới `sentence_played` câu cuối |
 | `infer_fps` | `float \| None` | trung bình fork báo (`infer_fps` của LiveTalking) |
 | `first_frame_at` | `float \| None` | `time.monotonic()` lúc nhận `playback_started` câu đầu = mốc `avatar_first_frame` |
+| `last_played_at` | `float \| None` | `time.monotonic()` lúc nhận `sentence_played` câu cuối đã phát; `ScriptRunner` tính `sentence_gap` từ số này (thêm 2026-11-12, T075) |
 | `error_kind` | `str \| None` | `timeout`, `host_unavailable`, `lipsync_unavailable`, `vram_oom`, `renderer_restarted`, `injected_*` |
 
 `TurnLatency` (004, `core/models.py`) thêm ba trường tùy chọn `render_fps`, `infer_fps`, `clips_used`, mặc định `None`, để bảng độ trễ

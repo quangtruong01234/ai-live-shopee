@@ -217,6 +217,24 @@ async def test_lead_returns_early_and_clears_subtitle_later(fork: FakeFork, make
     await until(lambda: "subtitle_clear" in host.kinds())
 
 
+async def test_lead_turn_settles_once_played_and_counted(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    """R15: a handed-off sentence's figures arrive after `speak`; `turn_settled` says when the turn has them."""
+    fork.time_scale = 1.0
+    fork.stats_delay_s = 0.1
+    renderer, _ = await make_renderer(lead_s=0.6)
+    assert renderer.turn_settled("u1") is None
+    await renderer.speak("u1", "Dạ.", audio(pcm(1.0)), SAMPLE_RATE)
+    returned_at = time.monotonic()
+    settled = renderer.turn_settled("u1")
+    assert settled is not None and not settled.done()
+    assert renderer.render_stats("u1").frames == 0
+    await asyncio.wait_for(settled, 3.0)
+    stats = renderer.render_stats("u1")
+    assert stats.frames > 0 and stats.render_fps is not None
+    assert stats.last_played_at is not None and stats.last_played_at > returned_at
+    assert renderer.turn_settled("u1") is None
+
+
 async def test_render_stats_accumulate_over_turn(fork: FakeFork, make_renderer: MakeRenderer) -> None:
     """FR-020: frames, render fps, inference fps and talk clips per turn."""
     fork.time_scale = 1.0

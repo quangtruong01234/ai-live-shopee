@@ -18,7 +18,7 @@ Mọi dòng có `utterance_id` khi gắn với lượt (Điều VIII). Không gh
 | Sự kiện | Trường | Ghi chú |
 |---------|--------|---------|
 | `avatar_first_frame` | `utterance_id`, `mode` | Mốc đã có; ở `livetalking` = nhận `playback_started` câu đầu từ fork (R6) |
-| `render_stats` | `utterance_id`, `frames`, `render_fps`, `infer_fps`, `clips_used` | Cuối lượt `livetalking` (FR-020) |
+| `render_stats` | `utterance_id`, `frames`, `render_fps`, `infer_fps`, `clips_used` | Cuối lượt `livetalking` (FR-020). Với `LIVETALKING_LEAD_S > 0`, dòng này được ghi sau khi câu cuối của lượt đã phát (≤ 30 s), muộn hơn lúc `speak` trả về (sửa 2026-11-12, T075; contracts/adapters.md §2) |
 | `avatar_fallback` | `utterance_id` (lượt lỗi cuối), `consecutive_errors`, `last_error_kind` | FR-022 |
 | `avatar_lipsync_enabled` | `by: "operator"` | FR-022 |
 | `lipsync_connected` / `lipsync_disconnected` | `boot_id`, `fork_commit`, `session_id` / `reason` | |

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import statistics
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from ai_live.core.models import (
@@ -133,6 +133,22 @@ class LatencyTracker:
         for milestone, at in utterance.marks.items():
             self.mark(utterance.utterance_id, milestone, at)
         return self.finish(utterance.utterance_id, utterance.outcome, render=render)
+
+    def attach_render(self, utterance_id: str, render: RenderTurnStats | None) -> bool:
+        """Add render figures that came after the turn was recorded (LIVETALKING_LEAD_S, 005 R15)."""
+        if render is None:
+            return False
+        for i in range(len(self._turns) - 1, -1, -1):
+            turn = self._turns[i]
+            if turn.utterance_id == utterance_id:
+                self._turns[i] = replace(
+                    turn,
+                    render_fps=render.render_fps,
+                    infer_fps=render.infer_fps,
+                    clips_used=list(render.clips_used),
+                )
+                return True
+        return False
 
     def summary(self, *, idle_only: bool = False) -> LatencySummary:
         completed = [t for t in self._turns if t.outcome is TurnOutcome.COMPLETED]

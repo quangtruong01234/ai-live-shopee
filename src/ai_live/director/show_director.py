@@ -49,6 +49,7 @@ from ai_live.core.models import (
     ErrorStep,
     Milestone,
     QueuedComment,
+    RenderTurnStats,
     ShowSession,
     ShowState,
     SpokenHistory,
@@ -67,7 +68,7 @@ from ai_live.core.protocols import (
 )
 from ai_live.director.faults import ENTRY_FAULT_MODES, FAULT_MODES, FAULT_STEPS, FaultInjector, InjectedFault
 from ai_live.director.latency import LatencyTracker
-from ai_live.director.render_report import collect_render_stats, report_render_outcome
+from ai_live.director.render_report import collect_render_stats_when_settled, report_render_outcome
 from ai_live.director.script_runner import ScriptRunner, next_tts_chunk, tts_error_text
 from ai_live.director.segment_planner import NoSlotAvailable, PlannedSlot, SegmentPlanner, TopicUnavailable
 from ai_live.director.session_log import SessionLog, comment_record, error_record, utterance_record
@@ -784,6 +785,11 @@ class ShowDirector:
         utt.mark(milestone, at)
         log_event(logger, milestone.value, utterance_id=utt.utterance_id, t_mono=at)
 
+    def _attach_render(self, utterance_id: str, render: RenderTurnStats | None) -> None:
+        # The turn's figures came after `turn_finished` (LIVETALKING_LEAD_S): refresh the latency panel with them.
+        if self.latency.attach_render(utterance_id, render):
+            self.bus.publish(Event(EventType.LATENCY, self.latency.summary().to_json()))
+
     def _mark_first_frame(self, utt: Utterance) -> None:
         # Only the AvatarRenderer protocol is used, so any renderer that reports first playback works unchanged.
         first = self.renderer.first_playback_at(utt.utterance_id)
@@ -808,7 +814,9 @@ class ShowDirector:
             # Provider errors can echo a key, as for `show_error`.
             payload["error_message"] = redact_text(utt.error_message) if utt.error_message else None
         log_event(logger, "turn_finished", **payload)
-        self.latency.record(utt, render=collect_render_stats(self.renderer, utt.utterance_id))
+        uid = utt.utterance_id
+        render = collect_render_stats_when_settled(self.renderer, uid, on_late=lambda s: self._attach_render(uid, s))
+        self.latency.record(utt, render=render)
         if self.session_log is not None:
             self.session_log.write_utterance(utterance_record(utt, self.llm_model))
             if queued.status in _FINAL_COMMENT_STATUSES:

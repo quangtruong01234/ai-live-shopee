@@ -127,7 +127,8 @@ class Product:
 ## 3. Interface các adapter
 
 Mọi adapter là `typing.Protocol` và được chọn bằng biến môi trường (`COMMENT_SOURCE`, `REPLY_ENGINE` (`chain | gemini | fake`), `TTS_PROVIDER`, `AVATAR_MODE`, `OUTPUT_MODE`).
-Mã nguồn: `src/ai_live/core/protocols.py`. Bản dưới đây đã cập nhật theo feature 001 (`specs/001-local-reply-pipeline/contracts/adapters.md`).
+Mã nguồn: `src/ai_live/core/protocols.py`. Bản dưới đây đã cập nhật theo feature 001 (`specs/001-local-reply-pipeline/contracts/adapters.md`)
+và phần renderer theo feature 005 (`specs/005-lipsync-livetalking/contracts/adapters.md`).
 
 ```python
 class CommentSource(Protocol):
@@ -174,18 +175,41 @@ class TTSEngine(Protocol):
     def synthesize(self, text: str) -> AsyncIterator[bytes]: ...   # lỗi ném TTSEngineError
 
 class AvatarRenderer(Protocol):
-    """Biến audio thành hình nhép miệng realtime. Implementations: StaticRenderer, LiveTalkingRenderer."""
+    """Biến audio thành hình nhép miệng realtime. Implementations: StaticRenderer (ảnh + tiếng), LiveTalkingRenderer
+    (fork LiveTalking, Wav2Lip), SwitchingRenderer (lớp bọc chọn renderer theo lượt, ADR-046)."""
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     async def speak(self, utterance_id: str, text: str, audio: AsyncIterator[bytes], sample_rate: int) -> None: ...
     async def interrupt(self) -> None: ...
     @property
     def is_speaking(self) -> bool: ...
+    def first_playback_at(self, utterance_id: str) -> float | None: ...   # lúc câu đầu bắt đầu phát (avatar_first_frame)
     # Không có trang /host kết nối thì speak() ném RendererUnavailable (ADR-016).
+    # Lỗi bước tạo hình ném RendererError(kind): lipsync_unavailable | vram_oom | inference_failed | bad_audio |
+    # renderer_restarted | timeout (FR-021).
+
+# Protocol tùy chọn (005, ADR-046): lõi kiểm bằng isinstance, renderer không có (StaticRenderer) vẫn chạy như cũ.
+class RenderOutcomeSink(Protocol):     # renderer muốn biết lượt kết thúc ra sao (SwitchingRenderer đếm lỗi để chuyển về static)
+    def record_render_outcome(self, utterance_id: str, ok: bool, *, error_kind: str | None = None) -> None: ...
+class RenderStatsSource(Protocol):     # renderer tự đo fps của lượt (render_fps, infer_fps, clips_used; FR-020)
+    def render_stats(self, utterance_id: str) -> RenderTurnStats | None: ...
+class RenderSettleSource(Protocol):    # speak() có thể trả về trước khi câu cuối phát xong (LIVETALKING_LEAD_S)
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None: ...   # lõi chờ future rồi mới lấy số đo
+
+class HostLink(Protocol):
+    """Kênh /host mà renderer nhép miệng cần: sessionid WebRTC của fork, trang đã sẵn sàng chưa, gửi tin JSON tới trang
+    (src/ai_live/avatar/static_renderer.py)."""
+    @property
+    def lipsync_session(self) -> str | None: ...
+    @property
+    def host_ready(self) -> bool: ...
+    async def send_to_host(self, message: dict[str, Any]) -> bool: ...
+    def on_session_change(self, callback: Callable[[str | None], None]) -> None: ...
 
 class OutputSink(Protocol):
-    """Đích phát. Implementations: WebRTCSink, VirtualCamSink, RtmpSink. Chưa dùng ở 001 (static renderer phát thẳng ra
-    trình duyệt); làm ở 005."""
+    """Đích phát. Implementations: WebRTCSink, VirtualCamSink, RtmpSink. Chưa làm: ở 001 static renderer phát thẳng ra
+    trình duyệt; ở 005 fork LiveTalking tự phát WebRTC tới /host và tự vẽ nhãn AI (ADR-043, ADR-044).
+    Để dành cho feature OBS/RTMP."""
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     async def write_video(self, frame: "np.ndarray", pts: float) -> None: ...
@@ -198,6 +222,11 @@ class OutputSink(Protocol):
 
 Đã chốt (b) (ADR-042, ADR-043): app đẩy PCM qua WebSocket `/ailive/ws` của fork, fork chỉ làm lip-sync và phát WebRTC tới `/host`.
 Với `livetalking`, nhãn AI vẽ trong khung hình của fork (ADR-044).
+- Fork chạy **process riêng, venv riêng, ngoài git** (`vendor/livetalking/`, ADR-042), khởi động bằng `scripts/livetalking/run.ps1`;
+  app chỉ nói chuyện với fork qua HTTP/WebSocket (`/ailive/health`, `/ailive/ws`), không import code fork.
+- `SwitchingRenderer` giữ cả `StaticRenderer` lẫn `LiveTalkingRenderer`: chọn theo `AVATAR_MODE`, tự về `static` sau nhiều lỗi liên
+  tiếp và chỉ bật lại khi người vận hành bấm (FR-022).
+- Giao thức app ↔ fork: `specs/005-lipsync-livetalking/contracts/fork-protocol.md`.
 
 ## 4. Ngân sách độ trễ (mục tiêu < 5 giây)
 

@@ -13,8 +13,9 @@ A livestream-selling service with an **AI host**: a real-time lip-synced avatar,
 - **Current phase: DEMO.** 1 customer, 1 main product and 2–3 secondary products. The demo runs **outside Shopee**: over Google Meet
   (sharing a Chrome tab with audio), then optionally a YouTube Unlisted livestream. The customer pays only if the demo is good.
 - **Later phase:** Shopee Live via OBS (RTMP + Stream Key), about 15 hours/day.
-- **Code status:** `src/ai_live/` has the 001 pipeline (101/116 tasks, paused by ADR-026), the 004 show director (79/81), the
-  003 Vietnamese TTS (done), the 005 lip-sync fork (67/83, US1 and US2 done, US3 T064–T067 done) and the 008 LLM chain (done).
+- **Code status:** `src/ai_live/` has the 001 pipeline (101/116 tasks, paused by ADR-026), the 004 show director (80/81), the
+  003 Vietnamese TTS (done), the 005 lip-sync fork (80/83: US1–US3 done except T068, US4 measured, T075 tail and T080 wait for
+  the user) and the 008 LLM chain (done).
   Current status: `progress/STATUS.md`.
 
 ## Architecture (summary)

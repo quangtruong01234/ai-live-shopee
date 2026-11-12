@@ -5,6 +5,7 @@ A new source or provider is a new class satisfying a Protocol, never a change to
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
@@ -152,3 +153,14 @@ class RenderStatsSource(Protocol):
     """A renderer that measures its own frame rate per turn (FR-020)."""
 
     def render_stats(self, utterance_id: str) -> RenderTurnStats | None: ...
+
+
+@runtime_checkable
+class RenderSettleSource(Protocol):
+    """A renderer whose `speak` can return before the turn's last sentence has played (R15, LIVETALKING_LEAD_S).
+
+    `turn_settled` gives a future that resolves once those sentences are played and counted, or None when nothing
+    of the turn is still playing, so the core collects the turn's figures only when they are complete.
+    """
+
+    def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None: ...
