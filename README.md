@@ -117,7 +117,7 @@ specs/           Spec, plan, tasks của từng feature (001–010)
 docs/            PRD, kiến trúc, quyết định (ADR), lộ trình, rủi ro, runbook
 progress/        Trạng thái hiện tại, danh mục feature, câu hỏi mở, nhật ký
 scripts/         LiveTalking, notebook Kaggle tạo avatar/huấn luyện, công cụ khẩu hình, tạo nội dung demo
-data/            Dữ liệu demo và luật (lọc spam, ưu tiên, cụm từ cấm)
+data/            Sản phẩm demo, luật (spam, ưu tiên, cụm từ cấm, viết tắt TTS), bộ câu hỏi chấm điểm
 ```
 
 Không có trong git: `.env`, `vendor/`, `assets/avatars/`, `assets/scenes/`, trọng số model, ảnh/video/giọng của người mẫu, dữ liệu
