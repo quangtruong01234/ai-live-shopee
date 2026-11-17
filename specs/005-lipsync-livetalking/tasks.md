@@ -328,10 +328,10 @@ liền nhau thì tự về ảnh tĩnh, người vận hành bật lại đượ
   nâng `LIVETALKING_HOLD_S` (research R15) (US4 #1, #2; phụ thuộc T063, T070) — Đã làm 2026-11-12: bảng ở quickstart bước 9 và ADR-041; lặng p95 2,98 s nên thử `LIVETALKING_LEAD_S` 0 / 1,3 / 2,5, giá trị 2,5 đưa lặng nghe được p95 xuống 0,76–1,00 s; đổi mặc định `.env.example` chờ người dùng duyệt; không cần nâng `LIVETALKING_HOLD_S`.
 - [x] T074 [GPU] [US4] Đo lệch ack ↔ hiển thị: quay màn hình 60 fps cùng log, ≥ 10 câu; ghi vào `specs/005-lipsync-livetalking/research.md` R6;
   nếu lệch làm tiếng xong trước miệng thì đề xuất giá trị `LIVETALKING_LEAD_S` cho người dùng duyệt (FR-019, SC-003) (phụ thuộc T073) — Đã làm 2026-11-12: đo bằng đầu đo WebAudio + `requestVideoFrameCallback` trong Chrome thay quay màn hình (326 câu); lệch trung vị 0,28 s, p95 0,64 s, chung cho tiếng và hình nên không cần `LIVETALKING_LEAD_S` vì lệch này (R6).
-- [ ] T075 [GPU] [US4] Chỉnh `LIVETALKING_BATCH_SIZE` (16, 8, 4) và, nếu fps < 25, thử `LIVETALKING_LIP_EVERY_N=2`; nếu vẫn < 25, nút (2)
+- [x] T075 [GPU] [US4] Chỉnh `LIVETALKING_BATCH_SIZE` (16, 8, 4) và, nếu fps < 25, thử `LIVETALKING_LIP_EVERY_N=2`; nếu vẫn < 25, nút (2)
   của R8 (bộ clip nhỏ hơn, ví dụ 360×624, rồi chạy lại `prepare`): dừng hỏi người dùng cách tạo bộ clip đó trước khi làm; ghi bảng so
   sánh vào `docs/DECISIONS.md` ADR-041. Nếu mọi cách đều dưới 25 khung/giây và người dùng thấy không đạt: dừng, báo người dùng, **hỏi chi phí trước khi
-  tính RunPod** (`docs/RUNPOD.md`) (FR-007, SC-006; phụ thuộc T072, T073) — Đã đo 2026-11-12 batch 16 / 8 / 4 và `LIP_EVERY_N` 2 (bảng ở quickstart bước 9, ADR-041); chỉ batch 16 gần 25 khung/giây ở show; phần còn lại (bộ clip nhỏ hơn hoặc RunPod) chờ người dùng quyết nên chưa đánh dấu xong.
+  tính RunPod** (`docs/RUNPOD.md`) (FR-007, SC-006; phụ thuộc T072, T073) — Đã đo 2026-11-12 batch 16 / 8 / 4 và `LIP_EVERY_N` 2 (bảng ở quickstart bước 9, ADR-041); chỉ batch 16 gần 25 khung/giây ở show; người dùng chốt 2026-11-16: batch 16, không làm bộ clip nhỏ hơn, không RunPod.
 
 **Checkpoint:** `uv run pytest` xanh; test `lipskip` xanh trong venv fork; SC-006 có số thật ghi vào ADR-041 và quickstart bước 9.
 

@@ -45,6 +45,7 @@ from ai_live.core.events import Event, EventBus, EventType, comment_dropped_even
 from ai_live.core.logging import log_event
 from ai_live.core.models import (
     CommentStatus,
+    ContentSource,
     DropReason,
     ErrorStep,
     Milestone,
@@ -71,7 +72,7 @@ from ai_live.director.latency import LatencyTracker
 from ai_live.director.render_report import collect_render_stats_when_settled, report_render_outcome
 from ai_live.director.script_runner import ScriptRunner, next_tts_chunk, tts_error_text
 from ai_live.director.segment_planner import NoSlotAvailable, PlannedSlot, SegmentPlanner, TopicUnavailable
-from ai_live.director.session_log import SessionLog, comment_record, error_record, utterance_record
+from ai_live.director.session_log import SessionLog, comment_record, error_record, render_record, utterance_record
 from ai_live.director.show_stats import ShowStats
 from ai_live.products.models import ProductCatalog
 from ai_live.security.redact import redact_text
@@ -403,8 +404,13 @@ class ShowDirector:
 
     # ---------- Scripted show (004 US1) ----------
 
-    async def start_show(self, t_mono: float | None = None) -> tuple[ShowSession, bool]:
+    async def start_show(
+        self, t_mono: float | None = None, *, content: ContentSource = "script"
+    ) -> tuple[ShowSession, bool]:
         """Start the show, or return the one already running: `(show, already_running)` (contracts/api.md §2).
+
+        `content="verbatim"` reads the products' own intro and description, never the engine (007 R6). A running
+        show keeps the source it started with.
 
         Raises `HostUnavailable` when the host page is not ready and `NoContent` when no product is loaded.
         """
@@ -431,6 +437,7 @@ class ShowDirector:
             catalog_version=catalog.version,
             state=ShowState.RUNNING,
             started_at=datetime.now(UTC),
+            content_source=content,
         )
         runner = ScriptRunner(
             show=show,
@@ -453,7 +460,7 @@ class ShowDirector:
         self._sync_intake()
         self._show_task = asyncio.create_task(self._run_show(runner), name="script_runner")
         self._publish_show_state()
-        self._log_applied("show_start", t_mono, show_id=show.show_id)
+        self._log_applied("show_start", t_mono, show_id=show.show_id, content=content)
         return show, False
 
     def show_snapshot(self) -> dict[str, Any] | None:
@@ -752,6 +759,8 @@ class ShowDirector:
     async def _play(self, utt: Utterance, sentences: asyncio.Queue[object]) -> None:
         # The whole answer holds the floor, so the script never speaks in the middle of a reply (research R8).
         async with self._floor:
+            # Not logged: only the latency split needs it (001 data-model.md §4).
+            utt.mark(Milestone.FLOOR_ACQUIRED, self._clock())
             await self._play_all(utt, sentences)
 
     async def _play_all(self, utt: Utterance, sentences: asyncio.Queue[object]) -> None:
@@ -790,6 +799,10 @@ class ShowDirector:
         if self.latency.attach_render(utterance_id, render):
             self.bus.publish(Event(EventType.LATENCY, self.latency.summary().to_json()))
 
+    def _write_render(self, stats: RenderTurnStats, show_id: str | None) -> None:
+        if self.session_log is not None:
+            self.session_log.write_avatar(render_record(stats, show_id))
+
     def _mark_first_frame(self, utt: Utterance) -> None:
         # Only the AvatarRenderer protocol is used, so any renderer that reports first playback works unchanged.
         first = self.renderer.first_playback_at(utt.utterance_id)
@@ -815,7 +828,12 @@ class ShowDirector:
             payload["error_message"] = redact_text(utt.error_message) if utt.error_message else None
         log_event(logger, "turn_finished", **payload)
         uid = utt.utterance_id
-        render = collect_render_stats_when_settled(self.renderer, uid, on_late=lambda s: self._attach_render(uid, s))
+        render = collect_render_stats_when_settled(
+            self.renderer,
+            uid,
+            on_late=lambda s: self._attach_render(uid, s),
+            on_stats=lambda s: self._write_render(s, utt.show_id),
+        )
         self.latency.record(utt, render=render)
         if self.session_log is not None:
             self.session_log.write_utterance(utterance_record(utt, self.llm_model))

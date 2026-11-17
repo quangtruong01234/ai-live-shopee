@@ -27,6 +27,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 _CHAIN_LABEL = re.compile(r"[a-z0-9_-]{1,24}")
 _CHAIN_PLATFORM = re.compile(r"[a-z0-9_-]{1,32}")
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# The `.env.example` value before 006; still accepted as `meet` so an existing `.env` keeps working (ADR-058).
+_LEGACY_OUTPUT_MODE = "webrtc"
 # LIVETALKING_URL: the fork has no auth, so the app only ever talks to one on this machine (data-model §1).
 _FORK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 _CUSTOMER_ID_RE = re.compile(r"[a-z0-9_-]{1,64}")
@@ -137,6 +139,9 @@ class Settings(BaseSettings):
     comment_source: Literal["mock", "youtube", "shopee"] = "mock"
     tts_provider: Literal["fake", "vieneu", "gemini"] = "fake"
     avatar_mode: Literal["static", "livetalking"] = "static"
+    # 006: where the host is shown: `/host` shared into Meet or an OBS Browser Source on `/obs` (ADR-058). It only
+    # changes what the readiness check and the watchdog require; both pages work in either mode.
+    output_mode: Literal["meet", "obs"] = "meet"
     reply_engine: Literal["chain", "gemini", "fake"] = "chain"
 
     # ---------- LLM model chain (REPLY_ENGINE=chain, feature 008, ADR-035/037/038) ----------
@@ -181,7 +186,8 @@ class Settings(BaseSettings):
     livetalking_python: Path = Path("vendor/livetalking/.venv/Scripts/python.exe")
     livetalking_first_frame_timeout_s: float = Field(10, gt=0)
     livetalking_reconnect_max_s: float = Field(10, gt=0)
-    livetalking_lead_s: float = Field(0, ge=0)
+    # 2.5 s cuts the audible gap between sentences from p95 2.98 s to under 1 s on the laptop (ADR-047).
+    livetalking_lead_s: float = Field(2.5, ge=0)
     ai_label_text: str = "AI"
     ai_label_position: str = "top-right"
     renderer_ack_timeout_s: float = Field(3, gt=0)
@@ -212,6 +218,58 @@ class Settings(BaseSettings):
     content_max_bytes: int = Field(5_242_880, gt=0)
     session_data_dir: Path = Path("data/sessions")
 
+    # ---------- Live scene (feature 009, ADR-051) ----------
+    scene_enabled: bool = False
+    scene_dir: Path = Path("assets/scenes/demo")
+    scene_subtitles: bool = False
+    scene_font_path: Path | None = None
+
+    # ---------- Demo readiness (feature 007, ADR-057) ----------
+    watchdog_enabled: bool = True
+    watchdog_silence_s: float = Field(5, gt=0)
+    watchdog_frozen_s: float = Field(3, gt=0)
+    watchdog_autoskip_s: float = Field(15, gt=0)
+    watchdog_audio_ack_s: float = Field(3, gt=0)
+    watchdog_audio_ack_lipsync_s: float = Field(6, gt=0)
+    # 006 FR-010, OUTPUT_MODE=obs only: an `/obs` source still connected but silent this long counts as lost.
+    watchdog_host_stale_s: float = Field(10, gt=0)
+    # Test-only knob: production keeps 0.25 s so a 5 s threshold is detected within a quarter second.
+    watchdog_tick_s: float = Field(0.25, gt=0)
+    readiness_min_free_gb: float = Field(5, ge=0)
+    backup_video_dir: Path = Path("out/backup_video")
+
+    # True when OUTPUT_MODE still holds the pre-006 value `webrtc`; startup logs `output_mode_legacy` once.
+    _output_mode_legacy: bool = PrivateAttr(default=False)
+
+    @field_validator("output_mode", mode="before")
+    @classmethod
+    def _normalize_output_mode(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        mode = value.strip().lower()
+        if mode == _LEGACY_OUTPUT_MODE:
+            return "meet"
+        if mode not in ("meet", "obs"):
+            # virtualcam / rtmp from the old `.env.example` are not built; failing beats silently showing nothing.
+            raise ValueError(f'OUTPUT_MODE chỉ nhận meet hoặc obs (đang là "{value}")')
+        return mode
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _flag_legacy_output_mode(cls, data: Any, handler: Any) -> Settings:
+        legacy = False
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(key, str) and key.lower() == "output_mode" and isinstance(value, str):
+                    legacy = value.strip().lower() == _LEGACY_OUTPUT_MODE
+        settings = handler(data)
+        settings._output_mode_legacy = legacy
+        return settings
+
+    @property
+    def output_mode_legacy(self) -> bool:
+        return self._output_mode_legacy
+
     @field_validator("ai_label_text")
     @classmethod
     def _label_not_empty(cls, value: str) -> str:
@@ -232,7 +290,7 @@ class Settings(BaseSettings):
     def _expand_model_cache(cls, value: Path) -> Path:
         return value.expanduser()
 
-    @field_validator("vieneu_ref_audio", mode="before")
+    @field_validator("vieneu_ref_audio", "scene_font_path", mode="before")
     @classmethod
     def _optional_ref_audio(cls, value: Any) -> Path | None:
         # `.env.example` ships `VIENEU_REF_AUDIO=` empty, meaning "use the preset voice as is".
@@ -259,6 +317,16 @@ class Settings(BaseSettings):
                 "(fork LiveTalking chỉ chạy trên máy này)"
             )
         return url
+
+    @model_validator(mode="after")
+    def _lead_below_first_frame_timeout(self) -> Settings:
+        # With the lead at or above the timeout, `speak` would give up on a sentence before its first frame (ADR-047).
+        if self.livetalking_lead_s >= self.livetalking_first_frame_timeout_s:
+            raise ValueError(
+                f"LIVETALKING_LEAD_S ({self.livetalking_lead_s}) phải nhỏ hơn "
+                f"LIVETALKING_FIRST_FRAME_TIMEOUT_S ({self.livetalking_first_frame_timeout_s})"
+            )
+        return self
 
     @field_validator("llm_chain", mode="before")
     @classmethod
@@ -291,6 +359,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SCRIPT_SEGMENT_MAX_SENTENCES phải lớn hơn hoặc bằng SCRIPT_SEGMENT_MIN_SENTENCES "
                 f"(đang là {self.script_segment_max_sentences} < {self.script_segment_min_sentences})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _watchdog_bounds(self) -> Settings:
+        # The auto-skip fires after the silence warning; equal or lower would skip before anyone is warned.
+        if self.watchdog_autoskip_s <= self.watchdog_silence_s:
+            raise ValueError(
+                "WATCHDOG_AUTOSKIP_S phải lớn hơn WATCHDOG_SILENCE_S "
+                f"(đang là {self.watchdog_autoskip_s} ≤ {self.watchdog_silence_s})"
             )
         return self
 

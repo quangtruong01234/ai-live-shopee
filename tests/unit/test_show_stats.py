@@ -225,7 +225,8 @@ def test_segment_counts_and_primary_share():
 
     segments = stats.summary().segments
     assert segments["total"] == 6
-    assert segments["by_product"] == {"p1": 2, "p2": 2, "p3": 1}
+    # Like primary_share, by_product counts played segments only: the failed p2 segment is left out.
+    assert segments["by_product"] == {"p1": 2, "p2": 1, "p3": 1}
     assert segments["by_topic"]["intro"] == 3
     assert segments["by_topic"]["opening"] == 1
     assert segments["by_status"] == {"done": 5, "failed": 1}
@@ -292,6 +293,21 @@ def test_sentence_counts_include_fallback_spoken():
     assert sentences["blocked"] == 1
     assert sentences["dropped"] == 1
     assert sentences["tts_error"] == 1
+
+
+def test_verbatim_lines_are_not_fallback_lines():
+    stats = _stats()
+    seg = _segment("p1")
+    stats.record_sentence(_sentence(seg.segment_id, "a"), "verbatim")
+    stats.record_sentence(_sentence(seg.segment_id, "b"), "verbatim")
+    stats.record_sentence(_sentence(seg.segment_id, "c"), "fallback")
+
+    sentences = stats.summary().sentences
+    assert sentences["spoken"] == 3
+    assert sentences["verbatim_spoken"] == 2
+    assert sentences["fallback_spoken"] == 1
+    # Verbatim lines are the customer's own text, not LLM script: they stay out of the duplicate rates.
+    assert stats.summary().duplicates["before_filter_rate"] is None
 
 
 def test_duplicate_rate_before_filter():

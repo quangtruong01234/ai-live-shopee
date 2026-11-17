@@ -156,10 +156,10 @@ Chỉ ghi khi cả hai câu đều là câu kịch bản đã nói (kể cả c�
 {
   "show_id": "…", "session_id": "…", "started_at": "…", "ended_at": "…", "ended_by": "operator|shutdown",
   "show_first_sentence_s": 2.1,
-  "segments": {"total": 64, "by_product": {"p1": 33, "p2": 16, "p3": 15}, "by_topic": {"intro": 9, "…": 0},
-               "by_status": {"done": 60, "skipped": 1, "failed": 3}, "primary_share": 0.52},
+  "segments": {"total": 64, "by_product": {"p1": 31, "p2": 15, "p3": 15}, "by_topic": {"intro": 9, "…": 0},
+               "by_status": {"done": 60, "skipped": 1, "failed": 3}, "primary_share": 0.51},
   "secondary_coverage": [{"window_start_s": 0, "window_end_s": 600, "missing_products": []}],
-  "sentences": {"spoken": 340, "blocked": 4, "dropped": 2, "tts_error": 3, "render_error": 0, "interrupted": 0, "fallback_spoken": 0},
+  "sentences": {"spoken": 340, "blocked": 4, "dropped": 2, "tts_error": 3, "render_error": 0, "interrupted": 0, "fallback_spoken": 0, "verbatim_spoken": 0},
   "gaps": {"counted": {"n": 330, "median_s": 0.21, "p95_s": 0.38, "max_s": 1.9},
            "by_kind": {"script": {"n": 270, "median_s": 0.2, "p95_s": 0.3, "max_s": 0.9}, "fault": {"n": 3, "max_s": 6.2}}},
   "duplicates": {"before_filter_rate": 0.03, "spoken_rate": 0.0, "identical_segments": 0},
@@ -169,6 +169,10 @@ Chỉ ghi khi cả hai câu đều là câu kịch bản đã nói (kể cả c�
 ```
 - `gaps.counted` gồm các loại `script`, `segment_boundary`, `error` (SC-002). Loại `fault` kiểm riêng `max_s ≤ 8` (SC-006).
 - `sentences.spoken` gồm cả câu dự phòng; `fallback_spoken` là phần câu dự phòng trong số đó (người dùng duyệt 2026-11-01).
+  `verbatim_spoken` (sửa lỗi 2026-11-17): phần câu đọc nguyên văn của show `content: "verbatim"` (007 R6, video dự phòng);
+  các câu này không tính vào `fallback_spoken`, vì show không gặp sự cố nào.
+- `by_product`, `primary_share` và `secondary_coverage` chỉ tính phân đoạn đã phát (`done`, `skipped`); `total`, `by_topic`,
+  `by_status` tính mọi phân đoạn (sửa lỗi 2026-11-17: trước đó `by_product` đếm cả phân đoạn `failed`/`blocked`).
 - `secondary_coverage`: chia show thành các cửa sổ 10 phút (cửa sổ cuối có thể ngắn hơn, xem `window_end_s`), mỗi cửa sổ liệt kê sản phẩm phụ không có phân đoạn nào (SC-004).
 - `p95` là `null` khi chưa đủ 20 mẫu (như `LatencySummary` của 001).
 - `duplicates.spoken_rate` (SC-005) tính trên câu `script` đã nói; `identical_segments` đếm cặp phân đoạn có cùng danh sách `word_form`.

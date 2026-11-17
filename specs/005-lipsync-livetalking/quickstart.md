@@ -296,8 +296,8 @@ từng câu đọc từ `clip` + thẻ câu trong `<tên>.jsonl` của bản ghi
 - **fps lượt bình luận thấp hơn show, nhưng không do suy luận:** `infer_fps` vẫn ~24,7. Ví dụ lượt `4ed360ea`: 108 khung (4,32 s tiếng) phát
   trong 5,89 s. Ở lượt bình luận, VieNeu vừa tổng hợp vừa phát nên tiếng tới fork chậm hơn thời gian thực khi tranh CPU với fork; fork
   hết tiếng thì không có khung nhép miệng để đếm. Show lấy trước tiếng nên đạt ~25. Vì vậy giảm `LIVETALKING_BATCH_SIZE` hay bật
-  `LIVETALKING_LIP_EVERY_N=2` không chữa được chỗ này (xem T075). Người xem thấy miệng ngừng giữa câu trả lời. TODO: người dùng xem bản
-  ghi một lượt bình luận để đánh giá có chấp nhận được không.
+  `LIVETALKING_LIP_EVERY_N=2` không chữa được chỗ này (xem T075). Người xem thấy miệng ngừng giữa câu trả lời. Người dùng chấp nhận
+  2026-11-16 (đường bình luận đang tạm dừng theo ADR-026).
 - **Lặng giữa câu p95 2,98 s > 1,5 s** và lớn hơn `LIVETALKING_HOLD_S` 2,5 s (một số khoảng nghỉ thoáng về clip chờ). Theo R15: thử
   `LIVETALKING_LEAD_S` = độ trễ khung đầu p50 ≈ 1,3 s, kết quả ở mục "Thử `LIVETALKING_LEAD_S`" dưới.
 - Đo cạnh trình duyệt (T074, research R6): Chrome phát tiếng chậm hơn ack trung vị 0,28 s (p95 0,64 s), tiếng và hình cùng một luồng
@@ -321,8 +321,8 @@ câu bắt đầu không qua khoảng lặng ≥ 300 ms tính là 0.
   Một câu dài hơn 2,5 s thì `speak` trả về ngay sau `playback_started`, câu sau xếp hàng ở fork. Câu sau chờ khung đầu lâu hơn chừng
   `LEAD_S`, nên `LIVETALKING_LEAD_S` phải nhỏ hơn hẳn `LIVETALKING_FIRST_FRAME_TIMEOUT_S` (10 s) trừ thời gian khởi động câu (~1,3 s).
 - Lặng p95 với `LEAD_S` 2,5 nhỏ hơn `LIVETALKING_HOLD_S` 2,5 s nên không cần nâng `LIVETALKING_HOLD_S`.
-- **Đề xuất cho người dùng duyệt:** đặt `LIVETALKING_LEAD_S=2.5` cho buổi demo. Mặc định trong `.env.example` vẫn là `0` tới khi người dùng
-  duyệt. TODO: người dùng duyệt đổi mặc định thành 2,5.
+- **Đề xuất cho người dùng duyệt:** đặt `LIVETALKING_LEAD_S=2.5` cho buổi demo. Người dùng duyệt 2026-11-16: mặc định trong `Settings` và `.env.example`
+  là 2,5.
 - **Lỗi đo tìm ra khi thử (đã sửa 2026-11-12, contracts/adapters.md §2):**
   - Với `LEAD_S > 0`, `sentence_gap` tính từ lúc `speak` trả về (sớm hơn lúc phát xong tới `LEAD_S`), nên bị thổi lên. App báo p95 3,30 s
     trong khi tai nghe p95 0,76 s.
@@ -359,7 +359,7 @@ của lần chạy kiểm `20261112-203110`, vì 20 lượt của lần chạy r
   `vram_oom` hay `renderer_restarted`. Bình luận → nghe tiếng ≈ 2,5 s trung vị, ≤ 2,9 s ở p95 (cộng p95 hai phần), còn xa ngưỡng 5 s;
   LLM thật cộng thêm thời gian ra câu đầu.
 - **Đề xuất:** giữ mặc định batch 16, n = 1. Batch 8 là lựa chọn nếu người dùng ưu tiên phản ứng nhanh hơn miệng mượt.
-  TODO: người dùng chọn batch 16 hay 8. Bước tiếp theo (bộ clip nhỏ hơn, R8, hoặc [RunPod]) cần người dùng quyết định và hỏi chi phí trước.
+  Người dùng chốt 2026-11-16: batch 16; không làm bộ clip nhỏ hơn (R8), không thuê [RunPod].
 
 ## 10. Chia sẻ vào Google Meet (FR-018) [GPU laptop]
 

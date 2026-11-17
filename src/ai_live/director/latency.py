@@ -32,6 +32,7 @@ STEPS: dict[str, tuple[Milestone, Milestone]] = {
     "first_sentence_to_tts_first_chunk": (M.LLM_FIRST_SENTENCE, M.TTS_FIRST_CHUNK),
     "tts_first_chunk_to_first_frame": (M.TTS_FIRST_CHUNK, M.AVATAR_FIRST_FRAME),
     "queue_wait": (M.COMMENT_RECEIVED, M.TURN_STARTED),
+    "floor_wait": (M.TTS_FIRST_CHUNK, M.FLOOR_ACQUIRED),
     "total": (M.COMMENT_RECEIVED, M.AVATAR_FIRST_FRAME),
 }
 STEP_NAMES: tuple[str, ...] = tuple(STEPS)
@@ -53,6 +54,8 @@ class TurnLatency:
     render_fps: float | None = None
     infer_fps: float | None = None
     clips_used: list[str] | None = None
+    scene_ms: float | None = None  # 009 FR-022: fork time per frame spent compositing the scene
+    mouth_method: str | None = None  # 010 FR-010
 
     def to_row(self) -> dict[str, Any]:
         """One row of the latency table (005 contracts/api.md §2); render columns are null on a static turn."""
@@ -64,12 +67,27 @@ class TurnLatency:
             "render_fps": round(self.render_fps, 2) if self.render_fps is not None else None,
             "infer_fps": round(self.infer_fps, 2) if self.infer_fps is not None else None,
             "clips_used": list(self.clips_used) if self.clips_used is not None else None,
+            "scene_ms": round(self.scene_ms, 2) if self.scene_ms is not None else None,
+            "mouth_method": self.mouth_method,
         }
 
 
 def step_durations(marks: Mapping[Milestone, float]) -> dict[str, float]:
-    """Duration of every step whose two milestones are both present."""
-    return {name: marks[end] - marks[start] for name, (start, end) in STEPS.items() if start in marks and end in marks}
+    """Duration of every step whose two milestones are both present.
+
+    The player usually gets the floor long before the first audio chunk exists; only a wait past that chunk, for a
+    scripted sentence still being spoken, delays the reply. So `floor_wait` is never negative, and
+    `tts_first_chunk_to_first_frame` starts at the later of the two marks (001 data-model.md §4).
+    """
+    durations = {
+        name: marks[end] - marks[start] for name, (start, end) in STEPS.items() if start in marks and end in marks
+    }
+    if "floor_wait" in durations:
+        wait = max(0.0, durations["floor_wait"])
+        durations["floor_wait"] = wait
+        if "tts_first_chunk_to_first_frame" in durations:
+            durations["tts_first_chunk_to_first_frame"] -= wait
+    return durations
 
 
 def step_stats(values: list[float], min_samples: int = P95_MIN_SAMPLES) -> StepStats:
@@ -117,6 +135,8 @@ class LatencyTracker:
             render_fps=render.render_fps if render else None,
             infer_fps=render.infer_fps if render else None,
             clips_used=list(render.clips_used) if render else None,
+            scene_ms=render.scene_ms if render else None,
+            mouth_method=render.mouth_method if render else None,
         )
         self._turns.append(turn)
         return turn
@@ -146,6 +166,8 @@ class LatencyTracker:
                     render_fps=render.render_fps,
                     infer_fps=render.infer_fps,
                     clips_used=list(render.clips_used),
+                    scene_ms=render.scene_ms,
+                    mouth_method=render.mouth_method,
                 )
                 return True
         return False
@@ -170,6 +192,9 @@ class LatencyTracker:
         )
 
     def _is_idle(self, turn: TurnLatency) -> bool:
+        # A reply that waited for a scripted sentence was not answered by an idle host either.
+        if turn.durations.get("floor_wait", 0.0) >= self.idle_threshold_s:
+            return False
         wait = turn.durations.get("queue_wait")
         return wait is not None and wait < self.idle_threshold_s
 

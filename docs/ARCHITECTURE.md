@@ -25,9 +25,8 @@ flowchart LR
     L -- từng câu --> T[TTSEngine<br/>VieNeu / Gemini TTS]
     T -- PCM chunks --> A[AvatarRenderer<br/>static / LiveTalking]
     A --> OV[Overlay nhãn AI]
-    OV --> O1[WebRTC → Chrome → Google Meet]
-    OV --> O2[Virtual cam → OBS]
-    OV --> O3[RTMP → YouTube / Shopee]
+    OV --> O1[OUTPUT_MODE=meet: trang /host → Chrome → Google Meet]
+    OV --> O2[OUTPUT_MODE=obs: trang /obs → Browser Source OBS → RTMP Shopee, 006]
 
     D -. ngắt lời .-> A
 ```
@@ -80,12 +79,36 @@ flowchart LR
    `llm_first_sentence` → `tts_first_chunk` → `avatar_first_frame` vào `script_sentences.jsonl`; tổng hợp show vào
    `show_summary_<show_id>.json`.
 
+**Cảnh live quanh host (feature 009, ADR-051, ADR-052):** bàn, ảnh thật sản phẩm, thẻ tên/giá lấy từ file sản phẩm, làm nổi
+món đang nói, phụ đề trong khung (tùy chọn). Bật bằng `SCENE_ENABLED`; bộ cảnh ở `SCENE_DIR` (ngoài git, một khách).
+
+```mermaid
+flowchart LR
+    SS[(Bộ cảnh SCENE_DIR<br/>bàn, ảnh sản phẩm, scene.json)] --> SC
+    PS[(ProductStore<br/>tên, giá)] --> SC
+    R[Renderer<br/>PlaybackListener: câu đang được nghe] --> SC
+    SC[SceneController<br/>layout + render Pillow, luồng phụ] -- scene_layer base/subtitle --> FK[Fork: kiểm vùng mặt/nhãn/watermark,<br/>trộn mỗi khung dưới watermark và nhãn AI]
+    SC -- ảnh tĩnh có cảnh --> HP[Trang /host<br/>AVATAR_MODE=static hoặc dự phòng]
+```
+
+1. `SceneController` nạp bộ cảnh và catalog, tính bố cục (món chính ở giữa, món phụ hai bên theo thứ tự file, món đang nói to hơn),
+   vẽ hai lớp RGBA trong suốt ở vùng mặt, nhãn "AI" và watermark. Mọi lỗi cảnh chỉ thành `issues`/`last_error`, không dừng show.
+2. Món được làm nổi theo câu **đang được nghe** (ack phát của renderer qua `PlaybackListener`), không theo câu vừa sinh chữ.
+3. Fork báo khung thật và đường cằm trong `hello.scene`; app vẽ lại theo đó và gửi lớp mới mỗi khi đổi. Fork cũ không có `scene` thì
+   chỉ ảnh tĩnh có cảnh. Hợp đồng: `specs/009-live-scene-layout/contracts/`.
+4. Thay file sản phẩm → vẽ lại; món bị bỏ khỏi file biến khỏi bàn. Bộ cảnh của khách khác (`customer_id` lệch) không bao giờ được vẽ.
+
 **Hai chế độ chạy:**
 
 | Chế độ | Máy | AvatarRenderer | Output | Dùng khi |
 |--------|-----|----------------|--------|----------|
 | `static` | Laptop dev (GTX 1650 Ti 4GB) | Ảnh tĩnh + phát audio (có thể nhấp nháy hoặc đổi khung khi đang nói) | Trang web local | Phát triển logic, test |
 | `livetalking` | Laptop GTX 1650 Ti 4GB (tạm, chấp nhận chậm, ADR-023); RunPod RTX 3090/4090 là dự phòng | Fork LiveTalking (Wav2Lip; MuseTalk nhiều khả năng không đủ 4 GB) | WebRTC / RTMP | Test lip-sync, demo |
+
+**Khẩu hình (010, ADR-055, ADR-056):** fork chọn cách tạo miệng bằng `LIVETALKING_MOUTH_METHOD` (mặc định `w2l` = cách 005; các núm
+`ref`, `paste`, `color`, `sharpen`, `gain_db`, `shift` ở `specs/010-natural-mouth-shapes/contracts/mouth-method.md`), giá trị sai thì
+về `w2l`. `prepare` đo góc đầu từng khung clip nói (MediaPipe) và ghi `ailive_pose.json`; fork chỉ phát các đoạn mặt thẳng. Chất lượng
+khẩu hình đo bằng `python -m ailive_ext.mouth_eval` (MediaPipe + SyncNet, chỉ để đo, không vào đường live).
 
 ## 2. Mô hình dữ liệu chính
 
@@ -100,18 +123,38 @@ class Comment:
     platform_ts: datetime | None
     meta: dict[str, Any]
 
-@dataclass
+# Nội dung sản phẩm (src/ai_live/products/models.py, specs/001-local-reply-pipeline/data-model.md §2). Bất biến.
+@dataclass(frozen=True)
+class Variant:                  # một phân loại, ví dụ dung tích hay màu
+    name: str                   # duy nhất trong sản phẩm (so sánh sau chuẩn hóa)
+    price: int                  # VND > 0
+
+@dataclass(frozen=True)
 class Product:
-    id: str
-    name: str
-    price: int                  # VND. TODO: có nhiều phân loại / giá theo biến thể không?
+    id: str                     # slug bỏ dấu từ name, duy nhất trong catalog
+    name: str                   # từ Heading 1 của file Word (ADR-014)
     is_primary: bool            # sản phẩm chính của phiên live
     description: str
-    specs: dict[str, str]
-    faq: list[tuple[str, str]]  # (câu hỏi, câu trả lời) do khách duyệt
-    promotions: list[str]
-    forbidden_claims: list[str] # các khẳng định không được nói (ví dụ công dụng y tế)
+    intro: str                  # bài giới thiệu, nguồn chính của show kịch bản (004)
+    price: int | None = None    # VND; đúng một trong price hoặc variants
+    variants: tuple[Variant, ...] = ()
+    specs: tuple[tuple[str, str], ...] = ()      # giữ thứ tự trong file
+    faq: tuple[tuple[str, str], ...] = ()        # (câu hỏi, câu trả lời) do người soạn file viết
+    promotions: tuple[str, ...] = ()
+    forbidden_claims: tuple[str, ...] = ()       # các khẳng định không được nói (ví dụ công dụng y tế)
+    link: str | None = None     # không bao giờ được đọc lên
+    # price_range -> (min, max) của giá hoặc các phân loại
+
+@dataclass(frozen=True)
+class ProductCatalog:           # thay nội dung = tạo catalog mới rồi đổi tham chiếu; lượt nói giữ catalog lúc bắt đầu
+    version: str                # sha256 rút gọn 12 ký tự của file .docx
+    source_name: str            # tên file gốc, không có đường dẫn
+    loaded_at: datetime         # UTC
+    products: tuple[Product, ...]   # đúng 1 is_primary, 0–3 sản phẩm phụ
+    known_amounts: frozenset[int]   # mọi số trong file + khoảng giá, cho guard chặn giá bịa
 ```
+
+File Word sai mẫu báo `ContentLoadError` mang toàn bộ `ContentIssue` (`code`, `message`, `product`, `section`) một lần.
 
 **Mô hình của show kịch bản (004)** nằm trong `src/ai_live/core/models.py`; bảng đầy đủ ở `specs/004-show-director/data-model.md`.
 
@@ -208,8 +251,8 @@ class HostLink(Protocol):
 
 class OutputSink(Protocol):
     """Đích phát. Implementations: WebRTCSink, VirtualCamSink, RtmpSink. Chưa làm: ở 001 static renderer phát thẳng ra
-    trình duyệt; ở 005 fork LiveTalking tự phát WebRTC tới /host và tự vẽ nhãn AI (ADR-043, ADR-044).
-    Để dành cho feature OBS/RTMP."""
+    trình duyệt; ở 005 fork LiveTalking tự phát WebRTC tới /host và tự vẽ nhãn AI (ADR-043, ADR-044); ở 006 OBS lấy
+    hình và tiếng từ trang /obs (Browser Source). Để dành cho RTMP / virtual cam trực tiếp từ app."""
     async def start(self) -> None: ...
     async def stop(self) -> None: ...
     async def write_video(self, frame: "np.ndarray", pts: float) -> None: ...
@@ -297,6 +340,49 @@ Phân loại ban đầu dùng luật từ khóa (rẻ và nhanh). TODO: có cầ
 - Mỗi khâu có timeout. Khi TTS hoặc LLM lỗi thì bỏ lượt đó và quay lại kịch bản rảnh; không để avatar đứng im lâu.
 - Log có cấu trúc kèm `utterance_id` và các mốc thời gian. Có endpoint `/health` cho từng khâu.
 - Watchdog (giai đoạn 2): khởi động lại renderer hoặc output khi mất frame quá N giây.
+
+**Sẵn sàng demo (007, ADR-057):** gói `src/ai_live/ops/` nằm ngoài đường live, không gọi LLM.
+
+```mermaid
+flowchart LR
+    HT[Tab /host] -- host_status mỗi giây<br/>framesDecoded, AudioContext, video --> WS[/ws/host/]
+    WS --> WD[ops/watchdog<br/>canh show]
+    SD[ShowDirector + renderer<br/>câu, khoảng lặng, fork] --> WD
+    WD -- alert open/update/close --> CT[/ws/control → banner trang điều khiển/]
+    WD -- skip_current một lần ở 15 s --> SD
+    WD --> AL[(alerts.jsonl)]
+    SD --> GP[(gaps.jsonl, script_sentences.jsonl,<br/>show_summary, avatar.jsonl)]
+    GP --> RH[ops/rehearsal<br/>lệnh report]
+    AL --> RH
+    RD[ops/readiness<br/>GET /api/readiness + lệnh readiness] --> RJ[(readiness.jsonl)]
+    BV[ops/backup_video<br/>lệnh backup-video] -- show verbatim + record start/stop --> SD
+```
+
+- `readiness`: kiểm cấu hình, fork (`/ailive/health` có `record_enabled`), nhân vật, host, nội dung, cảnh, nhãn "AI", video dự phòng,
+  trạng thái chuỗi model (chỉ đọc snapshot), nguồn điện (`ctypes`) và ổ đĩa. Chạy được cả khi app chưa bật (phần không cần app).
+- `watchdog`: chạy theo nhịp `WATCHDOG_TICK_S` khi show ở `running`/`paused`/`closing`; bảy loại cảnh báo `silence`, `frozen`,
+  `audio_missing`, `fork_lost`, `host_closed`, `fallback_mode`, `static_mode`; `fork_lost` và `host_closed` luôn ở mức `operator`,
+  `silence` lên `operator` nếu vẫn im sau khi đã tự bỏ câu. Việc tự làm duy nhất: bỏ câu kẹt một lần.
+- `rehearsal`: đọc log phiên của một show, chấm tiêu chí 3 (khoảng lặng) và 4 (30 phút sạch), ghi `rehearsal_<show_id>.md/.json`.
+- `backup_video`: show nội dung `verbatim` (`POST /api/show/start {"content": "verbatim"}`, đọc nguyên văn giới thiệu + mô tả, không gọi
+  engine) qua đường realtime, ghi bằng recorder của fork, chấm bằng `ailive_ext.analyze`, chép vào `BACKUP_VIDEO_DIR` kèm phiếu. App
+  không có route nào phát file video.
+
+**Đầu ra OBS (006, ADR-058):** `OUTPUT_MODE=meet | obs` (mặc định `meet`; giá trị cũ `webrtc` chạy như `meet` và log cảnh báo). Không có
+sink Python: đầu ra OBS là trang `/obs`, cùng `host.html` với `<body class="host obs">`, tự phát không cần bấm, không có lớp phủ, chữ
+trạng thái hay phụ đề, chỉ có hình (nhép miệng hoặc ảnh tĩnh, cảnh 009) và nhãn "AI". OBS thêm trang này làm Browser Source 720×1248,
+"Control audio via OBS" (runbook §8).
+
+- Vai trên `/ws/host?role=obs|host` (thiếu hoặc lạ là `host`): `obs` > `host`. Cùng vai thì trang mới thắng, trang cũ nhận mã đóng 4000;
+  `obs` lấy quyền của `host` đang phát thì `host` nhận 4001 `obs_active`, `host` mở sau khi `obs` đang phát cũng nhận 4001. Trang nhận
+  4000/4001 nhả hết (tắt tiếng, dừng video, đóng peer WebRTC) và không tự nối lại. `/obs` mất server vì lý do khác thì thử lại mỗi giây
+  và tự tải lại khi nối được. Thứ tự ưu tiên giống nhau ở cả hai chế độ.
+- Chế độ chỉ đổi phần kiểm: `readiness` mục host đòi kết nối vai `obs`; `watchdog` coi kết nối `host` là đầu ra mất, thêm luật nguồn còn
+  nối mà không gửi nhịp quá `WATCHDOG_HOST_STALE_S` (mặc định 10 s, chỉ ở `obs` vì Chrome điều tiết timer tab nền), lời nhắn theo OBS.
+  `/api/state` và snapshot có `output_mode`, `host_role`; trang điều khiển hiện "Đầu ra: OBS (đã nối)" hoặc "Meet — trang host".
+- `OutputSink` (§3) vẫn chưa làm; RTMP hay virtual cam trực tiếp từ app để sau. Hợp đồng: `specs/006-obs-output/contracts/api.md`.
+- Log phiên thêm `session.json` (cấu hình lúc mở phiên), `gaps.jsonl`, `alerts.jsonl`, `readiness.jsonl`. Hợp đồng:
+  `specs/007-demo-readiness/contracts/`.
 
 ## 8. Triển khai cho buổi demo
 

@@ -192,6 +192,9 @@ dừng), xem host trả lời và quay lại kịch bản.
   cam kết y tế, chính sách đổi trả hay so sánh với sản phẩm khác không có trong dữ liệu.
   *(Bổ sung 2026-11-12, ADR-050: guard chặn tất định các cụm khẳng định không có căn cứ trong `data/rules/claim_phrases.txt`, lý do
   `unsupported_claim`; cụm có trong file nội dung thì được nói.)*
+  *(Bổ sung 2026-11-16, người dùng chọn: câu nói thật là shop **chưa có thông tin** thì không bị chặn, ví dụ "shop chưa có thông tin về
+  việc sản phẩm có gây kích ứng hay không". Cụm khẳng định chỉ được miễn khi nằm ngay sau cụm báo thiếu thông tin trong cùng một vế câu,
+  giữa hai cụm chỉ có từ nối trong danh sách cố định; vế sau dấu câu hoặc cụm khẳng định đứng riêng vẫn bị chặn.)*
 - **FR-011**: Mọi con số tiền và phần trăm trong câu nói ra PHẢI khớp với số có trong file nội dung; câu có số không khớp PHẢI bị chặn trước
   khi phát và được ghi lý do.
 - **FR-012**: Lời thoại KHÔNG ĐƯỢC chứa khẳng định nằm trong danh sách bị cấm của sản phẩm, và KHÔNG ĐƯỢC đọc đường link sản phẩm.

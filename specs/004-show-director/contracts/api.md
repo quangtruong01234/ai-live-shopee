@@ -67,4 +67,5 @@ Thông báo lỗi (tiếng Việt):
   (giống `sentence_hash` của 001).
 - `message` của lỗi đã qua `redact`.
 - `next.status`: `planned` (chưa sinh), `ready` (đã soạn xong), `discarded` (bị bỏ). Trang điều khiển hiện "đã soạn xong" khi `ready`.
+- Đổi bởi 007 (ADR-057, `specs/007-demo-readiness/contracts/api.md` §2): `POST /api/show/start` nhận thân tùy chọn `{"content": "script" | "verbatim"}`, trả thêm `content`; không có thân là `script` như trên.
 - Thứ tự kiểm của `POST /api/show/start`: show đang chạy → `already_running: true`; rồi host (`host_unavailable`); rồi nội dung (`no_content`) (ADR-033).

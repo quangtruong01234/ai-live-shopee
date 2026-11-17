@@ -27,6 +27,7 @@ Nhãn AI trên `/host` không có tham số nào để ẩn. `AI_LABEL_TEXT` r�
 | GET | `/api/state` | — | `200 {session, queue: [QueuedComment], current_utterance, catalog: {version, products}}` | |
 | GET | `/api/latency` | `?idle_only=bool` | `200 LatencySummary` (xem data-model §4) | |
 | GET | `/health` | — | `200 {"status": "ok", "host_connected": bool, "catalog_version"}` | |
+| GET | `/favicon.ico` | — | `204` rỗng: trình duyệt tự hỏi biểu tượng; trả rỗng để log và console không có 404 giả (sửa lỗi 2026-11-17) | |
 | POST | `/api/debug/fault` | `{"step": "llm" \| "tts" \| "render", "mode": "error" \| "timeout", "count": int}` | `200` | `404` khi `APP_ENV != dev` |
 | POST | `/api/debug/speak` | `{"text": str}` (1–300 ký tự) | `200 {"utterance_id"}` sau khi phát xong | `404` khi `APP_ENV != dev`; `409 busy` khi đang có lượt nói; `503 host_unavailable` khi chưa mở `/host` (chưa `ready`) hoặc host không ack kịp. Chạy TTS + renderer, bỏ qua LLM và hàng đợi (Điều IV: chạy riêng khâu renderer) |
 
@@ -43,6 +44,9 @@ Khi kết nối, server gửi ngay một `state` (cùng nội dung `GET /api/sta
 ## 4. WebSocket `/ws/host` (hai chiều với trang host)
 
 Chỉ một kết nối host tại một thời điểm; kết nối mới thay kết nối cũ (đóng cũ với code `4000`).
+
+> Đổi bởi 006 (ADR-058): `/ws/host?role=obs|host`, vai `obs` thắng `host` (mã đóng `4001` `obs_active`); cùng vai vẫn là `4000`.
+> Xem `specs/006-obs-output/contracts/api.md` §2.
 
 **Server → host**
 

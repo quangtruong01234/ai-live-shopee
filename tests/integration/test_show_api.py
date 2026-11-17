@@ -37,6 +37,7 @@ SNAPSHOT_KEYS = {
     "show_id",
     "state",
     "mode",
+    "content_source",  # 007 R6
     "started_at",
     "current",
     "next",
@@ -129,7 +130,12 @@ def test_start_returns_show_id_and_a_second_start_reuses_the_show(client, json_l
         played = [_sentence_start(_host_play_one(host))]
         again = client.post("/api/show/start")
         assert again.status_code == 200
-        assert again.json() == {"show_id": body["show_id"], "state": "running", "already_running": True}
+        assert again.json() == {
+            "show_id": body["show_id"],
+            "state": "running",
+            "already_running": True,
+            "content": "script",
+        }
         played += [_sentence_start(_host_play_one(host)) for _ in range(2)]
 
     # Still one stream: every sentence is its own utterance, and the opening was requested once.

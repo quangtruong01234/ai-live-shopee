@@ -20,6 +20,17 @@
 - **TODO:** Kiểm tra với file lưu từ Word giao diện tiếng Việt, Google Docs và WPS: tên style heading đọc ra có luôn là `Heading 1`/`Heading 2` không?
   Nếu không thì nhận diện thêm theo `style.style_id` (`Heading1`). Cần thử với file thật ở bước implement (có task riêng ở pha Hoàn thiện;
   kết quả ghi lại vào đây và vào `quickstart.md`).
+- **Đã kiểm (T107, 2026-11-13):**
+  - Microsoft 365 Word 16.0.20527 trên máy dev, giao diện **tiếng Anh (en-GB)**: mở rồi lưu lại `template.docx` và `demo.docx`
+    (tự động qua COM, bản lưu ở `out/001_checks/word/`, không commit). Style heading vẫn là `Heading 1`/`Heading 2`
+    (`style_id` `Heading1`/`Heading2`). `validate` cho `demo` hợp lệ, 3 sản phẩm, nội dung từng sản phẩm và `known_amounts` giống hệt
+    bản gốc (chỉ `version` đổi vì byte file đổi). `template` báo đúng 1 lỗi `price_format` ở ô giá mẫu, giống bản gốc.
+  - **TODO:** Word giao diện **tiếng Việt**: máy dev chỉ có Word tiếng Anh. Khi lưu từ Word tiếng Việt, tên style đọc ra còn là
+    `Heading 1` không (python-docx đọc tên trong `styles.xml`, thường vẫn là tên tiếng Anh)? Cần người dùng thử trên máy có Word tiếng Việt.
+  - **TODO:** Google Docs: cần đăng nhập tài khoản Google của người dùng để tải file lên rồi tải về `.docx`; chưa thử. File Google Docs xuất
+    ra có giữ style `Heading 1`/`Heading 2` không?
+  - **TODO:** WPS Office bản miễn phí: chưa cài trên máy dev (cài phần mềm mới cần người dùng đồng ý). File WPS lưu ra có giữ style
+    heading không?
 
 ## R2. Mẫu file nội dung và quy tắc kiểm tra (FR-007, FR-025, trường hợp biên)
 

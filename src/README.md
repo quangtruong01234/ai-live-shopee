@@ -5,7 +5,7 @@
 
 ```
 src/ai_live/
-├── app/           FastAPI: điểm vào, route API (comment, show, debug), trang điều khiển cho người vận hành, trang /host, /health
+├── app/           FastAPI: điểm vào, route API (comment, show, debug), trang điều khiển cho người vận hành, trang /host (Meet), trang /obs (nguồn Browser Source OBS, 006), /health
 ├── core/          Cấu hình (.env), mô hình dữ liệu dùng chung (Comment, Product, Segment...), Protocol adapter, logging
 ├── comments/      Adapter CommentSource: mock (gõ tay), youtube (Live Chat API), shopee (làm sau)
 ├── comment_queue/ Hàng đợi ưu tiên: lọc spam, chống trùng, chấm điểm ưu tiên, bỏ comment quá cũ (memory / redis)
@@ -14,10 +14,23 @@ src/ai_live/
 ├── director/      ShowDirector: điều phối phiên (show kịch bản của 004 và lượt trả lời comment của 001), đo độ trễ, log phiên
 ├── tts/           Adapter TTSEngine: fake (test), vieneu (CPU), gemini (free tier), lớp bọc SpeechTTS; chuẩn hóa văn bản tiếng Việt (số, giá, viết tắt)
 ├── avatar/        Adapter AvatarRenderer: static (ảnh + tiếng), livetalking (nhép miệng qua fork LiveTalking), switching (chọn theo lượt); hồ sơ nhân vật
+├── scene/         Cảnh live quanh host (009): nạp bộ cảnh, bố cục, vẽ lớp bàn/sản phẩm/thẻ giá/phụ đề, theo câu đang nghe
+├── ops/           Sẵn sàng demo (007), ngoài đường live, không gọi LLM: `python -m ai_live.ops readiness` (kiểm trước demo), `report` (báo cáo tổng duyệt từ log phiên), `backup-video` (video dự phòng); canh show cảnh báo trên trang điều khiển; mục host và lời cảnh báo đổi theo `OUTPUT_MODE=meet|obs` (006)
 ├── qa_eval/       Lệnh `python -m ai_live.qa_eval run` (bộ câu hỏi mẫu của 001) và `script` (tự kiểm tra kịch bản của 004)
 ├── output/        Để dành cho OutputSink (virtualcam, rtmp) của feature OBS/RTMP; chưa có code. Ở 005 fork tự phát WebRTC và vẽ nhãn "AI"
 └── security/      Lưu và đọc phiên Shopee đã mã hóa; tiện ích che secret trong log
 ```
+
+Interface và lệnh chạy riêng từng khâu (Điều IV):
+
+| File | Vai trò |
+|------|---------|
+| `core/protocols.py` | Mọi `Protocol` adapter (`CommentSource`, `CommentQueue`, `ProductStore`, `ReplyEngine`, `TTSEngine`, `AvatarRenderer`, cùng các Protocol tùy chọn của 005, 009) và lỗi chung (`ReplyEngineError`, `TTSEngineError`, `RendererError`) |
+| `comments/__main__.py` | `uv run python -m ai_live.comments "Lan: giá bao nhiêu?" ...`: lọc, xếp ưu tiên, in thứ tự host sẽ trả lời |
+| `products/__main__.py` | `uv run python -m ai_live.products validate <file.docx>`: kiểm file nội dung, in đủ lỗi một lần |
+| `brain/__main__.py` | `uv run python -m ai_live.brain ask "<comment>"` / `narrate --product ID --topic T`: LLM + guard, in từng câu kèm thời gian |
+| `tts/__main__.py` | `uv run python -m ai_live.tts say "<câu>" --out f.wav` / `normalize "<câu>"` |
+| `avatar/__main__.py`, `scene/__main__.py`, `ops/__main__.py`, `qa_eval/__main__.py` | Lệnh của nhân vật, cảnh live, sẵn sàng demo, chấm câu hỏi mẫu (xem từng mục bên dưới và ở trên) |
 
 Module của show kịch bản (feature 004; luồng ở `docs/ARCHITECTURE.md` §1):
 
@@ -44,6 +57,18 @@ Module nhép miệng (feature 005; giao diện ở `specs/005-lipsync-livetalkin
 | `avatar/factory.py` | Chọn renderer theo `AVATAR_MODE` |
 | `avatar/__main__.py` | `uv run python -m ai_live.avatar check\|prepare <dir>` cho người vận hành |
 
+Module cảnh live (feature 009; hợp đồng ở `specs/009-live-scene-layout/contracts/`):
+
+| Module | Vai trò |
+|--------|---------|
+| `scene/loader.py` | Đọc và kiểm bộ cảnh `SCENE_DIR` (`scene.json`, bàn, ảnh sản phẩm); không bao giờ ném lỗi, mọi vấn đề thành `SceneIssue` |
+| `scene/layout.py` | Bố cục thuần: vùng mặt, dải phụ đề, chỗ đặt sản phẩm trên bàn, thẻ tên/giá; món đang nói to hơn |
+| `scene/render.py` | Vẽ bằng Pillow (ADR-051) lớp `base` (bàn, sản phẩm, thẻ) và `subtitle`, trong suốt ở vùng mặt, nhãn "AI", watermark |
+| `scene/fonts.py` | Chọn font có đủ dấu tiếng Việt (`SCENE_FONT_PATH` hoặc font hệ thống); thiếu font là lỗi lúc khởi động |
+| `scene/controller.py` | `SceneController`: vẽ lại khi đổi file sản phẩm, khi fork báo khung thật, khi đổi câu đang nghe; gửi lớp cho fork và ảnh tĩnh cho `/host` |
+| `scene/__main__.py` | `uv run python -m ai_live.scene check\|preview` cho người vận hành |
+| `avatar/playback.py` | Phát tin "câu đang được nghe / đã nghe xong / bị ngắt" tới các `PlaybackListener` (cảnh), lỗi của listener không làm hỏng lượt |
+
 Thư mục khác ở gốc repo:
 
 | Thư mục | Nội dung | Có commit không |
@@ -61,7 +86,8 @@ Thư mục khác ở gốc repo:
 | `scripts/avatar_clips/` | Notebook Kaggle/Colab tạo gương mặt AI và clip nền (ADR-036); chạy trên cloud, không chạy trên laptop | Có (chỉ notebook, kết quả không commit) |
 | `models/` | Checkpoint model (Wav2Lip, MuseTalk, whisper, TTS...) | Không (gitignore) |
 | `assets/avatars/` | Ảnh, video nền avatar và mẫu giọng của người mẫu | Không (gitignore) |
-| `vendor/livetalking/` | Fork LiveTalking (nhánh `ailive`, commit ghim): upstream cộng gói `ailive_ext/` (nhận tiếng `/ailive/ws`, nhãn AI, xoay clip, `prepare`, bỏ bớt khung suy luận, bộ ghi luồng). Chạy process riêng, venv riêng (ADR-042) | Không (gitignore, ngoài git) |
+| `assets/scenes/` | Bộ cảnh của khách (ảnh bàn, ảnh thật sản phẩm, `scene.json`); `scripts/make_demo_scene.py` dựng bộ cảnh mẫu | Không (gitignore) |
+| `vendor/livetalking/` | Fork LiveTalking (nhánh `ailive`, commit ghim): upstream cộng gói `ailive_ext/` (nhận tiếng `/ailive/ws`, nhãn AI, xoay clip, `prepare`, bỏ bớt khung suy luận, bộ ghi luồng; 010: cách tạo miệng `mouth.py`, góc đầu `pose.py`, bộ đo khẩu hình `mouth_eval/`). Chạy process riêng, venv riêng (ADR-042) | Không (gitignore, ngoài git) |
 
 Quy ước (ADR-022): tên file, định danh, docstring và comment dùng tiếng Anh. Comment tiếng Việt cũ được dịch khi sửa tới file đó.
 Chữ người dùng thấy (UI, thông báo lỗi API, prompt LLM) vẫn tiếng Việt (xem `CLAUDE.md`).

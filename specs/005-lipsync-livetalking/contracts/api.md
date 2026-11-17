@@ -60,7 +60,7 @@
 
 ## 4. `/ws/host`: tin mới và đổi
 
-Giữ toàn bộ tin của ADR-016. Thêm:
+Giữ toàn bộ tin của ADR-016. (006 thêm vai `?role=obs|host` và mã đóng `4001`: `specs/006-obs-output/contracts/api.md` §2.) Thêm:
 
 | Hướng | Tin | Trường | Ý nghĩa |
 |-------|-----|--------|---------|

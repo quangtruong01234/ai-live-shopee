@@ -42,7 +42,8 @@ curl -X POST http://127.0.0.1:8000/api/debug/speak -H "Content-Type: application
 ## US2: Hàng đợi ưu tiên và lọc (P2)
 
 1. Bấm Tạm dừng. Gửi lần lượt: "hello shop", "có link không http://x.y", "ship mấy ngày?", "giá bao nhiêu?", lặp lại "giá bao nhiêu?".
-2. **Kỳ vọng:** comment chứa link và comment trùng nằm ở danh sách bị loại kèm lý do; hàng đợi xếp "giá bao nhiêu?" lên đầu, "hello shop" cuối.
+2. **Kỳ vọng:** comment chứa link và comment trùng nằm ở danh sách bị loại kèm lý do; "ship mấy ngày?" và "giá bao nhiêu?" cùng ưu tiên
+   cao (`ship` và `giá` đều là từ khóa ưu tiên cao trong `data/rules/`) nên đứng đầu theo thứ tự gửi, "hello shop" cuối.
 3. Bấm Tiếp tục: host trả lời theo đúng thứ tự trên màn hình.
 4. Đặt `COMMENT_MAX_AGE_S=10` (khởi động lại), tạm dừng, gửi comment, chờ 11 s → comment chuyển sang "quá cũ".
 
@@ -70,6 +71,7 @@ curl -X POST http://127.0.0.1:8000/api/debug/speak -H "Content-Type: application
 ## US5: Nạp nội dung và chấm câu hỏi mẫu (P2)
 
 1. Trên trang điều khiển, nạp một bản `demo.docx` đã sửa giá → hiện version mới; hỏi giá → host nói giá mới.
+   Với `REPLY_ENGINE=fake`, câu hỏi giá nào cũng nhận giá của **sản phẩm chính**, nên phải sửa giá sản phẩm chính mới nghe được giá mới.
 2. Nạp file thiếu mục "Khẳng định bị cấm" và có giá `250k` → bị từ chối, liệt kê đủ 2 lỗi; host vẫn dùng nội dung cũ.
 3. Chấm bộ câu hỏi (cần `GEMINI_API_KEY`; free tier, tính vào giới hạn tần suất của project):
    ```bash
@@ -105,11 +107,14 @@ uv run pytest -m live_llm      # cần GEMINI_API_KEY (free tier, tính vào quo
 
 ## Kết quả kiểm chứng
 
-> Điền khi chạy thật ở `/sdd.implement`. Chưa có số đo nào; không điền số ước tính vào đây.
+> Chỉ ghi số đo thật; không điền số ước tính. Các dòng ngày 2026-11-13 chạy **không gọi LLM**: `REPLY_ENGINE=fake`,
+> `TTS_PROVIDER=fake`, `AVATAR_MODE=static`, Chrome headless mở `/host` qua CDP. Kết quả thô ở `out/001_checks/` (không vào git).
 
 | Ngày | Mục | Kết quả | Ghi chú |
 |------|-----|---------|---------|
-| | SC-001 (p95 khi host rảnh, ≥ 20 lượt) | | model, `queue_wait` p95 |
-| | SC-007 (bỏ qua / tạm dừng, ≥ 10 lần mỗi lệnh) | | `latency_ms` lớn nhất |
-| | SC-008 / SC-009 (bộ câu hỏi mẫu, 3 lần) | | điểm từng lần, lệch với chấm tay |
-| | File Word: Word tiếng Việt / Google Docs / WPS | | lỗi `validate` nếu có |
+| | SC-001 (p95 khi host rảnh, ≥ 20 lượt) | | model, `queue_wait` p95. Chưa đo: cần LLM thật (T101) |
+| 2026-11-13 | SC-007 (bỏ qua / tạm dừng, ≥ 10 lần mỗi lệnh) | Đạt | 10 bỏ qua (đều khi đang nói, 10 `turn_skipped`), 10 tạm dừng: `latency_ms` lớn nhất skip 0,0, pause 0,0 (resume 16,0; đồng hồ Windows bước ~16 ms). 0 `turn_started` khi đang tạm dừng, comment mới nằm chờ trong hàng đợi. Engine fake (T106) |
+| 2026-11-13 | SC-005 / SC-006 (chạy 30 phút, lỗi giả lập, nhãn AI) | Đạt | 30 phút, 60 comment (~1 comment/30 s), 4 lỗi giả lập (llm/error, tts/error, llm/timeout, tts/error) → 4 lượt `error` đúng bước, lượt kế tiếp đều `completed`; 56 lượt `completed`, `/health` luôn 200, không traceback. 12/12 ảnh chụp `/host` có nhãn **AI** hiện (visibility visible, nằm trong khung). Engine fake, TTS fake, avatar static (T105) |
+| 2026-11-13 | Quickstart US1–US5 (engine fake) | Đạt phần không cần LLM | US1 giá đúng file, câu không có dữ liệu → từ chối, "99k" không bị nói; US2 lọc link/trùng, thứ tự ưu tiên, `stale` sau 11,5 s; US3 24 lượt, p95 `total` 0,145 s (**không phải** SC-001, engine fake); US4 6/6 lỗi (llm/tts/render × error/timeout) và đóng tab host → lỗi `render` `host_unavailable`, mở lại chạy tiếp; US5 nạp file mới → version mới và giá mới, file lỗi → 400 với đủ 2 lỗi. Chưa chạy: `/api/debug/speak`, `make_demo_content.py`, qa_eval (T100) |
+| | SC-008 / SC-009 (bộ câu hỏi mẫu, 3 lần) | | điểm từng lần, lệch với chấm tay. Chưa đo: cần LLM thật |
+| 2026-11-13 | File Word: Word tiếng Việt / Google Docs / WPS | Một phần | Word 16 giao diện tiếng Anh (en-GB) lưu lại `template.docx` và `demo.docx`: `validate` cho kết quả như bản gốc (xem research R1). TODO: Word giao diện tiếng Việt, Google Docs, WPS chưa thử (T107) |

@@ -4,6 +4,7 @@
 // 004 FR-018: the "phân đoạn kế tiếp" picker offers only product/topic pairs listed in `available_topics` (US5 #2).
 // 008 FR-017, FR-020: the read-only "Model LLM" area (008 contracts/api.md §3) and, in dev, the fault form with the
 // per-entry modes.
+// 007 FR-001, FR-005: the "Kiểm tra trước demo" button shows `GET /api/readiness` as a table plus the manual checks.
 // 005 FR-011: in dev, the "Thử bằng tiếng có sẵn" form posts a WAV to `/api/debug/speak-audio` (005 contracts/api.md §1).
 // Comment text is viewer data and script text is LLM output: assign both only through textContent, never innerHTML.
 "use strict";
@@ -56,6 +57,7 @@
     ["queue_wait", "Chờ trong hàng đợi"],
     ["received_to_first_sentence", "Nhận comment → LLM ra câu đầu"],
     ["first_sentence_to_tts_first_chunk", "Câu đầu → TTS ra đoạn tiếng đầu"],
+    ["floor_wait", "Chờ câu kịch bản đang nói xong"],
     ["tts_first_chunk_to_first_frame", "Đoạn tiếng đầu → avatar bắt đầu nói"],
     ["total", "Tổng: comment → avatar bắt đầu nói"],
   ];
@@ -107,10 +109,25 @@
     while (list.children.length > MAX_ITEMS) list.lastChild.remove();
   }
 
-  function setHost(connected) {
-    $("host-badge").textContent = connected ? "đã sẵn sàng" : "chưa mở";
-    $("host-badge").className = "badge " + (connected ? "ok" : "bad");
-    $("host-warning").hidden = connected;
+  // 006: which output the show leaves through (OUTPUT_MODE) and whether the connection that plays is the right one.
+  let outputMode = "meet";
+  let hostConnected = false;
+  let hostRole = null;
+
+  function setHost(connected, role) {
+    hostConnected = Boolean(connected);
+    hostRole = hostConnected ? role || "host" : null;
+    const obs = outputMode === "obs";
+    // In obs mode a Chrome /host tab that got to play does not reach OBS, so it is not "connected" (contracts §8).
+    const ok = obs ? hostRole === "obs" : hostConnected;
+    let text = obs ? `OBS (${ok ? "đã nối" : "chưa nối"})` : `Meet — trang host (${ok ? "đã nối" : "chưa nối"})`;
+    if (obs && hostRole === "host") text += ", /host trên Chrome đang phát thay";
+    $("host-badge").textContent = text;
+    $("host-badge").className = "badge " + (ok ? "ok" : "bad");
+    $("host-warning-meet").hidden = obs;
+    $("host-warning-obs").hidden = !obs;
+    $("obs-url").textContent = `${location.protocol}//${location.host}/obs`;
+    $("host-warning").hidden = ok;
   }
 
   function setSession(state) {
@@ -135,6 +152,32 @@
 
   // ---------- 005: lip-synced character (contracts/api.md §5) ----------
 
+  // ---------- 007: show watchdog banner (contracts/api.md §3) ----------
+
+  const openAlerts = new Map(); // alert_id -> alert, in the order they opened
+
+  function renderAlerts() {
+    const banner = $("alert-banner");
+    banner.replaceChildren();
+    for (const alert of openAlerts.values()) {
+      const row = document.createElement("div");
+      row.className = `alert-row ${alert.level === "operator" ? "operator" : "warning"}`;
+      const message = document.createElement("b");
+      message.textContent = alert.message;
+      const action = document.createElement("span");
+      action.textContent = alert.action ? ` — ${alert.action}` : "";
+      row.append(message, action);
+      if (alert.text) {
+        const said = document.createElement("div");
+        said.className = "alert-text";
+        said.textContent = `Câu đang kẹt: ${alert.text}`;
+        row.append(said);
+      }
+      banner.append(row);
+    }
+    banner.hidden = openAlerts.size === 0;
+  }
+
   function renderAvatarMode(mode) {
     const fellBack = Boolean(mode) && mode.configured === "livetalking" && mode.active !== mode.configured;
     $("avatar-warning").hidden = !fellBack;
@@ -153,6 +196,37 @@
     $("lipsync-badge").textContent = parts.join(" · ");
     $("lipsync-badge").className = "badge " + (health.connected ? "ok" : "bad");
     $("lipsync-badge").title = health.last_error ? `Lỗi gần nhất: ${health.last_error}` : "";
+  }
+
+  // ---------- 009: live scene ----------
+
+  const scene = { enabled: false, highlight: null, error: null, issues: 0 };
+
+  function renderScene() {
+    const el = $("show-scene");
+    el.hidden = !scene.enabled;
+    if (!scene.enabled) return;
+    const p = scene.highlight ? catalogProducts.get(scene.highlight) : null;
+    const parts = [`Cảnh: ${p ? `đang làm nổi “${p.name}”` : scene.highlight ? scene.highlight : "không làm nổi món nào"}`];
+    if (scene.issues) parts.push(`${scene.issues} chú ý (xem /api/scene)`);
+    if (scene.error) parts.push(`lỗi gần nhất: ${scene.error}`);
+    el.textContent = parts.join(" · ");
+    el.classList.toggle("err", Boolean(scene.error));
+  }
+
+  async function loadScene() {
+    try {
+      const res = await fetch("/api/scene");
+      if (!res.ok) return;
+      const body = await res.json();
+      scene.enabled = body.enabled;
+      scene.highlight = body.highlight;
+      scene.error = body.last_error;
+      scene.issues = (body.issues || []).length;
+      renderScene();
+    } catch (_) {
+      // The next `scene` event brings the highlight; the line stays hidden meanwhile.
+    }
   }
 
   async function loadAvatar() {
@@ -262,6 +336,8 @@
           fps(t.infer_fps),
           // null = still image (no clip); an empty list = the fork rendered nothing for this turn.
           t.clips_used == null ? "ảnh tĩnh" : t.clips_used.join(", ") || "—",
+          // 010 FR-010: mouth method the fork used; null on a still image or an older fork.
+          t.mouth_method || "—",
         ];
         tr.append(
           ...cells.map((text) => {
@@ -578,7 +654,12 @@
 
   const handlers = {
     state(msg) {
-      setHost(Boolean(msg.session && msg.session.host_connected));
+      // Sent on every (re)connect: the open alerts are the whole truth, so a reloaded page shows the same banner.
+      openAlerts.clear();
+      for (const alert of msg.alerts || []) openAlerts.set(alert.alert_id, alert);
+      renderAlerts();
+      if (msg.session && msg.session.output_mode) outputMode = msg.session.output_mode;
+      setHost(Boolean(msg.session && msg.session.host_connected), msg.session && msg.session.host_role);
       if (msg.session) setSession(msg.session.state);
       renderQueue(msg.queue || []);
       renderCatalog(msg.catalog);
@@ -627,7 +708,7 @@
       ]);
     },
     host_connection(msg) {
-      setHost(msg.connected);
+      setHost(msg.connected, msg.role);
     },
     turn_started(msg) {
       turns.set(msg.utterance_id, { author: msg.author, text: msg.text });
@@ -677,11 +758,31 @@
     latency(msg) {
       renderLatency(msg);
     },
+    alert(msg) {
+      const alert = msg.alert;
+      if (alert.state === "open") {
+        openAlerts.set(alert.alert_id, alert);
+      } else {
+        // An auto-skip closes its alert within a moment of saying so; the history keeps what happened.
+        const last = openAlerts.get(alert.alert_id) || alert;
+        openAlerts.delete(alert.alert_id);
+        const took = alert.seconds != null ? ` (${Math.round(alert.seconds)} giây)` : "";
+        pushItem("history", msg.ts, [[`đã hết cảnh báo · ${last.message}${took}`, alert.level === "operator" ? "err" : null]]);
+      }
+      renderAlerts();
+    },
     avatar_mode(msg) {
       renderAvatarMode(msg);
     },
     lipsync_health(msg) {
       renderLipsyncHealth(msg);
+    },
+    scene(msg) {
+      scene.enabled = true;
+      if (msg.kind === "highlight") scene.highlight = msg.product_id;
+      else if (msg.kind === "error") scene.error = msg.message;
+      else if (msg.kind === "rendered") return loadScene();
+      renderScene();
     },
   };
 
@@ -694,6 +795,7 @@
       loadLatency();
       // Nor the avatar mode: the `avatar_mode` event fires only on a change, so a fresh page asks once.
       loadAvatar();
+      loadScene();
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
@@ -905,6 +1007,63 @@
         ` · fps tạo hình ${fmt(reply.render_fps, 1)}`;
     } catch (err) {
       $("speak-audio-msg").textContent = `Không gửi được: ${err}`;
+    }
+  });
+
+  // 007 FR-001, FR-005 (contracts/api.md §1): fail rows first catch the eye by colour, but the order stays the
+  // server's so the table reads the same as the CLI.
+  const READINESS_LABELS = { ok: "Đạt", warn: "Chú ý", fail: "Lỗi", unknown: "Chưa rõ" };
+
+  function renderReadiness(result) {
+    const verdict = $("readiness-verdict");
+    verdict.hidden = false;
+    verdict.textContent = result.ready ? "SẴN SÀNG" : "CHƯA SẴN SÀNG";
+    verdict.className = `badge ${result.ready ? "ok" : "bad"}`;
+    $("readiness-rows").replaceChildren(
+      ...result.items.map((item) => {
+        const tr = document.createElement("tr");
+        tr.className = `check-${item.status}`;
+        const status = document.createElement("td");
+        const mark = document.createElement("span");
+        mark.className = `check-mark ${item.status}`;
+        mark.textContent = READINESS_LABELS[item.status] || item.status;
+        status.append(mark);
+        tr.append(llmCell(item.label), status, llmCell(item.message), llmCell(item.action || ""));
+        return tr;
+      }),
+    );
+    $("readiness-table").hidden = false;
+    $("readiness-manual").replaceChildren(
+      ...result.manual.map((task) => {
+        const li = document.createElement("li");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        const label = document.createElement("label");
+        label.append(box, ` ${task}`);
+        li.append(label);
+        return li;
+      }),
+    );
+    $("readiness-manual-box").hidden = result.manual.length === 0;
+    $("readiness-msg").textContent = `Kiểm lúc ${clock(result.checked_at)}, mất ${result.duration_ms} ms.`;
+  }
+
+  $("readiness-btn").addEventListener("click", async () => {
+    const btn = $("readiness-btn");
+    btn.disabled = true;
+    $("readiness-msg").textContent = "Đang kiểm…";
+    try {
+      const res = await fetch("/api/readiness");
+      const body = await res.json();
+      if (!res.ok) {
+        $("readiness-msg").textContent = `Không kiểm được: ${body.message || res.status}`;
+        return;
+      }
+      renderReadiness(body);
+    } catch (err) {
+      $("readiness-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      btn.disabled = false;
     }
   });
 

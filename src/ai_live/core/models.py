@@ -109,6 +109,9 @@ class Milestone(StrEnum):
     TTS_FIRST_CHUNK = "tts_first_chunk"
     AVATAR_FIRST_FRAME = "avatar_first_frame"
     SEGMENT_REQUESTED = "segment_requested"  # start of a scripted sentence's clock, instead of comment_received
+    # A reply's player got the floor; inside a show it waits there for the scripted sentence being spoken.
+    # In memory only (latency `floor_wait`), not written to utterances.jsonl.
+    FLOOR_ACQUIRED = "floor_acquired"
 
 
 # The four milestones required by Article VIII; turn_started is extra, to separate queue wait time.
@@ -445,6 +448,10 @@ class Segment:
 
 RECENT_SHOW_ITEMS = 20
 
+# 007 R6: `verbatim` reads the product's own intro and description, never the engine (the backup video).
+ContentSource = Literal["script", "verbatim"]
+CONTENT_SOURCES: tuple[ContentSource, ...] = ("script", "verbatim")
+
 
 @dataclass
 class ShowSession:
@@ -463,6 +470,7 @@ class ShowSession:
     next_segment: Segment | None = None
     recent_blocked: deque[ScriptSentence] = field(default_factory=lambda: deque(maxlen=RECENT_SHOW_ITEMS))
     recent_errors: deque[dict[str, Any]] = field(default_factory=lambda: deque(maxlen=RECENT_SHOW_ITEMS))
+    content_source: ContentSource = "script"  # fixed at start; a second start never changes it
 
 
 SpokenSource = Literal["script", "fallback", "reply"]
@@ -598,6 +606,8 @@ class RenderTurnStats:
     # time.monotonic() of the latest `sentence_played`: with LIVETALKING_LEAD_S `speak` returns before it (R15)
     last_played_at: float | None = None
     error_kind: str | None = None
+    scene_ms: float | None = None  # mean ms per frame the fork spent compositing the scene (009 FR-022)
+    mouth_method: str | None = None  # 010 FR-010: mouth method the fork reported; None from a fork without one
 
 
 @dataclass
@@ -624,3 +634,43 @@ class LipsyncHealth:
             "last_error": self.last_error,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+_AUDIO_STATES = ("running", "suspended", "closed")
+
+
+@dataclass(frozen=True)
+class HostStatus:
+    """The host tab's 1 s heartbeat: what the viewer's screen is actually doing (007 data-model §2, research R1).
+
+    `received_at` is app-side monotonic time: the tab's clock is never trusted for thresholds.
+    """
+
+    frames: int | None  # WebRTC framesDecoded; None in static mode or before the first frame
+    audio: Literal["running", "suspended", "closed"] | None
+    video_muted: bool | None
+    video_paused: bool | None
+    visible: bool | None
+    received_at: float
+
+    @classmethod
+    def from_message(cls, message: dict[str, Any], received_at: float) -> HostStatus:
+        # The page is outside our control: a missing or wrong field is "unknown", never an error.
+        frames = message.get("frames")
+        audio = message.get("audio")
+
+        def flag(name: str) -> bool | None:
+            value = message.get(name)
+            return value if isinstance(value, bool) else None
+
+        return cls(
+            frames=frames if isinstance(frames, int) and not isinstance(frames, bool) and frames >= 0 else None,
+            audio=audio if audio in _AUDIO_STATES else None,
+            video_muted=flag("video_muted"),
+            video_paused=flag("video_paused"),
+            visible=flag("visible"),
+            received_at=received_at,
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)

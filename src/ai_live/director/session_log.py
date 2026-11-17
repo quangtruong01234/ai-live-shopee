@@ -30,10 +30,12 @@ from ai_live.core.models import (
     RenderTurnStats,
     ScriptSentence,
     Segment,
+    SentenceGap,
     SentenceStatus,
     ShowSummary,
     Utterance,
 )
+from ai_live.director.show_stats import COUNTED_GAP_KINDS
 from ai_live.security.redact import redact
 
 logger = logging.getLogger("ai_live.session_log")
@@ -49,6 +51,12 @@ SCRIPT_SENTENCES_FILE = "script_sentences.jsonl"
 SHOW_SUMMARY_FILE = "show_summary_{show_id}.json"
 # 005: one line per avatar mode change and per fork health report, to plot VRAM / fps over a 30-minute run (SC-006).
 AVATAR_FILE = "avatar.jsonl"
+# 007: run conditions, every gap the runner measured, watchdog alerts and readiness checks, so the rehearsal report
+# still has its data when the app crashed before `show_summary` (research R4).
+SESSION_INFO_FILE = "session.json"
+GAPS_FILE = "gaps.jsonl"
+ALERTS_FILE = "alerts.jsonl"
+READINESS_FILE = "readiness.jsonl"
 
 # `type` values of a `render` step line in errors.jsonl; fault injection adds `injected_*` on top.
 RENDER_ERROR_KINDS = frozenset(
@@ -183,6 +191,8 @@ def utterance_record(utt: Utterance, llm_model: str | None, *, render: RenderTur
         record["render_fps"] = render.render_fps
         record["infer_fps"] = render.infer_fps
         record["clips_used"] = list(render.clips_used)
+        record["scene_ms"] = render.scene_ms
+        record["mouth_method"] = render.mouth_method
     return _with_show(record, utt.show_id)
 
 
@@ -191,6 +201,26 @@ def avatar_mode_record(state: AvatarModeState | dict[str, Any]) -> dict[str, Any
     data = state.to_json() if isinstance(state, AvatarModeState) else dict(state)
     data.pop("type", None)
     return {"ts": iso_now(), "kind": "mode", **data}
+
+
+def render_record(stats: RenderTurnStats, show_id: str | None) -> dict[str, Any]:
+    """`avatar.jsonl` line with one turn's or one scripted sentence's render figures (005 contracts/events.md §4).
+
+    `utterances.jsonl` of a scripted sentence is written before its figures arrive (LIVETALKING_LEAD_S), so the
+    rehearsal report reads fps and mouth method from these lines instead.
+    """
+    return {
+        "ts": iso_now(),
+        "kind": "render",
+        "utterance_id": stats.utterance_id,
+        "show_id": show_id,
+        "frames": stats.frames,
+        "render_fps": stats.render_fps,
+        "infer_fps": stats.infer_fps,
+        "clips_used": list(stats.clips_used),
+        "scene_ms": stats.scene_ms,
+        "mouth_method": stats.mouth_method,
+    }
 
 
 def lipsync_health_record(health: LipsyncHealth | dict[str, Any], *, vram_peak_mb: int | None = None) -> dict[str, Any]:
@@ -246,6 +276,19 @@ def segment_record(segment: Segment) -> dict[str, Any]:
         "sentences": counts,
         "error_step": segment.error_step,
         "error_kind": segment.error_kind,
+    }
+
+
+def gap_record(show_id: str, gap: SentenceGap, at: datetime) -> dict[str, Any]:
+    """`gaps.jsonl` line (007 contracts/files.md §2); `at` is when the later sentence started playing."""
+    return {
+        "show_id": show_id,
+        "kind": gap.kind.value,
+        "counted": gap.kind in COUNTED_GAP_KINDS,
+        "seconds": gap.seconds,
+        "from_id": gap.from_utterance_id,
+        "to_id": gap.to_utterance_id,
+        "at": _dt_iso(at),
     }
 
 
@@ -306,6 +349,21 @@ class SessionLog:
 
     def write_avatar(self, record: dict[str, Any]) -> None:
         self._submit(AVATAR_FILE, record)
+
+    def write_gap(self, record: dict[str, Any]) -> None:
+        self._submit(GAPS_FILE, record)
+
+    def write_alert(self, record: dict[str, Any]) -> None:
+        self._submit(ALERTS_FILE, record)
+
+    def write_readiness(self, record: dict[str, Any]) -> None:
+        self._submit(READINESS_FILE, record)
+
+    def write_session_info(self, info: dict[str, Any]) -> None:
+        """Write `session.json` (run conditions at session start); returns at once like the JSONL writes."""
+        if self._closed:
+            return
+        self._executor.submit(self._write_json, SESSION_INFO_FILE, info)
 
     async def write_show_summary(self, summary: ShowSummary | dict[str, Any]) -> None:
         """Write `show_summary_<show_id>.json` and wait until it is on disk (show end or app shutdown)."""

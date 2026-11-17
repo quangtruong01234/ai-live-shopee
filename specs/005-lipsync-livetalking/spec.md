@@ -275,7 +275,7 @@ Sau khi nhân vật chạy được, mình xem số liệu thật trên laptop: 
   tiếng, phụ đề, nhãn "AI"), trang điều khiển báo; người vận hành bấm bật lại nhân vật giữa phiên (US2 #5, #6, FR-022, Trường hợp biên,
   SC-005, Điều VIII).
 
-### Phiên 2026-11-12 (sửa khi làm T067, theo đề xuất của agent, người dùng duyệt sau trong gói review)
+### Phiên 2026-11-12 (sửa khi làm T067, theo đề xuất của agent; người dùng duyệt 2026-11-16)
 - Q: Fork không biết đâu là "lượt": mỗi câu kịch bản của 004 là một `utterance_id` riêng (`seq 0`), nên đổi clip nói ở mỗi `seq 0` làm
   show kịch bản đổi clip ở mọi câu (44 lần trong 7 phút) và luôn chạy lại từ khung 0, người xem chỉ thấy ~3 s đầu của hai clip lặp lại. Đổi
   clip nói khi nào? → A: Câu đến trong khoảng giữ (kể cả `seq 0`) nói tiếp trên clip nói đang giữ. Chọn clip nói mới khi bắt đầu nói từ

@@ -34,12 +34,13 @@ Mọi dòng thuộc show có `show_id`. Dòng thuộc một câu kịch bản c�
 
 **`script_sentences.jsonl`**: một dòng mỗi câu kịch bản ra khỏi LLM (hoặc từ nguồn dự phòng).
 ```json
-{"utterance_id": "…", "segment_id": "…", "seq": 2, "source": "script|fallback", "text": "…", "raw_text": "…",
+{"utterance_id": "…", "segment_id": "…", "seq": 2, "source": "script|fallback|verbatim", "text": "…", "raw_text": "…",
  "status": "spoken|blocked|dropped|tts_error|render_error|interrupted", "guard_reason": null, "guard_detail": null, "drop_reason": null,
  "marks": {"segment_requested": 0.0, "llm_first_sentence": 1.4, "tts_first_chunk": 1.41, "avatar_first_frame": 22.8},
  "played_at": 27.1}
 ```
-`marks` và `played_at` lưu tương đối so với `segment_requested` (giây). Câu ở cuối phân đoạn có `avatar_first_frame` lớn, vì nó chờ
+`source: "verbatim"`: câu của show đọc nguyên văn (007 R6), đi theo đường dự phòng nhưng không phải sự cố (sửa lỗi
+2026-11-17). `marks` và `played_at` lưu tương đối so với `segment_requested` (giây). Câu ở cuối phân đoạn có `avatar_first_frame` lớn, vì nó chờ
 các câu trước phát xong. Cách tính khoảng lặng nằm ở `sentence_gap`, không suy ra từ `marks`.
 
 **`show_summary_<show_id>.json`**: `ShowSummary` (data-model §9), ghi khi sang `ended` hoặc khi app tắt giữa show (`ended_by: "shutdown"`).

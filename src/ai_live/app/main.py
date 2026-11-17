@@ -38,10 +38,13 @@ from ai_live.core.logging import configure_logging, log_event
 from ai_live.core.protocols import ReplyEngine, TTSEngine, TTSEngineError
 from ai_live.director.faults import FaultInjector
 from ai_live.director.latency import LatencyTracker
-from ai_live.director.session_log import SessionLog
+from ai_live.director.session_log import SessionLog, iso_now
 from ai_live.director.show_director import ShowDirector
+from ai_live.ops.system import power_status
+from ai_live.ops.watchdog import WatchdogService
 from ai_live.products.models import ContentLoadError
 from ai_live.products.store import DocxProductStore
+from ai_live.scene.controller import SceneController
 from ai_live.tts.factory import create_tts
 
 if TYPE_CHECKING:
@@ -103,10 +106,13 @@ def create_app(
             chain.add_state_observer(lambda snapshot: bus.publish(Event(EventType.LLM_CHAIN, dict(snapshot))))
         # Opened after every startup check, so a refused start leaves no empty session folder behind.
         session_log = await SessionLog.open(settings.session_data_dir, session_id)
+        session_log.write_session_info(await asyncio.to_thread(_session_info, settings, session_id, store))
         # Subscribe before any comment can arrive, so no early drop is missing from `comments.jsonl`.
         drops = bus.subscribe()
         # Before the renderer exists, so its first mode and health events reach `avatar.jsonl` too (005 T020).
         avatar_events = bus.subscribe()
+        # Same reason for the watchdog: it must know the starting avatar mode and fork health (007 R2).
+        watchdog_events = bus.subscribe() if settings.watchdog_enabled else None
         renderer = create_renderer(settings, bus=bus, character=character)
         tts_engine = tts if tts is not None else create_tts(settings)
         await _warm_up_tts(tts_engine, settings)
@@ -135,6 +141,14 @@ def create_app(
             settings=settings,
             faults=faults,
         )
+        avatar_image = avatar_image_path(settings, character)
+        scene = SceneController(settings, store, renderer, bus, avatar_image) if settings.scene_enabled else None
+        watchdog = None
+        if watchdog_events is not None:
+            watchdog = WatchdogService(
+                settings, bus, watchdog_events, skip=director.skip_current, session_log=session_log
+            )
+            watchdog.attach(renderer)
         app.state.ctx = AppContext(
             settings=settings,
             session_id=session_id,
@@ -147,10 +161,15 @@ def create_app(
             director=director,
             session_log=session_log,
             chain=chain,
-            avatar_image=avatar_image_path(settings, character),
+            avatar_image=avatar_image,
             character=character,
+            scene=scene,
+            watchdog=watchdog,
         )
         await renderer.start()
+        if scene is not None:
+            # After the renderer, so the fork link exists to take the first layer; a scene error never stops startup.
+            await scene.start()
         log_event(
             logger,
             "app_started",
@@ -159,19 +178,37 @@ def create_app(
             llm_model=_llm_label(settings) if settings.reply_engine != "fake" else None,
             tts_provider=settings.tts_provider,
             avatar_mode=settings.avatar_mode,
+            output_mode=settings.output_mode,
             catalog_version=store.catalog.version,
+            scene_enabled=settings.scene_enabled,
         )
+        if settings.output_mode_legacy:
+            log_event(
+                logger,
+                "output_mode_legacy",
+                logging.WARNING,
+                value="webrtc",
+                using="meet",
+                hint="Đổi OUTPUT_MODE=webrtc thành meet (hoặc obs) trong .env",
+            )
         tasks = [
             asyncio.create_task(director.run(), name="show_director"),
             asyncio.create_task(queue.run_sweeper(QUEUE_SWEEP_INTERVAL_S), name="queue_sweeper"),
             asyncio.create_task(session_log.record_drops(drops), name="session_drops"),
             asyncio.create_task(session_log.record_avatar(avatar_events), name="session_avatar"),
         ]
+        if watchdog is not None:
+            tasks.append(asyncio.create_task(watchdog.run(), name="show_watchdog"))
         try:
             yield
         finally:
             # The show stops first, so its summary is written while the session log is still open.
             await director.close()
+            if scene is not None:
+                await scene.stop()
+            if watchdog is not None:
+                # The show's end closes its alerts in `alerts.jsonl` before the log shuts.
+                watchdog.flush()
             for task in tasks:
                 task.cancel()
             for task in tasks:
@@ -200,6 +237,30 @@ def create_app(
         app.include_router(routes.debug_router)
     app.mount("/static", StaticFiles(directory=routes.STATIC_DIR), name="static")
     return app
+
+
+def _session_info(settings: Settings, session_id: str, store: DocxProductStore) -> dict[str, Any]:
+    """`session.json`: the run conditions the rehearsal report needs (007 data-model §3). Never a key or a path."""
+    return {
+        "session_id": session_id,
+        "started_at": iso_now(),
+        "app_env": settings.app_env,
+        "reply_engine": settings.reply_engine,
+        "tts_provider": settings.tts_provider,
+        "avatar_mode": settings.avatar_mode,
+        "scene_enabled": settings.scene_enabled,
+        "customer_id": settings.customer_id,
+        "avatar_id": settings.avatar_id,
+        "catalog_version": store.catalog.version,
+        # Read off the loop: the Windows call is quick, but it is still a system call.
+        "power": power_status(),
+        "watchdog": {
+            "enabled": settings.watchdog_enabled,
+            "silence_s": settings.watchdog_silence_s,
+            "frozen_s": settings.watchdog_frozen_s,
+            "autoskip_s": settings.watchdog_autoskip_s,
+        },
+    }
 
 
 def _new_session_id(base_dir: Path) -> str:

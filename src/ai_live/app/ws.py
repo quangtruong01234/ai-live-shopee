@@ -9,7 +9,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ai_live.app.context import AppContext, build_state, now_iso
-from ai_live.core.events import Subscription
+from ai_live.core.events import EventType, Subscription
 
 router = APIRouter()
 
@@ -38,6 +38,9 @@ async def control_ws(ws: WebSocket) -> None:
 async def _forward(ws: WebSocket, ctx: AppContext, sub: Subscription) -> None:
     await ws.send_json({"type": "state", "ts": now_iso(), **build_state(ctx)})
     async for event in sub:
+        # One heartbeat a second from the host tab feeds the watchdog; the control page shows alerts instead (007).
+        if event.type is EventType.HOST_STATUS:
+            continue
         await ws.send_json({**event.to_json(), "ts": now_iso()})
 
 
@@ -45,7 +48,9 @@ async def _forward(ws: WebSocket, ctx: AppContext, sub: Subscription) -> None:
 async def host_ws(ws: WebSocket) -> None:
     ctx: AppContext = ws.app.state.ctx
     await ws.accept()
-    await ctx.renderer.attach(ws)
+    # 006: `/obs` connects with role=obs and outranks a `/host` tab; a refused page was already closed with 4001.
+    if not await ctx.renderer.attach(ws, ws.query_params.get("role", "host")):
+        return
     try:
         while (message := await ws.receive())["type"] != "websocket.disconnect":
             # Message hỏng thì bỏ qua thay vì đóng kết nối: rớt host giữa live là mất tiếng.

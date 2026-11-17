@@ -333,13 +333,14 @@ AVATAR_DEFAULTS = {
     "livetalking_python": Path("vendor/livetalking/.venv/Scripts/python.exe"),
     "livetalking_first_frame_timeout_s": 10,
     "livetalking_reconnect_max_s": 10,
-    "livetalking_lead_s": 0,
+    "livetalking_lead_s": 2.5,
 }
 
 # Read only by the fork through scripts/livetalking/run.ps1, so they live in `.env.example` but not in Settings.
 FORK_ONLY_VARS = (
     "LIVETALKING_BATCH_SIZE",
     "LIVETALKING_LIP_EVERY_N",
+    "LIVETALKING_MOUTH_METHOD",
     "LIVETALKING_TRANSITION_S",
     "LIVETALKING_HOLD_S",
     "AILIVE_RECORD_DIR",
@@ -442,6 +443,12 @@ def test_avatar_bounds_rejected(field, value):
         Settings(_env_file=None, **{field: value})
 
 
+def test_lead_must_stay_below_first_frame_timeout():
+    with pytest.raises(ValidationError, match="LIVETALKING_LEAD_S"):
+        Settings(_env_file=None, livetalking_lead_s=10, livetalking_first_frame_timeout_s=10)
+    assert Settings(_env_file=None, livetalking_lead_s=0).livetalking_lead_s == 0
+
+
 def test_avatar_bounds_edges_accepted():
     s = Settings(_env_file=None, livetalking_lead_s=0, avatar_fallback_after=1, livetalking_reconnect_max_s=0.5)
     assert (s.livetalking_lead_s, s.avatar_fallback_after, s.livetalking_reconnect_max_s) == (0, 1, 0.5)
@@ -535,3 +542,99 @@ def test_vieneu_ref_audio_is_optional_and_expands_home():
     assert Settings(_env_file=None, vieneu_ref_audio="").vieneu_ref_audio is None
     expanded = Settings(_env_file=None, vieneu_ref_audio="~/voices/mau.wav").vieneu_ref_audio
     assert expanded == Path.home() / "voices" / "mau.wav"
+
+
+# ---------- 007 demo readiness (data-model §2, plan "Bối cảnh kỹ thuật") ----------
+
+OPS_DEFAULTS = {
+    "watchdog_enabled": True,
+    "watchdog_silence_s": 5.0,
+    "watchdog_frozen_s": 3.0,
+    "watchdog_autoskip_s": 15.0,
+    "watchdog_audio_ack_s": 3.0,
+    "watchdog_audio_ack_lipsync_s": 6.0,
+    "watchdog_tick_s": 0.25,
+    "readiness_min_free_gb": 5.0,
+    "backup_video_dir": Path("out/backup_video"),
+}
+
+
+def test_feature_007_settings_defaults_match_env_example():
+    example = parse_env_example()
+    defaults = Settings(_env_file=None)
+    for name, expected in OPS_DEFAULTS.items():
+        assert name.upper() in example, f"{name.upper()} missing from .env.example"
+        assert getattr(defaults, name) == expected, name
+
+
+@pytest.mark.parametrize(("silence", "autoskip"), [(5, 5), (10, 6)])
+def test_watchdog_autoskip_must_exceed_silence(silence, autoskip):
+    with pytest.raises(ValidationError, match="WATCHDOG_AUTOSKIP_S"):
+        Settings(_env_file=None, watchdog_silence_s=silence, watchdog_autoskip_s=autoskip)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "watchdog_silence_s",
+        "watchdog_frozen_s",
+        "watchdog_autoskip_s",
+        "watchdog_audio_ack_s",
+        "watchdog_audio_ack_lipsync_s",
+        "watchdog_tick_s",
+    ],
+)
+def test_watchdog_thresholds_must_be_positive(field):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: 0})
+
+
+def test_readiness_min_free_gb_not_negative():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, readiness_min_free_gb=-1)
+
+
+def test_watchdog_thresholds_read_from_environment(monkeypatch):
+    monkeypatch.setenv("WATCHDOG_SILENCE_S", "2")
+    monkeypatch.setenv("WATCHDOG_AUTOSKIP_S", "4")
+    monkeypatch.setenv("WATCHDOG_ENABLED", "false")
+    settings = Settings(_env_file=None)
+    assert (settings.watchdog_silence_s, settings.watchdog_autoskip_s, settings.watchdog_enabled) == (2, 4, False)
+
+
+# ---------- 006: OUTPUT_MODE (data-model §1) ----------
+
+
+def test_output_mode_defaults_to_meet():
+    settings = Settings(_env_file=None)
+    assert settings.output_mode == "meet"
+    assert settings.output_mode_legacy is False
+
+
+@pytest.mark.parametrize("value", ["obs", " OBS ", "Obs"])
+def test_output_mode_obs_normalized(value):
+    assert Settings(_env_file=None, output_mode=value).output_mode == "obs"
+
+
+def test_output_mode_meet_is_not_legacy():
+    settings = Settings(_env_file=None, output_mode="MEET")
+    assert settings.output_mode == "meet"
+    assert settings.output_mode_legacy is False
+
+
+def test_output_mode_webrtc_is_legacy_meet(monkeypatch):
+    # The user's existing `.env` still says webrtc; it must keep running as Meet, flagged for one startup warning.
+    monkeypatch.setenv("OUTPUT_MODE", "webrtc")
+    settings = Settings(_env_file=None)
+    assert settings.output_mode == "meet"
+    assert settings.output_mode_legacy is True
+
+
+@pytest.mark.parametrize("value", ["virtualcam", "rtmp", "abc", ""])
+def test_output_mode_other_values_fail(value):
+    with pytest.raises(ValidationError, match="OUTPUT_MODE chỉ nhận meet hoặc obs"):
+        Settings(_env_file=None, output_mode=value)
+
+
+def test_watchdog_host_stale_default():
+    assert Settings(_env_file=None).watchdog_host_stale_s == 10

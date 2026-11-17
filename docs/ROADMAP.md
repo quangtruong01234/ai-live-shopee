@@ -44,30 +44,50 @@
 - [x] Chuẩn bị dữ liệu avatar (video/ảnh nền) theo yêu cầu của model đã chọn: 4 clip Wan 2.2 (ADR-036), làm mượt bằng
   `scripts/avatar_clips/smooth_clips.py`, `prepare` cho Wav2Lip; người dùng duyệt hết rung 2026-11-10 (005 T044, T045)
 - [x] Nhãn "AI" ghép vào frame (ADR-044): 12/12 ảnh chụp `/host` lúc chờ và lúc nói có nhãn trong khung hình, 2026-11-11 (005 T047, SC-002)
-- [ ] Duyệt số đo 005 US4 (gói duyệt 2026-11-12): đổi mặc định `LIVETALKING_LEAD_S` 0 → 2,5 (lặng giữa câu p95 2,98 s → 0,76–1,0 s),
-  chọn batch 16 hay 8, xem bản ghi một lượt bình luận (`render_fps` ~18 khi VieNeu vừa tổng hợp vừa phát)
-- [ ] Bố cục cảnh live quanh host (bàn, sản phẩm hai bên/phía sau, thẻ giá): đề xuất `009-live-scene-layout`, làm sau 003
+- [x] Duyệt số đo 005 US4 (2026-11-16): `LIVETALKING_LEAD_S` mặc định 2,5, batch 16, chấp nhận ~18 khung/giây ở lượt bình luận,
+  không làm bộ clip nhỏ hơn / RunPod
+- [x] Bố cục cảnh live quanh host (khung dọc, bàn bày sản phẩm trước host, thẻ tên/giá): [spec `009-live-scene-layout`](../specs/009-live-scene-layout/spec.md) Done 2026-11-13 (38/38; còn ảnh thật của khách, SC-006, SC-007)
+- [ ] Khẩu hình giống người: [spec `010-natural-mouth-shapes`](../specs/010-natural-mouth-shapes/spec.md) In progress 2026-11-13 (29/32):
+  bộ đo khẩu hình, núm `LIVETALKING_MOUTH_METHOD` (mặc định `w2l`, ADR-055), loại đoạn clip nói đầu nghiêng (ADR-056). Còn chấm A/B
+  `w2l` vs `shift=-1` (ngưỡng góc đầu giữ 35/20/30, 2026-11-16)
 - [ ] ~~Đo độ trễ end-to-end < 5 giây (p95) với comment mock~~ tạm hoãn (ADR-026); đo tốc độ nhân vật theo spec 005
 
-### M1c: YouTube Unlisted (tùy chọn)
-- [ ] (Tạm hoãn, ADR-026) `YouTubeChatSource` (Live Chat API) với xử lý `pollingIntervalMillis` và quota
-- [ ] Output RTMP lên YouTube Unlisted
-- [ ] (Tạm hoãn, ADR-026) Chạy thử comment thật từ YouTube
+### ~~M1c: YouTube Unlisted (tùy chọn)~~ Bỏ (ADR-058)
+- Người dùng không live trên YouTube (2026-11-13). Không làm `YouTubeChatSource`, không đẩy RTMP lên YouTube. Đầu ra cho giai đoạn
+  Shopee chuyển sang 006 OBS (M2).
 
 ### M1d: Tổng duyệt và demo
-- [ ] Phiên chạy liên tục 30 phút không lỗi (ghi lại log)
-- [ ] Video dự phòng 2–3 phút đã quay và đã thử phát qua Meet
-- [ ] Runbook buổi demo: checklist T-1 ngày và T-1 giờ, xử lý sự cố, ai làm gì
+- [ ] Phiên chạy liên tục 30 phút không lỗi (ghi lại log). Một phần: 004 G5 (2026-11-12, LLM thật + nhép miệng, có lỗi giả lập) chạy hết
+  30 phút về `ended`; 005 T073 (`REPLY_ENGINE=fake`) 322 câu, 0 lỗi tts/render; 007 T054 (2026-11-13, fake, canh show bật) 327 câu,
+  0 lỗi, lặng p95 3,0 s. Còn tổng duyệt lại ngày riêng với LLM thật, cắm sạc, theo `RUNBOOK.md` §7 (lệnh `report` chấm tiêu chí 3, 4)
+- [ ] Video dự phòng 2–3 phút đã quay và đã thử phát qua Meet. Một phần: 007 T055 (2026-11-13) làm bằng lệnh `backup-video`
+  (157 s, nhãn "AI" mọi khung, phiếu `Đạt`); còn người dùng xem lại và thử phát qua Meet (007 T058)
+- [ ] Sẵn sàng demo: [spec `007-demo-readiness`](../specs/007-demo-readiness/spec.md) In progress 2026-11-13 (58/59): kiểm tra trước
+  demo, canh show + banner, báo cáo tổng duyệt, video dự phòng `verbatim` (ADR-057 Đề xuất). Còn T058 (người dùng)
+- [ ] Runbook buổi demo: checklist T-1 ngày và T-1 giờ, xử lý sự cố, ai làm gì. Bản nháp [`RUNBOOK.md`](RUNBOOK.md) 2026-11-13; còn
+  `TODO:` ai làm gì, Meet chạy máy nào, ngưỡng chuyển sang video dự phòng. 007 thêm §2–§7 (lệnh kiểm, banner, làm video dự phòng, `report`)
 - [ ] Thử chia sẻ tab Chrome có âm thanh vào Google Meet từ máy khác
 - [ ] **Demo với khách.** Ghi phản hồi vào ADR/ROADMAP
 
 **Điều kiện qua M1:** đạt đủ 5 tiêu chí trong `PRD.md` §3 và khách đồng ý trả tiền.
 
 ## M2: Pilot 1 khách
-- [ ] Hoàn tất kiểm tra license: LiveTalking (watermark), Wav2Lip, MuseTalk, S3FD, whisper, model TTS (xem `RISKS.md`)
+
+Thứ tự ưu tiên đề xuất sau demo (2026-11-17, chờ người dùng), theo so sánh với sản phẩm cùng loại ở [VENDORS.md](VENDORS.md) mục
+"Sản phẩm cùng loại trên thị trường": (1) đường license cho nhép miệng, (2) trả lời bình luận Shopee, (3) chạy ổn 4 → 8 → 15 giờ
+trên máy đích.
+
+- [ ] Xác minh cách khai báo nội dung AI trên Shopee Live Việt Nam (RISKS P9): nhãn "AI" trong hình đã đủ chưa, có nút khai báo hay
+  phải ghim bình luận (P8) không
+- [ ] Hoàn tất kiểm tra license: LiveTalking (watermark), Wav2Lip, MuseTalk, S3FD, whisper, model TTS (xem `RISKS.md`). Đọc 2026-11-13:
+  Wav2Lip gốc cấm thương mại (L2, phải hỏi Sync Labs), code S3FD BSD-3 nhưng weights chưa rõ (L4), whisper không nằm trên đường wav2lip (L5),
+  VieNeu cho dùng thương mại tiếng tạo ra (L8). Còn L1 logo trên YouTube/Shopee, L2, L4 weights, L11 checkpoint `wav2lip256`
 - [ ] Hợp đồng dịch vụ có điều khoản dữ liệu, đồng ý về hình/giọng và trách nhiệm whitelist
 - [ ] Khách xin được whitelist live AI với Shopee
-- [ ] Output cho OBS: virtual cam và/hoặc RTMP + Stream Key
+- [ ] Output cho OBS: [spec `006-obs-output`](../specs/006-obs-output/spec.md) In progress 2026-11-13 (30/35, phần không GPU xong; còn
+  task `[GPU]` và gói duyệt): OBS Browser Source trang `/obs`
+  có hình + tiếng không cần bấm, vai `obs` ưu tiên hơn trang `/host`, `OUTPUT_MODE=meet|obs` (ADR-058 Đề xuất). OBS tự đẩy RTMP + Stream
+  Key lên Shopee; virtualcam/RTMP trực tiếp từ fork để sau
 - [ ] (Tạm hoãn, ADR-026) Khảo sát cách đọc comment Shopee Live PC và làm prototype `ShopeeSource`
 - [ ] Lưu phiên Shopee ở dạng mã hóa (ADR-010)
 - [ ] Chạy ổn định 4 giờ, rồi 8 giờ, rồi 15 giờ (tự khởi động lại, watchdog, cảnh báo)

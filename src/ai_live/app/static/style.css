@@ -19,7 +19,8 @@ body { margin: 0; font-family: system-ui, "Segoe UI", Roboto, sans-serif; color:
 
 body.host { background: #000; overflow: hidden; }
 .stage { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
-.avatar { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform .2s ease; }
+/* Fill the stage and letterbox: max-width/max-height alone never scaled a small fork frame up to the window. */
+.avatar { width: 100%; height: 100%; object-fit: contain; transition: transform .2s ease; }
 .avatar.speaking { animation: talk .5s ease-in-out infinite alternate; }
 @keyframes talk { from { transform: scale(1); } to { transform: scale(1.01); } }
 
@@ -43,6 +44,21 @@ body.host { background: #000; overflow: hidden; }
   font-size: clamp(18px, 2.8vw, 38px); line-height: 1.35;
 }
 .subtitle:empty { display: none; }
+/* 009: with the scene on, the stage is the 480×832 frame itself (about 9:16), centred, so the AI label sits inside
+   the picture (where the fork draws it), not out in a black side bar that a cropped share would lose (Article I). */
+.stage.scene-on {
+  position: absolute; inset: 0; margin: auto;
+  width: min(100vw, 57.69vh); height: min(100vh, 173.33vw);
+}
+.scene-on .ai-label { font-size: clamp(14px, 3.6vh, 32px); }
+.scene-on .label-top-right { top: 1.5%; right: 2.5%; }
+.scene-on .label-top-left { top: 1.5%; left: 2.5%; }
+.scene-on .label-bottom-right { bottom: 1.5%; right: 2.5%; }
+.scene-on .label-bottom-left { bottom: 1.5%; left: 2.5%; }
+/* The web subtitle sits in the scene's subtitle band (chest height), not over the product cards. In-frame subtitles
+   replace it (FR-018). */
+.scene-on .subtitle { bottom: auto; top: 41%; max-width: 88%; font-size: clamp(14px, 2.4vh, 30px); }
+.subtitle.in-frame { display: none; }
 
 .start-overlay {
   position: absolute; inset: 0; z-index: 900;
@@ -58,6 +74,11 @@ body.host { background: #000; overflow: hidden; }
   padding: .4em .8em; border-radius: .4em; background: var(--warn-bg); color: var(--warn-ink);
 }
 .host-status:empty { display: none; }
+/* 006: the OBS Browser Source captures the whole page, so nothing but the picture and the AI label may show
+   (contracts/api.md §1). The label is deliberately not in this list (Article I). */
+body.obs { overflow: hidden; scrollbar-width: none; }
+body.obs::-webkit-scrollbar { display: none; }
+body.obs #start-overlay, body.obs #host-status, body.obs #subtitle { display: none !important; }
 
 /* ---------- Control page ---------- */
 
@@ -75,6 +96,12 @@ body.host { background: #000; overflow: hidden; }
 .banner { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); }
 .banner a { color: inherit; }
 .banner.danger { background: var(--err-bg); color: var(--err-ink); }
+/* 007 watchdog alerts: pinned above the page so they are seen mid-show */
+.alerts { position: sticky; top: 0; z-index: 10; }
+.alert-row { padding: 8px 16px; border-bottom: 1px solid rgba(0, 0, 0, .08); }
+.alert-row.warning { background: var(--warn-bg); color: var(--warn-ink); }
+.alert-row.operator { background: var(--err-bg); color: var(--err-ink); }
+.alert-text { font-size: .85rem; opacity: .85; margin-top: 2px; overflow-wrap: anywhere; }
 .banner .list { margin: 6px 0 0; }
 .session-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .session-controls button { font: inherit; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; cursor: pointer; }
@@ -97,6 +124,7 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .list li:last-child { border-bottom: 0; }
 .list .time { color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
 .list .err { color: var(--err-ink); }
+.turn-meta.err { color: var(--err-ink); }
 .empty { color: var(--muted); font-size: .9rem; }
 .prio { display: inline-block; min-width: 4.5em; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: .75rem; text-align: center; background: var(--line); }
 .prio.HIGH { background: var(--brand); color: #fff; }
@@ -112,3 +140,12 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .latency-meta { margin-top: 8px; color: var(--muted); font-size: .85rem; }
 .latency.llm-entries th, .latency.llm-entries td { text-align: left; }
 .latency.llm-entries tr.resting td { color: var(--err-ink); }
+/* 007: readiness table, text left-aligned; a fail row is tinted so it is found at a glance. */
+.latency.readiness th, .latency.readiness td { text-align: left; vertical-align: top; }
+.latency.readiness tr.check-fail td { background: var(--err-bg); }
+.latency.readiness tr.check-warn td { background: var(--warn-bg); }
+.check-mark { display: inline-block; min-width: 4.5em; padding: 0 6px; border-radius: 4px; font-size: .8rem; font-weight: 600; text-align: center; background: var(--line); }
+.check-mark.ok { background: #e6f4ea; color: #1e6b34; }
+.check-mark.warn { background: var(--warn-ink); color: #fff; }
+.check-mark.fail { background: var(--err-ink); color: #fff; }
+#readiness-manual label { cursor: pointer; }

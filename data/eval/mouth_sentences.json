@@ -1,0 +1,141 @@
+{
+  "version": 2,
+  "note": "Bộ câu mẫu đo khẩu hình (010 FR-007). Đọc bằng giọng host (TTS_PROVIDER=vieneu); audio sinh ra để ngoài git. Nhóm vowel_* dùng phụ âm t/đ/n/l để môi không bị phụ âm môi kéo; nhóm bilabial dày âm b/m/p; nhóm natural là câu dẫn live thường, không nêu giá hay công dụng. Nhóm number (thêm ở version 2) đọc số đếm, ngày giờ và một giá ví dụ chỉ để đo miệng, không phải giá của sản phẩm nào và không bao giờ phát lên live. Chỉ số tổng so được giữa hai lần đo khi cùng version.",
+  "sentences": [
+    {
+      "id": "a1",
+      "group": "vowel_a",
+      "text": "Ta tá tà tả, la lá là lả, na ná nà nả."
+    },
+    {
+      "id": "a2",
+      "group": "vowel_a",
+      "text": "Đà Lạt có hoa, cả nhà ra đá banh ngoài sân."
+    },
+    {
+      "id": "a3",
+      "group": "vowel_a",
+      "text": "Hàng đã tới tận tay, cả nhà xem thử nha."
+    },
+    {
+      "id": "i1",
+      "group": "vowel_i",
+      "text": "Ti tí tì tỉ, li lí lì lỉ, ni ní nì nỉ."
+    },
+    {
+      "id": "i2",
+      "group": "vowel_i",
+      "text": "Chị Kim thích đi chợ, nghĩ kỹ rồi chỉ việc chọn."
+    },
+    {
+      "id": "i3",
+      "group": "vowel_i",
+      "text": "Nghe kỹ nghe nè, nhịp nhàng, tinh tế, dễ thích."
+    },
+    {
+      "id": "u1",
+      "group": "vowel_u",
+      "text": "Tu tú tù tủ, lu lú lù lủ, nu nú nù nủ."
+    },
+    {
+      "id": "u2",
+      "group": "vowel_u",
+      "text": "Cô Thu ngủ trưa, chú Hùng đi tuần quanh khu phố."
+    },
+    {
+      "id": "u3",
+      "group": "vowel_u",
+      "text": "Tuần này đủ hàng, cả nhà cứ yên tâm nhé."
+    },
+    {
+      "id": "o1",
+      "group": "vowel_o",
+      "text": "To tó tò tỏ, lo ló lò lỏ, no nó nò nỏ."
+    },
+    {
+      "id": "o2",
+      "group": "vowel_o",
+      "text": "Cô Hoa có con mèo to, lông nó óng như tơ."
+    },
+    {
+      "id": "o3",
+      "group": "vowel_o",
+      "text": "Tô đỏ ô tô, cỏ non xanh tốt ở góc đồng."
+    },
+    {
+      "id": "b1",
+      "group": "bilabial",
+      "text": "Ba bà bán bánh bò, mẹ mua mười miếng."
+    },
+    {
+      "id": "b2",
+      "group": "bilabial",
+      "text": "Bé Bình bỏ bút bi vào balo màu mận."
+    },
+    {
+      "id": "b3",
+      "group": "bilabial",
+      "text": "Mình mời mọi người bấm mua, bên mình bán buổi mai."
+    },
+    {
+      "id": "b4",
+      "group": "bilabial",
+      "text": "Môi mềm, mắt mở, mình mỉm cười một chút."
+    },
+    {
+      "id": "b5",
+      "group": "bilabial",
+      "text": "Bốn bó bông bưởi bày bên bậc bếp."
+    },
+    {
+      "id": "b6",
+      "group": "bilabial",
+      "text": "Tháp nhập, lớp áp, cặp hộp, mùa sắm."
+    },
+    {
+      "id": "n1",
+      "group": "natural",
+      "text": "Chào cả nhà, mình là trợ lý AI của shop, hôm nay mình giới thiệu vài món mới."
+    },
+    {
+      "id": "n2",
+      "group": "natural",
+      "text": "Cả nhà xem kỹ sản phẩm trên bàn nha, có gì thắc mắc cứ hỏi shop."
+    },
+    {
+      "id": "n3",
+      "group": "natural",
+      "text": "Món này mình để ngay chính giữa, cả nhà nhìn rõ chưa nè?"
+    },
+    {
+      "id": "n4",
+      "group": "natural",
+      "text": "Thông tin chi tiết cả nhà bấm vào giỏ hàng bên dưới để xem nha."
+    },
+    {
+      "id": "n5",
+      "group": "natural",
+      "text": "Cảm ơn cả nhà đã ghé live, nhớ theo dõi shop để không bỏ lỡ nhé."
+    },
+    {
+      "id": "n6",
+      "group": "natural",
+      "text": "Ừm, để mình nói thêm một chút về cách dùng hằng ngày."
+    },
+    {
+      "id": "m1",
+      "group": "number",
+      "text": "Một, hai, ba, bốn, năm, sáu, bảy, tám, chín, mười."
+    },
+    {
+      "id": "m2",
+      "group": "number",
+      "text": "Ví dụ đọc giá: một trăm chín mươi chín nghìn, hai trăm năm mươi nghìn đồng."
+    },
+    {
+      "id": "m3",
+      "group": "number",
+      "text": "Ngày mười lăm tháng mười một, lúc tám giờ ba mươi phút tối."
+    }
+  ]
+}

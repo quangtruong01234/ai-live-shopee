@@ -7,12 +7,14 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+  <!-- 007 FR-008: show watchdog alerts, one line each while open; yellow `warning`, red `operator`; never a sound. -->
+  <div id="alert-banner" class="alerts" role="status" aria-live="polite" hidden></div>
   <div class="control">
     <header>
       <h1>Điều khiển AI Live</h1>
       <div>
         Server <span id="server-badge" class="badge bad">mất kết nối</span>
-        Host <span id="host-badge" class="badge bad">chưa mở</span>
+        Đầu ra <span id="host-badge" class="badge bad">chưa mở</span>
         Phiên <span id="session-badge" class="badge">…</span>
         <span id="lipsync-status" hidden>Nhép miệng <span id="lipsync-badge" class="badge bad">mất nối</span></span>
       </div>
@@ -25,8 +27,11 @@
     </header>
 
     <div id="host-warning" class="banner">
-      Chưa mở màn hình host. Mở <a href="/host" target="_blank" rel="noopener">/host</a> trên Chrome và bấm <b>Bắt đầu</b>,
-      nếu không comment sẽ lỗi ở bước <code>render</code>.
+      <span id="host-warning-meet">Chưa mở màn hình host. Mở <a href="/host" target="_blank" rel="noopener">/host</a> trên Chrome và bấm <b>Bắt đầu</b>,
+      nếu không comment sẽ lỗi ở bước <code>render</code>.</span>
+      <span id="host-warning-obs" hidden>Nguồn OBS chưa nối. Trong OBS thêm Browser Source, URL
+        <code id="obs-url">/obs</code>, 720×1248, bật <b>Control audio via OBS</b> (runbook §8).
+        Trang <code>/host</code> trên Chrome không thay được OBS ở chế độ này.</span>
     </div>
 
     <!-- 005 FR-022: shown while the lip-synced character fell back to the still image; only the operator switches back. -->
@@ -59,10 +64,31 @@
         <div id="show-sentence" class="turn-meta"></div>
         <div id="show-next" class="turn-meta"></div>
         <div id="show-stats" class="latency-meta"></div>
+        <!-- 009: shown only when SCENE_ENABLED is on. -->
+        <div id="show-scene" class="turn-meta" hidden></div>
         <h3>Câu kịch bản bị chặn (10 câu gần nhất)</h3>
         <ul id="show-blocked" class="list"><li class="empty">Chưa có.</li></ul>
         <h3>Lỗi của show (10 lỗi gần nhất)</h3>
         <ul id="show-errors" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <!-- 007 FR-001, FR-005: read-only check; never speaks or touches the show (FR-004). -->
+      <section class="panel wide" id="readiness-panel">
+        <h2>Kiểm tra trước demo <span id="readiness-verdict" class="badge" hidden></span></h2>
+        <div class="session-controls">
+          <button id="readiness-btn" type="button">Kiểm tra trước demo</button>
+          <span id="readiness-msg" class="form-msg"></span>
+        </div>
+        <table class="latency readiness" id="readiness-table" hidden>
+          <thead>
+            <tr><th>Mục</th><th>Kết quả</th><th>Tình trạng</th><th>Việc cần làm</th></tr>
+          </thead>
+          <tbody id="readiness-rows"></tbody>
+        </table>
+        <div id="readiness-manual-box" hidden>
+          <h3>Việc tự xác nhận (máy không kiểm được)</h3>
+          <ul id="readiness-manual" class="list"></ul>
+        </div>
       </section>
 
       <!-- 008 FR-017, FR-020: read only, no button; shown only when the reply engine is the model chain. -->
@@ -172,9 +198,9 @@
         <h3>Lượt gần nhất</h3>
         <table class="latency">
           <thead>
-            <tr><th>Lượt</th><th>Kết quả</th><th>Tổng (s)</th><th>fps tạo hình</th><th>fps suy luận</th><th>Clip</th></tr>
+            <tr><th>Lượt</th><th>Kết quả</th><th>Tổng (s)</th><th>fps tạo hình</th><th>fps suy luận</th><th>Clip</th><th>Miệng</th></tr>
           </thead>
-          <tbody id="latency-turns"><tr><td colspan="6" class="note">Chưa có lượt nào xong.</td></tr></tbody>
+          <tbody id="latency-turns"><tr><td colspan="7" class="note">Chưa có lượt nào xong.</td></tr></tbody>
         </table>
       </section>
 

@@ -171,6 +171,8 @@ def test_host_config_static(app_settings) -> None:
         "active": "static",
         "livetalking_url": s.livetalking_url,
         "ai_label": {"text": "AI", "position": "bottom-left"},
+        "scene": {"enabled": False, "subtitles": False, "version": None},
+        "output_mode": "meet",
     }
 
 
@@ -346,6 +348,8 @@ def test_latency_turn_columns_are_null_on_the_still_image(client: TestClient) ->
             "render_fps": None,
             "infer_fps": None,
             "clips_used": None,
+            "scene_ms": None,
+            "mouth_method": None,
         }
     ]
     assert body["render_fps"]["count"] == 0 and body["render_fps"]["median"] is None
@@ -371,6 +375,8 @@ def test_latency_turn_columns_carry_the_fork_figures_and_their_p50_p95(client: T
         "render_fps": 24.0,
         "infer_fps": 30.0,
         "clips_used": ["talk_02"],
+        "scene_ms": None,
+        "mouth_method": None,
     }
     # Summary rates cover every lip-sync turn of the session, not just the recent rows; static turns are not counted.
     assert body["render_fps"]["count"] == RECENT_TURNS + 5

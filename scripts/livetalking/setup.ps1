@@ -69,7 +69,9 @@ if (-not (Test-Path $VenvPython)) {
 # torch comes from the PyTorch index first so requirements.txt cannot pull a CPU-only build (research R11).
 Write-Host "Cài torch $TORCH_VERSION ($Cuda)"
 Invoke-Native uv @('pip', 'install', '--python', $VenvPython,
-    "torch==$TORCH_VERSION", 'torchvision', 'torchaudio',
+    # torchaudio shares torch's version number; left unpinned it resolved to 2.11 against torch 2.9.1, whose native library
+    # fails to load and breaks every transformers model import (HuBERT for Ultralight, found 2026-11-18).
+    "torch==$TORCH_VERSION", 'torchvision', "torchaudio==$TORCH_VERSION",
     '--index-url', "https://download.pytorch.org/whl/$Cuda")
 
 Write-Host 'Cài requirements.txt của LiveTalking'

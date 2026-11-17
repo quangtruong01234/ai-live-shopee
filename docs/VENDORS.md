@@ -14,6 +14,9 @@
 | D-ID | API avatar realtime | Trả phí. TODO | |
 | Anam, bitHuman, Beyond Presence | API avatar realtime | TODO | Có plugin sẵn trong LiveKit Agents |
 | LiveTalking + Wav2Lip (`wav2lip256`), tự host | Mã nguồn mở. **Đang dùng** (feature 005): fork chạy process riêng ngoài git trên laptop GTX 1650 Ti (ADR-023, ADR-042); RunPod chỉ là dự phòng (`docs/RUNPOD.md`) | Miễn phí trên laptop; tiền thuê GPU theo giờ nếu phải dùng RunPod | Đã cài theo ADR-048, chọn Wav2Lip thay MuseTalk vì VRAM 4 GB (ADR-041). Đo 2026-11-12: `render_fps` p50 ~24–25, VRAM 2,6 GB (quickstart 005 bước 9). License yêu cầu giữ watermark "LiveTalking" (ADR-044); license checkpoint `wav2lip256.pth` chưa rõ (`docs/RISKS.md`) |
+| Ultralight-Digital-Human (anliyuan), tự host trong fork LiveTalking | Mã nguồn mở (README ghi Apache-2.0 nhưng repo không có file LICENSE). UNet nhẹ huấn luyện riêng cho từng nhân vật từ 3–5 phút video có tiếng; fork đã có `--model ultralight` | Miễn phí | **Chấp nhận để thử** (ADR-060): mã ở `vendor/ultralight/`, HuBERT ở `vendor/livetalking/models/` (ngoài git, 2026-11-17) |
+| InfiniteTalk (MeiGen-AI) trên Kaggle | Mở nguồn Apache-2.0, dựa trên Wan2.1; tạo video nói dài từ ảnh hoặc video + tiếng. Chỉ dùng offline để tạo video huấn luyện Ultralight, không phát live | Miễn phí (GPU Kaggle) | **Chấp nhận** (ADR-060, 2026-11-17): notebook `scripts/avatar_clips/make_infinitetalk_video.ipynb`; chưa chạy |
+| HeyGen Avatar IV | SaaS, phổ biến nhất ở VN cho video người AI nói tiếng Việt | Free: 720p, watermark, chỉ dùng phi thương mại; trả phí ~24 USD/tháng | Đã xét, không chọn (ADR-060) |
 
 Cần so sánh trước khi chọn: độ tự nhiên, độ trễ, **chi phí mỗi giờ live** (mục tiêu ~15 giờ/ngày), có cho dùng ảnh/giọng người mẫu riêng
 không, và điều khoản xử lý dữ liệu người mẫu (phải nằm trong phạm vi văn bản đồng ý).
@@ -63,7 +66,58 @@ chưa có adapter.
 - YouTube Live Chat API: miễn phí trong hạn mức quota. Dùng cho demo YouTube Unlisted.
 - Shopee: chưa có API công khai cho comment live. TODO: cách đọc comment đã thỏa thuận với khách (không thao tác gì khác trên tài khoản).
 
+## Sản phẩm cùng loại trên thị trường (tra 2026-11-17)
+
+Tra bằng tìm kiếm web ngày 2026-11-17 để biết một dịch vụ host AI bán được cần có gì. Thông tin lấy từ trang của chính nhà cung cấp
+và từ báo chí, **chưa dùng thử sản phẩm nào**. Đây không phải danh sách ứng viên để cài.
+
+| Sản phẩm | Thị trường | Điểm chính theo nguồn |
+|----------|-----------|------------------------|
+| AnyLive (AnyMind) | Đông Nam Á, Nhật | Live AI chi phí thấp, không giới hạn giờ; thống kê theo tài khoản, brand và từng phiên cho cả host người lẫn host AI. Một case study của chính nhà cung cấp nói host AI đã chạy hơn 300 giờ trên Shopee Live (chưa kiểm) |
+| BytePlus Live SaaS (digital human) | Quốc tế | Điều khiển host bằng kịch bản (nội dung, nhịp, luồng); có tài liệu đẩy phiên live lên Shopee bằng RTMP |
+| Tencent Cloud (digital human) | Trung Quốc, quốc tế | Bài giới thiệu người số live 24/7 |
+| Ecomobi | Việt Nam | Tự lấy thông tin sản phẩm từ link Shopee, Lazada, TikTok Shop; theo dõi kịch bản theo quy định của TikTok |
+| AiClip, Aeyes Global | Việt Nam | Báo chí nhắc là bên cung cấp host AI cho livestream bán hàng (Aeyes Global tại ngày hội mua sắm trực tuyến TP.HCM 2023) |
+
+Báo chí Việt Nam và nước ngoài đều nêu **tương tác với người xem là điểm yếu chung** của host AI.
+
+TODO: giá dịch vụ host AI ở Việt Nam là bao nhiêu? Không tìm thấy bảng giá công khai; hỏi báo giá trực tiếp khi làm mô hình giá bán
+(ROADMAP M2).
+
+So với dự án (2026-11-17):
+
+| Tính năng các bên có | Dự án | Việc tiếp |
+|----------------------|-------|-----------|
+| Kịch bản điều khiển nội dung và nhịp show | Có (004 `ShowDirector`) | — |
+| Nhân vật nhép miệng realtime | Có (005), miệng chưa tự nhiên (RISKS Q22) | 010, ADR-060 |
+| Bày sản phẩm, thẻ tên và giá trong khung | Có (009) | Ảnh thật của khách |
+| Đẩy lên Shopee bằng RTMP | Có qua OBS (006), chưa thử trong OBS thật | Gói duyệt 006 |
+| Trả lời bình luận người xem | Tạm hoãn (ADR-026). Đo 2026-11-17 trên đường thử: bình luận thứ hai chờ 17 s vì các câu trả lời chạy nối tiếp | M2, sửa spec trước |
+| Chạy 24/7 | Mới đo 30 phút; mục tiêu 15 giờ/ngày chưa thử | M2 "Chạy ổn định 4 giờ, rồi 8 giờ, rồi 15 giờ" |
+| Lấy dữ liệu sản phẩm tự động từ link sàn | Không, dùng file Word (ADR-014); hợp với mô hình làm hộ | Chưa cần |
+| Thống kê phiên live | Dùng thống kê của Shopee (PRD §1) | Chưa cần |
+| License thương mại rõ ràng | Chưa: Wav2Lip gốc cấm thương mại (RISKS L2, L4, L11) | Trước M2 |
+
+Điểm khác biệt có sẵn của dự án: bộ chặn đầu ra chỉ cho host nói theo dữ liệu sản phẩm (ràng buộc 7), hợp với xu hướng quy trách
+nhiệm lời host AI cho người bán (RISKS P10).
+
 ## Nguồn
+
+Sản phẩm cùng loại và quy định (tra 2026-11-17):
+
+- https://docs.byteplus.com/en/docs/byteplus-livesaas/digital-human-overview
+- https://docs.byteplus.com/docs/byteplus-livesaas/going-live-on-shopee-via-rtmp
+- https://anymindgroup.com/jp/anylive/
+- https://www.netinfluencer.com/anymind-group-updates-ai-live-commerce-platform-with-more-lifelike-avatars-deeper-analytics/
+- https://www.tencentcloud.com/techpedia/143803
+- https://ecomobi.com/vi/?p=35596
+- https://znews.vn/nguoi-ao-livestream-ban-hang-o-viet-nam-post1451576.html
+- https://plo.vn/su-dung-nguoi-ao-livestream-ban-hang-247-post776899.html
+- https://help.shopee.sg/portal/4/article/185261 (Shopee AI Terms of Service, bản Singapore)
+- https://help.shopee.sg/portal/10/article/201777 (Shopee Video AI-Generated Content Guidelines, bản Singapore)
+- https://www2.yicaiglobal.com/news/china-steps-up-regulation-of-livestream-e-commerce-includes-ai-hosts-for-first-time
+
+Ứng viên SDK / API (tra 2026-10-30):
 
 - https://www.veed.io/learn/best-live-avatar-api
 - https://www.d-id.com/blog/best-tavus-alternatives-real-time-ai-avatars/

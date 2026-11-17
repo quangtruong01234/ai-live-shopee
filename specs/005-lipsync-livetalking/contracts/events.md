@@ -37,6 +37,11 @@ Mọi dòng có `utterance_id` khi gắn với lượt (Điều VIII). Không gh
 
 - `latency.jsonl` (đã có): mỗi dòng thêm `render_fps`, `infer_fps`, `clips_used`.
 - `avatar.jsonl` (mới): mỗi lần đổi chế độ và mỗi `health` (để vẽ VRAM / fps theo thời gian cho lần chạy 30 phút, SC-006).
+  Thêm (sửa lỗi 2026-11-17): một dòng `kind: "render"` cho mỗi lượt hoặc câu kịch bản có khung hình; báo cáo tổng duyệt 007
+  đọc `render_fps` và `mouth_method` ở đây:
+  `{"ts", "kind": "render", "utterance_id", "show_id", "frames", "render_fps", "infer_fps", "clips_used", "scene_ms", "mouth_method"}`.
+  `show_id` là `null` với lượt trả lời ngoài show. Với `LIVETALKING_LEAD_S`, dòng được ghi khi câu phát xong, nên có thể nằm sau
+  dòng của câu kế tiếp.
 
 ## 5. `.env.example` (khối Avatar / LiveTalking sau khi sửa)
 
@@ -55,6 +60,7 @@ LIVETALKING_RECONNECT_MAX_S=10
 LIVETALKING_LEAD_S=0            # >0: speak trả về sớm chừng ấy giây trước khi câu phát xong, giảm khoảng lặng giữa câu (R15)
 LIVETALKING_BATCH_SIZE=16       # fork đọc; nhỏ hơn thì khung đầu sớm hơn, thông lượng thấp hơn
 LIVETALKING_LIP_EVERY_N=1       # fork đọc; 2 = suy luận miệng mỗi khung thứ 2 khi máy không kịp
+LIVETALKING_MOUTH_METHOD=w2l    # fork đọc (010); cách tạo miệng, sai thì fork dùng w2l
 LIVETALKING_TRANSITION_S=0.3    # fork đọc; thời gian trộn khi đổi clip
 LIVETALKING_HOLD_S=2.5          # fork đọc; giữ clip nói (miệng khép) chừng ấy giây sau câu rồi mới về clip chờ
 AILIVE_RECORD_DIR=              # fork đọc; tự kiểm: ghi luồng ra mp4/wav/jsonl vào đây (vd out/selfcheck, ngoài git); trống = tắt
@@ -64,7 +70,7 @@ AI_LABEL_POSITION=top-right
 RENDERER_ACK_TIMEOUT_S=3
 ```
 
-Sáu biến `LIVETALKING_BATCH_SIZE`, `LIVETALKING_LIP_EVERY_N`, `LIVETALKING_TRANSITION_S`, `LIVETALKING_HOLD_S`, `AILIVE_RECORD_DIR`, `AILIVE_RECORD_MAX_S` chỉ fork đọc (qua `run.ps1`; hai biến ghi luồng là công cụ tự kiểm, xem quickstart §11). `test_config` hiện
+Các biến `LIVETALKING_BATCH_SIZE`, `LIVETALKING_LIP_EVERY_N`, `LIVETALKING_MOUTH_METHOD` (010, thêm 2026-11-13), `LIVETALKING_TRANSITION_S`, `LIVETALKING_HOLD_S`, `AILIVE_RECORD_DIR`, `AILIVE_RECORD_MAX_S` chỉ fork đọc (qua `run.ps1`; hai biến ghi luồng là công cụ tự kiểm, xem quickstart §11). `test_config` hiện
 kiểm `.env.example` khớp `Settings`: thêm danh sách biến "chỉ fork đọc" được miễn, thay vì thêm trường không dùng vào `Settings`.
 
 ## 6. CLI

@@ -30,12 +30,19 @@ def _utt() -> Utterance:
 
 def test_utterance_record_adds_render_fields_for_lipsync_turn():
     render = RenderTurnStats(
-        utterance_id="u1", mode="livetalking", clips_used=["talk_01"], frames=50, render_fps=24.6, infer_fps=31.2
+        utterance_id="u1",
+        mode="livetalking",
+        clips_used=["talk_01"],
+        frames=50,
+        render_fps=24.6,
+        infer_fps=31.2,
+        mouth_method="w2l",
     )
     record = utterance_record(_utt(), "m", render=render)
     assert record["render_fps"] == 24.6
     assert record["infer_fps"] == 31.2
     assert record["clips_used"] == ["talk_01"]
+    assert record["mouth_method"] == "w2l"
 
 
 def test_utterance_record_static_turn_keeps_old_shape():

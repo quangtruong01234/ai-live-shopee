@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import html
 import io
@@ -14,8 +15,8 @@ from typing import Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from pydantic import BaseModel, Field, model_validator
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_live.app.context import AppContext, build_state
 from ai_live.app.errors import (
@@ -27,7 +28,7 @@ from ai_live.app.errors import (
 )
 from ai_live.core.events import lipsync_health_event
 from ai_live.core.logging import log_event
-from ai_live.core.models import AvatarModeState, LipsyncHealth, Topic
+from ai_live.core.models import AvatarModeState, ContentSource, LipsyncHealth, Topic
 from ai_live.core.protocols import RendererError, RendererUnavailable, RenderStatsSource
 from ai_live.director.show_director import (
     ENTRY_FAULT_MODES,
@@ -40,13 +41,17 @@ from ai_live.director.show_director import (
     ShowNotRunning,
     TopicUnavailable,
 )
+from ai_live.ops.readiness import run_readiness
 from ai_live.products.models import ContentLoadError
+from ai_live.scene.controller import DISABLED_HOST_CONFIG, disabled_status
 
 logger = logging.getLogger("ai_live.app")
 
 STATIC_DIR = Path(__file__).parent / "static"
 LABEL_POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
 DEBUG_TEXT_MAX = 300
+# How long `/host` waits for the first scene draw (009 contracts/api.md §4).
+HOST_SCENE_WAIT_S = 2.0
 # 005 speak-audio (contracts/api.md §1): about 160 s of 16 kHz PCM16 mono.
 SPEAK_AUDIO_MAX_BYTES = 5 * 1024 * 1024
 SPEAK_AUDIO_RATE = 16000
@@ -69,6 +74,14 @@ class CommentIn(BaseModel):
 
 class SpeakIn(BaseModel):
     text: str = Field(min_length=1, max_length=DEBUG_TEXT_MAX)
+
+
+class ShowStartIn(BaseModel):
+    """`POST /api/show/start`, optional body (007 contracts/api.md §2): `verbatim` is the backup video's content."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: ContentSource = "script"
 
 
 class NextIn(BaseModel):
@@ -113,26 +126,55 @@ async def control_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "control.html")
 
 
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    """Browsers ask for it on their own; an empty answer keeps a false 404 out of the log and console."""
+    return Response(status_code=204)
+
+
 @router.get("/host", include_in_schema=False)
 async def host_page(request: Request) -> HTMLResponse:
     """Host page. The AI label comes from config.
 
     Deliberately reads no query string, so there is no way to hide the label through the URL (Article I).
     """
+    return await _render_host_page(request, body_class="host")
+
+
+@router.get("/obs", include_in_schema=False)
+async def obs_page(request: Request) -> HTMLResponse:
+    """The same host page for an OBS Browser Source: starts on load, no overlay or status text (006 contracts §1).
+
+    Like `/host` it reads no query string (Article I).
+    """
+    return await _render_host_page(request, body_class="host obs")
+
+
+async def _render_host_page(request: Request, *, body_class: str) -> HTMLResponse:
     settings = _ctx(request).settings
     position = settings.ai_label_position
     if position not in LABEL_POSITIONS:
         log_event(logger, "ai_label_position_invalid", logging.WARNING, value=position, used="top-right")
         position = "top-right"
     avatar_src = "/avatar-image" if _avatar_image(_ctx(request)).is_file() else "/static/avatar-placeholder.svg"
+    scene = _ctx(request).scene
+    if scene is not None:
+        # The first draw runs right after startup; a page opened that early waits briefly rather than flash the face.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(scene.wait_idle(), HOST_SCENE_WAIT_S)
+        if scene.still_png is not None:
+            avatar_src = f"/api/scene/still.png?v={scene.version}"
     page = (
         (STATIC_DIR / "host.html")
         .read_text(encoding="utf-8")
         .replace("{{AI_LABEL_TEXT}}", html.escape(settings.ai_label_text))
         .replace("{{AI_LABEL_POSITION}}", position)
         .replace("{{AVATAR_SRC}}", avatar_src)
+        .replace('<body class="host">', f'<body class="{body_class}">', 1)
     )
-    return HTMLResponse(page)
+    # no-store keeps the page out of the back/forward cache: a cached host page holds its socket open until it is
+    # restored, so leaving it for another URL only raised `host_closed` after the ping timeout (007 T035).
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/static/host.html", include_in_schema=False)
@@ -144,6 +186,16 @@ async def raw_host_template() -> RedirectResponse:
 def _avatar_image(ctx: AppContext) -> Path:
     # 005: the character's own face in `livetalking`, also the picture shown after a fallback (FR-022).
     return ctx.avatar_image if ctx.avatar_image is not None else ctx.settings.avatar_static_image
+
+
+@router.get("/api/scene/still.png", include_in_schema=False)
+async def scene_still(request: Request) -> Response:
+    """The still picture with the scene on it (009 contracts/api.md §2); `?v=` only defeats the browser cache."""
+    scene = _ctx(request).scene
+    png = scene.still_png if scene is not None else None
+    if png is None:
+        raise ApiError(404, "not_found", "Chưa bật cảnh live hoặc cảnh chưa vẽ xong")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/avatar-image", include_in_schema=False)
@@ -208,16 +260,22 @@ async def show_end(request: Request) -> dict:
 
 
 @router.post("/api/show/start")
-async def show_start(request: Request) -> dict:
-    """Start the scripted show; a second press returns the running show (`already_running`)."""
+async def show_start(request: Request, body: ShowStartIn | None = None) -> dict:
+    """Start the scripted show; a second press returns the running show (`already_running`), source unchanged."""
     director = _ctx(request).director
+    content = body.content if body is not None else "script"
     try:
-        show, already_running = await director.start_show(_control_command("show_start"))
+        show, already_running = await director.start_show(_control_command("show_start"), content=content)
     except HostUnavailable as exc:
         raise ApiError(409, "host_unavailable", HOST_UNAVAILABLE_MESSAGE) from exc
     except NoContent as exc:
         raise ApiError(409, "no_content", NO_CONTENT_MESSAGE) from exc
-    return {"show_id": show.show_id, "state": show.state.value, "already_running": already_running}
+    return {
+        "show_id": show.show_id,
+        "state": show.state.value,
+        "already_running": already_running,
+        "content": show.content_source,
+    }
 
 
 @router.post("/api/show/next")
@@ -296,7 +354,16 @@ async def host_config(request: Request) -> dict:
         "active": mode.active if mode is not None else settings.avatar_mode,
         "livetalking_url": settings.livetalking_url,
         "ai_label": {"text": settings.ai_label_text, "position": settings.ai_label_position},
+        "scene": ctx.scene.host_config() if ctx.scene is not None else DISABLED_HOST_CONFIG,
+        "output_mode": settings.output_mode,
     }
+
+
+@router.get("/api/scene")
+async def get_scene(request: Request) -> dict:
+    """Scene state for the control page and the operator (009 contracts/api.md §1)."""
+    scene = _ctx(request).scene
+    return scene.status() if scene is not None else disabled_status()
 
 
 def _avatar_mode(ctx: AppContext) -> AvatarModeState:
@@ -348,6 +415,15 @@ async def enable_lipsync(request: Request) -> dict:
     return state.to_json()
 
 
+@router.get("/api/readiness")
+async def get_readiness(request: Request) -> dict:
+    """Pre-demo check (007 contracts/api.md §1): reads state only, never calls the LLM or plays anything (FR-004)."""
+    ctx = _ctx(request)
+    result = await run_readiness(ctx)
+    ctx.session_log.write_readiness(result.to_json())
+    return result.to_json()
+
+
 @router.get("/health")
 async def health(request: Request) -> dict:
     ctx = _ctx(request)
@@ -358,6 +434,10 @@ async def health(request: Request) -> dict:
         "host_connected": ctx.renderer.host_ready,
         "catalog_version": ctx.store.catalog.version,
         "reply_engine": ctx.settings.reply_engine,
+        # 007: lets the readiness CLI and an outside monitor see whose character is live and whether a show runs.
+        "customer_id": ctx.settings.customer_id,
+        "avatar_id": ctx.settings.avatar_id,
+        "show_active": ctx.director.show_active,
         "avatar": {
             "configured": mode.configured,
             "active": mode.active,

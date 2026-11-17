@@ -9,7 +9,7 @@ Dự án cung cấp **dịch vụ làm hộ**: một AI host (avatar nhép miệ
 
 - **Khách hàng:** chủ shop hoặc brand bán trên Shopee. Khách chỉ cung cấp dữ liệu sản phẩm.
 - **Mình (nhà cung cấp dịch vụ):** dựng avatar và giọng, viết kịch bản, vận hành phiên live, xử lý sự cố.
-- **Người xem:** người mua trên Shopee Live. Ở giai đoạn demo là khách hàng xem qua Google Meet hoặc YouTube.
+- **Người xem:** người mua trên Shopee Live. Ở giai đoạn demo là khách hàng xem qua Google Meet (YouTube đã bỏ, ADR-058).
 
 Ngoài trách nhiệm của mình: xin whitelist live AI với Shopee (việc của khách); báo cáo doanh số (dùng thống kê có sẵn của Shopee).
 
@@ -29,7 +29,7 @@ Trong phạm vi:
       Đây là nội dung chính của phiên live (ADR-026).
 - [ ] Nhãn "AI" hiển thị trên hình.
 - [ ] Đầu ra WebRTC xem trên Chrome, chia sẻ tab có âm thanh vào Google Meet.
-- [ ] (Tùy chọn) Đẩy RTMP lên YouTube Live chế độ Unlisted.
+- ~~(Tùy chọn) Đẩy RTMP lên YouTube Live chế độ Unlisted.~~ **Bỏ (ADR-058):** không live trên YouTube; đầu ra OBS cho Shopee là 006 (M2).
 - [ ] Trang điều khiển tối thiểu cho người vận hành: bắt đầu, tạm dừng hoặc bỏ qua câu đang nói.
 - [ ] Log độ trễ từng khâu.
 - [ ] Video dự phòng 2–3 phút để dùng nếu hệ thống lỗi trong buổi demo (chỉ cho demo, không bao giờ dùng trên Shopee).
@@ -67,7 +67,7 @@ Trong phạm vi:
 
 ## 6. Giả định và câu hỏi mở
 
-- TODO: Avatar là người thật (người mẫu ký đồng ý) hay nhân vật tạo bằng AI? Nếu là người thật thì ai làm mẫu?
+- TODO: Avatar là người thật (người mẫu ký đồng ý) hay nhân vật tạo bằng AI? Nếu là người thật thì ai làm mẫu? _2026-11-17: người dùng chốt dùng nhân vật AI (ADR-036), không quay người thật (ADR-060)._
 - TODO: Giọng clone từ người mẫu hay dùng giọng có sẵn của nhà cung cấp TTS?
 - Dữ liệu sản phẩm (chốt 2026-10-30, xem `specs/001-local-reply-pipeline/spec.md` mục Làm rõ): khách gửi tài liệu, thường là file Word.
   Mình soạn lại thành file nội dung theo mẫu, gồm cả bài giới thiệu thu hút (dịch vụ hỗ trợ), hoặc khách tự soạn theo mẫu.

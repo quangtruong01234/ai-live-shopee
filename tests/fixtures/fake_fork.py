@@ -10,6 +10,11 @@ Test controls (plain attributes, change them at any time):
 - `ack`: False = take sentences but never ack them (first-frame timeout).
 - `fail_next(kind, message)`: answer the next finished sentence with `error {kind}` instead of acks.
 - `disconnect()`: drop the app connection; `restart()`: new `boot_id`, then drop (the app sees a fork restart).
+- `scene`: the `hello.scene` block (009 fork-protocol §3); None = an older fork that knows nothing of scenes and ignores
+  `scene_layer`. `reject_scene`: answer every `scene_layer` with `error {kind: "scene_rejected"}`. `scene_ms`: added to
+  `stats` when set.
+- `mouth_method`: the 010 mouth method name in `hello` and `stats`; None = an older fork that sends neither.
+- `record_enabled`: the 007 `/ailive/health` flag saying the test recorder is on (`AILIVE_RECORD_DIR` set).
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ class FakeFork:
         infer_fps: float = 30.0,
         vram_used_mb: int = 2100,
         health_interval_s: float = 5.0,
+        scene: dict[str, Any] | None = None,
     ) -> None:
         self.sessions: set[str] = {session_id}
         self.boot_id = uuid.uuid4().hex
@@ -78,11 +84,17 @@ class FakeFork:
         self.ack_delay_s = 0.0
         self.stats_delay_s = 0.0  # gap between `sentence_played` and `stats`, as on a busy real fork
         self.ack = True
+        self.scene = scene
+        self.reject_scene = False
+        self.scene_ms: float | None = None
+        self.mouth_method: str | None = None
+        self.record_enabled = False
         self._fail: list[tuple[str, str]] = []
         # What the fork saw, for assertions
         self.received: list[dict[str, Any]] = []
         self.sentences: list[ReceivedSentence] = []
         self.stopped: list[str] = []
+        self.scene_layers: dict[str, dict[str, Any]] = {}  # name -> last accepted `scene_layer`
         self.connections = 0
         self._clips = cycle(talk_clips)
         self._turn_clip: dict[str, str] = {}
@@ -155,6 +167,7 @@ class FakeFork:
             "fork_commit": self.fork_commit,
             "sessions": sorted(self.sessions),
             "vram_used_mb": self.vram_used_mb,
+            "record_enabled": self.record_enabled,
         }
 
     # ---------- Server ----------
@@ -192,6 +205,8 @@ class FakeFork:
                         "batch_size": self.batch_size,
                         "lip_every_n": self.lip_every_n,
                         "ai_label": self.ai_label,
+                        **({"scene": self.scene} if self.scene is not None else {}),
+                        **({"mouth_method": self.mouth_method} if self.mouth_method is not None else {}),
                     }
                 )
             )
@@ -227,6 +242,18 @@ class FakeFork:
                         self.sentences.append(current)
                         playlist.put_nowait(current)
                     current = None
+                elif kind == "scene_layer" and self.scene is not None:
+                    name = str(message.get("name"))
+                    if self.reject_scene:
+                        await ws.send(
+                            json.dumps(
+                                {"type": "error", "kind": "scene_rejected", "layer": name, "message": "vùng cấm"}
+                            )
+                        )
+                    elif message.get("png_b64") is None:
+                        self.scene_layers.pop(name, None)
+                    else:
+                        self.scene_layers[name] = message
                 elif kind == "stop":
                     uid = message.get("utterance_id")
                     self.stopped.append(uid)
@@ -294,6 +321,8 @@ class FakeFork:
                             "infer_fps": self.infer_fps,
                             "render_fps": float(self.fps),
                             "clip_id": sentence.clip_id,
+                            **({"scene_ms": self.scene_ms} if self.scene_ms is not None else {}),
+                            **({"mouth_method": self.mouth_method} if self.mouth_method is not None else {}),
                         }
                     )
                 )

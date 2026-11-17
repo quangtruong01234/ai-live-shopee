@@ -15,7 +15,9 @@ import pytest
 
 from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
 from ai_live.core.events import EventBus, EventType
+from ai_live.core.models import TurnOutcome
 from ai_live.core.protocols import RendererError, RendererUnavailable
+from ai_live.director.latency import LatencyTracker
 from fixtures.fake_fork import FakeFork
 
 pytestmark = pytest.mark.anyio
@@ -253,6 +255,19 @@ async def test_render_stats_accumulate_over_turn(fork: FakeFork, make_renderer: 
     await until(lambda: renderer.render_stats("u2") is not None and renderer.render_stats("u2").clips_used != [])
     assert renderer.render_stats("u2").clips_used == ["talk_02"]
     assert renderer.render_stats("never") is None
+    assert stats.mouth_method is None  # the fake fork plays an older fork by default
+
+
+async def test_render_stats_name_the_mouth_method(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    """010 FR-010: the mouth method the fork reports in `stats` reaches the turn's render figures and latency row."""
+    fork.mouth_method = "feather"
+    renderer, _ = await make_renderer()
+    await renderer.speak("u1", "Câu một.", audio(pcm(0.2)), SAMPLE_RATE)
+    await until(lambda: (renderer.render_stats("u1") or _no_stats()).frames > 0)
+    stats = renderer.render_stats("u1")
+    assert stats.mouth_method == "feather"
+    turn = LatencyTracker().finish("u1", TurnOutcome.COMPLETED, render=stats)
+    assert turn is not None and turn.to_row()["mouth_method"] == "feather"
 
 
 def _no_stats():

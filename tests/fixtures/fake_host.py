@@ -17,6 +17,7 @@ class FakeHostConnection:
         self.ack_delay_s = ack_delay_s
         self.sent: list[Any] = []  # dict cho JSON, bytes cho audio
         self.closed_code: int | None = None
+        self.closed_reason: str | None = None
         self._tasks: set[asyncio.Task] = set()
 
     async def send_json(self, data: dict) -> None:
@@ -31,8 +32,9 @@ class FakeHostConnection:
     async def send_bytes(self, data: bytes) -> None:
         self.sent.append(data)
 
-    async def close(self, code: int = 1000) -> None:
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
         self.closed_code = code
+        self.closed_reason = reason
 
     def _ack(self, kind: str, data: dict) -> None:
         message = {"type": kind, "utterance_id": data["utterance_id"], "seq": data["seq"]}

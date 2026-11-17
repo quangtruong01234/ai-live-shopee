@@ -123,9 +123,16 @@ Bất biến. Thay nội dung = tạo catalog mới rồi đổi tham chiếu (m
 **Ràng buộc:** `completed` phải có đủ 4 mốc bắt buộc (SC-004). `error` có `error_step`. Mốc tăng dần theo thứ tự trên.
 
 ### LatencySummary (trong phiên: tính khi xem từ các lượt trong bộ nhớ; khi app tắt: ghi một lần ra `latency_summary.json`, FR-019)
-Cho từng bước `received→first_sentence`, `first_sentence→tts_first_chunk`, `tts_first_chunk→first_frame`, `queue_wait`, `total`:
-`count`, `median`, `p95`. Chỉ tính lượt `completed`; đếm riêng số lượt `error`/`skipped` (US3 #3). p95 bằng `statistics.quantiles(n=20)[18]`
-khi `count ≥ 20`, ít hơn thì hiện "chưa đủ mẫu". Có thêm bộ số "chỉ lượt host rảnh" (`queue_wait < 0,3 s`, research R12).
+Cho từng bước `received→first_sentence`, `first_sentence→tts_first_chunk`, `tts_first_chunk→first_frame`, `queue_wait`, `floor_wait`,
+`total`: `count`, `median`, `p95`. Chỉ tính lượt `completed`; đếm riêng số lượt `error`/`skipped` (US3 #3). p95 bằng
+`statistics.quantiles(n=20)[18]` khi `count ≥ 20`, ít hơn thì hiện "chưa đủ mẫu". Có thêm bộ số "chỉ lượt host rảnh" (`queue_wait` và
+`floor_wait` đều `< 0,3 s`, research R12).
+
+`floor_wait` (sửa lỗi 2026-11-17): trong show 004, câu trả lời đã có tiếng nhưng phải chờ câu kịch bản đang nói xong mới được phát
+(mốc phụ trong bộ nhớ `floor_acquired`: lúc phần phát của lượt trả lời giành được lượt nói). `floor_wait = max(0, floor_acquired −
+tts_first_chunk)`, và `tts_first_chunk→first_frame` tính từ mốc muộn hơn trong hai mốc đó, nên khoảng chờ này không còn bị gán vào khâu
+dựng hình. Ngoài show `floor_wait` là 0. `total` không đổi. Với `LIVETALKING_LEAD_S > 0` câu kịch bản trả lượt nói sớm tối đa `lead_s`,
+nên phần chờ còn lại (≤ `lead_s`) vẫn nằm trong `tts_first_chunk→first_frame`. `floor_acquired` không ghi vào `utterances.jsonl`.
 
 ## 5. Bộ câu hỏi mẫu
 

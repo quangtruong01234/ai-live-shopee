@@ -12,7 +12,9 @@ peer connection; a new `sessionid` (page reloaded, `/offer` redone) moves the so
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import io
 import json
 import logging
 import time
@@ -26,11 +28,13 @@ from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidURI
 
+from ai_live.avatar.playback import PlaybackNotifier
 from ai_live.avatar.static_renderer import HostLink
-from ai_live.core.events import EventBus, lipsync_health_event
+from ai_live.core.events import Event, EventBus, EventType, lipsync_health_event
 from ai_live.core.logging import log_event
 from ai_live.core.models import LipsyncHealth, RenderTurnStats
-from ai_live.core.protocols import RendererError, RendererUnavailable
+from ai_live.core.protocols import PlaybackListener, RendererError, RendererUnavailable
+from ai_live.scene.models import FrameGeometry, KeepOut, SceneLayer
 
 logger = logging.getLogger("ai_live.avatar")
 
@@ -58,6 +62,23 @@ class _Turn:
     frames: int = 0
     infer_fps: list[float] = field(default_factory=list)
     clips_used: list[str] = field(default_factory=list)
+    scene_ms: list[float] = field(default_factory=list)
+    mouth_method: str | None = None  # 010 FR-010: the fork's mouth method, from its per-sentence `stats`
+
+
+def _scene_geometry(raw: Any) -> FrameGeometry | None:
+    """`hello.scene` (009 fork-protocol §3) as a FrameGeometry; None when absent or malformed."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        width, height = (int(v) for v in raw["frame_size"])
+        keep_out = tuple(
+            KeepOut(str(k["name"]), (int(k["box"][0]), int(k["box"][1]), int(k["box"][2]), int(k["box"][3])))
+            for k in raw.get("keep_out") or ()
+        )
+        return FrameGeometry(width, height, int(raw["face_bottom"]), keep_out, "fork")
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
 
 
 class LiveTalkingRenderer:
@@ -103,6 +124,11 @@ class LiveTalkingRenderer:
         # Turns with a handed-off sentence still playing: resolved when the last one is released (`turn_settled`).
         self._settled: dict[str, asyncio.Future[None]] = {}
         self._interrupted = False
+        self._playback = PlaybackNotifier()
+        # Scene layers to composite in the fork (009); kept so every new fork link gets them again.
+        self._scene_layers: dict[str, SceneLayer] = {}
+        self._geometry_listeners: list[Callable[[FrameGeometry], None]] = []
+        self._scene_supported: bool | None = None
 
     # ---------- Extra state ----------
 
@@ -163,6 +189,8 @@ class LiveTalkingRenderer:
             infer_fps=sum(turn.infer_fps) / len(turn.infer_fps) if turn.infer_fps else None,
             first_frame_at=turn.first_frame_at,
             last_played_at=turn.last_played_at,
+            scene_ms=sum(turn.scene_ms) / len(turn.scene_ms) if turn.scene_ms else None,
+            mouth_method=turn.mouth_method,
         )
 
     def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None:
@@ -204,6 +232,7 @@ class LiveTalkingRenderer:
             if self._interrupted:
                 return
             await self._host.send_to_host({"type": "subtitle", **ids, "text": text})
+            self._playback.started(utterance_id, seq, text)
             duration_s = audio_bytes / 2 / sample_rate
             if self.lead_s > 0:
                 # R15: hand back early so the next sentence's TTS overlaps the end of this one; the fork queues it.
@@ -218,6 +247,7 @@ class LiveTalkingRenderer:
                 await self._wait(played, duration_s + self.ack_timeout_s, "Phần nhép miệng không báo phát xong câu")
             if not self._interrupted:
                 await self._host.send_to_host({"type": "subtitle_clear", **ids})
+                self._playback.ended(utterance_id, seq)
                 await asyncio.wait({counted}, timeout=_STATS_GRACE_S)  # never raises: stats are figures only
         except (ConnectionClosed, RendererError) as exc:
             if not self._host.host_ready:
@@ -246,6 +276,41 @@ class LiveTalkingRenderer:
             for (_, uid, _seq), fut in list(self._waiters.items()):
                 if uid == utterance_id and not fut.done():
                     fut.set_result(None)
+        self._playback.stopped()
+
+    def add_playback_listener(self, listener: PlaybackListener) -> None:
+        self._playback.add(listener)
+
+    # ---------- SceneSink (009 fork-protocol) ----------
+
+    def set_scene_layer(self, name: str, layer: SceneLayer | None) -> None:
+        if layer is None or layer.image is None:
+            self._scene_layers.pop(name, None)
+        else:
+            self._scene_layers[name] = layer
+        if self.ready and self._scene_supported:
+            self._spawn(self._send_scene_layer(name, self._scene_layers.get(name)))
+
+    def add_scene_geometry_listener(self, callback: Callable[[FrameGeometry], None]) -> None:
+        self._geometry_listeners.append(callback)
+
+    async def _send_scene_layer(self, name: str, layer: SceneLayer | None) -> None:
+        ws = self._ws
+        if ws is None:
+            return
+        message: dict[str, Any] = {"type": "scene_layer", "name": name, "x": 0, "y": 0, "png_b64": None}
+        if layer is not None and layer.image is not None:
+            png = layer.png
+            if png is None:
+                buf = io.BytesIO()
+                layer.image.save(buf, "PNG", compress_level=1)
+                png = buf.getvalue()
+            message.update(x=layer.x, y=layer.y, png_b64=base64.b64encode(png).decode("ascii"))
+        try:
+            await ws.send(json.dumps(message))
+        except ConnectionClosed as exc:
+            # The next `hello` sends every layer again; nothing to retry here.
+            log_event(logger, "scene_send_failed", logging.WARNING, layer=name, error=str(exc))
 
     # ---------- Speaking internals ----------
 
@@ -269,6 +334,7 @@ class LiveTalkingRenderer:
             await asyncio.wait_for(played, duration_s + self.ack_timeout_s)
             if not self._interrupted:
                 await self._host.send_to_host({"type": "subtitle_clear", "utterance_id": utterance_id, "seq": seq})
+                self._playback.ended(utterance_id, seq)
                 await asyncio.wait({counted}, timeout=_STATS_GRACE_S)  # the turn's figures wait for this (R15)
         except (TimeoutError, RendererError) as exc:
             # Nobody awaits this sentence any more; the next one surfaces a dead fork through its own acks.
@@ -429,6 +495,31 @@ class LiveTalkingRenderer:
             logger, "lipsync_connected", boot_id=boot_id, fork_commit=fork_commit, session_id=self._health.session_id
         )
         self._publish_health()
+        self._on_hello_scene(message.get("scene"))
+
+    def _on_hello_scene(self, raw: Any) -> None:
+        geometry = _scene_geometry(raw)
+        if geometry is None:
+            # An older fork ignores `scene_layer` silently, so its absence from `hello` is the only signal.
+            if self._scene_supported is not False:
+                log_event(logger, "scene_unsupported", logging.WARNING)
+                if self._scene_layers:
+                    self._publish_scene_error("Phần nhép miệng (fork) chưa hỗ trợ cảnh: cảnh không hiện trong video")
+            self._scene_supported = False
+            return
+        self._scene_supported = True
+        for callback in list(self._geometry_listeners):
+            try:
+                callback(geometry)
+            except Exception:
+                logger.exception("scene geometry listener failed")
+        # A new link may be a restarted fork that has no layers; send them all again (fork-protocol §3).
+        for name, layer in list(self._scene_layers.items()):
+            self._spawn(self._send_scene_layer(name, layer))
+
+    def _publish_scene_error(self, message: str) -> None:
+        if self._bus is not None:
+            self._bus.publish(Event(EventType.SCENE, {"kind": "error", "message": message}))
 
     def _on_ack(self, kind: str, message: dict[str, Any]) -> None:
         utterance_id, seq = message.get("utterance_id"), message.get("seq")
@@ -463,10 +554,22 @@ class LiveTalkingRenderer:
         clip_id = message.get("clip_id")
         if isinstance(clip_id, str) and clip_id not in turn.clips_used:
             turn.clips_used.append(clip_id)
+        scene_ms = message.get("scene_ms")
+        if isinstance(scene_ms, int | float):
+            turn.scene_ms.append(float(scene_ms))
+        mouth_method = message.get("mouth_method")
+        if isinstance(mouth_method, str):
+            turn.mouth_method = mouth_method
 
     def _on_error(self, message: dict[str, Any]) -> None:
         kind = str(message.get("kind") or "inference_failed")
         text = str(message.get("message") or kind)
+        if kind == "scene_rejected":
+            # A refused layer is the scene's problem: the fork keeps the old layer and every turn goes on (FR-021).
+            layer = message.get("layer")
+            log_event(logger, "scene_rejected", logging.WARNING, layer=layer, message=text)
+            self._publish_scene_error(f"Fork từ chối lớp {layer}: {text}")
+            return
         utterance_id = message.get("utterance_id")
         self._health = replace(self._health, last_error=kind, updated_at=datetime.now(UTC))
         if kind == "vram_oom":

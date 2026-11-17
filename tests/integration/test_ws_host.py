@@ -12,7 +12,7 @@ from ai_live.app.main import create_app
 from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
 from ai_live.avatar.static_renderer import StaticRenderer
 from ai_live.avatar.switching_renderer import SwitchingRenderer
-from ai_live.core.events import EventBus
+from ai_live.core.events import EventBus, EventType
 from ai_live.core.protocols import RendererUnavailable
 from fixtures.fake_fork import FakeFork
 from fixtures.fake_host import FakeHostConnection
@@ -270,7 +270,7 @@ async def test_ready_without_lipsync_session_behaves_as_before():
     assert renderer.host_ready
     assert renderer.lipsync_session is None
     assert seen == []
-    assert [e.payload for e in sub.drain()] == [{"connected": True}]
+    assert [e.payload for e in sub.drain()] == [{"connected": True, "role": "host"}]
 
     await renderer.speak("u1", "Dạ chào bạn.", _audio(b"\x00\x00" * 160), 16000)
     assert [m["type"] for m in conn.json_messages()] == ["sentence_start", "sentence_end"]
@@ -379,3 +379,105 @@ async def test_lipsync_subtitle_and_clear_arrive_in_sentence_order():
             assert {m["utterance_id"] for m in conn.json_messages("subtitle")} == {"u1"}
         finally:
             await renderer.stop()
+
+
+# --- 007 T014: the host tab's `host_status` heartbeat (007 contracts/api.md §4, data-model §2) ---
+
+
+@pytest.mark.anyio
+async def test_host_status_from_current_tab_reaches_the_bus():
+    bus = EventBus()
+    sub = bus.subscribe()
+    renderer = StaticRenderer(ack_timeout_s=0.5, bus=bus, clock=lambda: 42.0)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready"})
+    sub.drain()
+    renderer.handle_message(
+        conn,
+        {
+            "type": "host_status",
+            "frames": 1834,
+            "audio": "running",
+            "video_muted": False,
+            "video_paused": False,
+            "visible": False,
+        },
+    )
+    events = [e for e in sub.drain() if e.type is EventType.HOST_STATUS]
+    assert [e.payload for e in events] == [
+        {
+            "frames": 1834,
+            "audio": "running",
+            "video_muted": False,
+            "video_paused": False,
+            "visible": False,
+            "received_at": 42.0,
+        }
+    ]
+    # The app never answers a heartbeat.
+    assert not [m for m in conn.json_messages() if m.get("type") == "host_status"]
+
+
+@pytest.mark.anyio
+async def test_host_status_missing_or_wrong_fields_become_null():
+    bus = EventBus()
+    sub = bus.subscribe()
+    renderer = StaticRenderer(ack_timeout_s=0.5, bus=bus, clock=lambda: 1.0)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    renderer.handle_message(conn, {"type": "ready"})
+    renderer.handle_message(
+        conn, {"type": "host_status", "frames": "12", "audio": "loud", "video_muted": 1, "visible": True}
+    )
+    renderer.handle_message(conn, {"type": "host_status", "frames": True})
+    payloads = [e.payload for e in sub.drain() if e.type is EventType.HOST_STATUS]
+    assert payloads[0] == {
+        "frames": None,
+        "audio": None,
+        "video_muted": None,
+        "video_paused": None,
+        "visible": True,
+        "received_at": 1.0,
+    }
+    # A bool is an int in Python; a frame count must be a real number of frames.
+    assert payloads[1]["frames"] is None
+
+
+@pytest.mark.anyio
+async def test_renderer_keeps_last_host_status_until_the_tab_goes():
+    # The readiness check reads it without subscribing to the bus (007 data-model §1 `host`).
+    renderer = StaticRenderer(ack_timeout_s=0.5, bus=None, clock=lambda: 3.0)
+    conn = FakeHostConnection(renderer)
+    await renderer.attach(conn)
+    assert renderer.host_status is None
+    renderer.handle_message(conn, {"type": "host_status", "frames": None, "audio": "suspended"})
+    renderer.handle_message(conn, {"type": "host_status", "frames": None, "audio": "running"})
+    assert renderer.host_status is not None and renderer.host_status.audio == "running"
+    renderer.detach(conn)
+    assert renderer.host_status is None
+
+
+@pytest.mark.anyio
+async def test_host_status_from_replaced_tab_is_ignored():
+    bus = EventBus()
+    sub = bus.subscribe()
+    renderer = StaticRenderer(ack_timeout_s=0.5, bus=bus)
+    old = FakeHostConnection(renderer)
+    await renderer.attach(old)
+    new = FakeHostConnection(renderer)
+    await renderer.attach(new)
+    renderer.handle_message(old, {"type": "host_status", "frames": 5, "audio": "running"})
+    assert not [e for e in sub.drain() if e.type is EventType.HOST_STATUS]
+
+
+def test_control_page_does_not_get_host_status(app_settings):
+    with TestClient(create_app(app_settings)) as client:
+        with client.websocket_connect("/ws/control") as control, client.websocket_connect("/ws/host") as host:
+            assert control.receive_json()["type"] == "state"
+            host.send_json({"type": "ready"})
+            assert control.receive_json()["type"] == "host_connection"
+            host.send_json({"type": "host_status", "frames": None, "audio": "running"})
+            # Anything published after the heartbeat proves the heartbeat was skipped, not just late.
+            client.post("/api/comments", json={"author": "Lan", "text": "giá bao nhiêu?"})
+            assert control.receive_json()["type"] == "comment_accepted"

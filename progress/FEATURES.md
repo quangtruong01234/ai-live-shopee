@@ -8,11 +8,15 @@
 
 | ID | Tên | Mốc | Trạng thái | Tasks | Bước kế tiếp |
 |----|-----|-----|-----------|-------|--------------|
-| [001-local-reply-pipeline](#001-local-reply-pipeline) | Pipeline trả lời comment chạy local | M1a | Tasked (tạm dừng, ADR-026) | 101/116 | Chờ người dùng mở lại phần trả lời comment |
+| [001-local-reply-pipeline](#001-local-reply-pipeline) | Pipeline trả lời comment chạy local | M1a | Tasked (tạm dừng, ADR-026) | 107/116 | Việc không cần LLM xong 2026-11-13 (docs, quickstart nửa fake, ruff/pytest); còn 8 task cần LLM thật + `/update-context` |
 | [003-vietnamese-tts](#003-vietnamese-tts) | Giọng tiếng Việt thật cho AI host | M1a | Done | 54/54 | Xong 2026-11-12 (chốt `vieneu` + Thùy Dung + đoạn mẫu, `gemini` dự phòng chỉ vài câu vì free tier 3 RPM / 10 RPD; phiên 30 phút 60/60 lượt); T050: cùng nhép miệng 005, p95 câu đầu → chunk đầu 0,921 s (chạy pin) |
 | [004-show-director](#004-show-director) | AI host tự nói kịch bản giới thiệu sản phẩm, sinh realtime | M1a | In progress | 80/81 | Xong trừ T079 (SC-009 người chấm, tổng duyệt lại ngày riêng); ADR-050 guard `unsupported_claim` |
-| [005-lipsync-livetalking](#005-lipsync-livetalking) | AI host chuyển động tự nhiên, nhép miệng realtime trên laptop | M1b | In progress (2026-11-07) | 80/83 | US4 đo xong 2026-11-12 (T069–T075, T083: show 30 phút 0 lỗi, `render_fps` 25,1; `LIVETALKING_LEAD_S` 2,5 đưa lặng nghe được p95 xuống 0,76–1,0 s, chờ duyệt; giữ batch 16); còn T068, T075 phần chờ người dùng, T080 Meet; US1 xong (T045 đạt 2026-11-10 sau khi làm mượt clip nền rung; T046 SC-001 10/10 trên giọng VieNeu Thùy Dung, T047 SC-002 12/12 ảnh có nhãn "AI" trong khung hình, 2026-11-11); US2 xong phần code T048–T061 (2026-11-11); T062 đạt 2026-11-12 bằng bộ tự kiểm (SC-003, SC-004 sau sửa; giữ clip nói chờ US3); T063 đạt 2026-11-12 (SC-005, tắt/bật fork giữa show); US2 xong; US3 T064–T067 xong 2026-11-12 (SC-007 0 chỗ giật; clip nói giữ qua các câu kịch bản, `HOLD_S` 2,5), T068 cần người xem; tiếp US4 |
+| [005-lipsync-livetalking](#005-lipsync-livetalking) | AI host chuyển động tự nhiên, nhép miệng realtime trên laptop | M1b | In progress (2026-11-07) | 81/83 | US4 đo xong 2026-11-12 (T069–T075, T083: show 30 phút 0 lỗi, `render_fps` 25,1; `LIVETALKING_LEAD_S` 2,5 đưa lặng nghe được p95 xuống 0,76–1,0 s, chờ duyệt; giữ batch 16); còn T068, T075 phần chờ người dùng, T080 Meet; US1 xong (T045 đạt 2026-11-10 sau khi làm mượt clip nền rung; T046 SC-001 10/10 trên giọng VieNeu Thùy Dung, T047 SC-002 12/12 ảnh có nhãn "AI" trong khung hình, 2026-11-11); US2 xong phần code T048–T061 (2026-11-11); T062 đạt 2026-11-12 bằng bộ tự kiểm (SC-003, SC-004 sau sửa; giữ clip nói chờ US3); T063 đạt 2026-11-12 (SC-005, tắt/bật fork giữa show); US2 xong; US3 T064–T067 xong 2026-11-12 (SC-007 0 chỗ giật; clip nói giữ qua các câu kịch bản, `HOLD_S` 2,5), T068 cần người xem; tiếp US4 |
 | [008-llm-provider-chain](#008-llm-provider-chain) | Chuỗi model LLM miễn phí, tự chuyển model khi lỗi | M1a | Done | 59/59 | Xong 2026-11-05; mở khóa T075–T079 của 004 |
+| [009-live-scene-layout](#009-live-scene-layout) | Bố cục cảnh live quanh AI host (khung dọc): bàn bày sản phẩm thật + thẻ tên/giá trước host, làm nổi sản phẩm đang nói | M1b | Done (2026-11-13) | 38/38 | Code + đo xong (SC-001–005 đạt, SC-004 trên GPU laptop: fps giảm 0%); chờ người dùng: ảnh thật của khách + SC-007, SC-006 (3 người xem), xác nhận ADR-051/052 |
+| [010-natural-mouth-shapes](#010-natural-mouth-shapes) | Khẩu hình miệng host AI giống người thật khi nói tiếng Việt | M1b | In progress (2026-11-13) | 30/32 | Phần máy xong: bộ đo khẩu hình, núm `LIVETALKING_MOUTH_METHOD` (mặc định `w2l`, ADR-055), loại đoạn đầu nghiêng (ADR-056). Chờ người dùng: chấm A/B r4 `w2l` vs `shift=-1` (T018 → T019), ngưỡng góc đầu (T026) |
+| [007-demo-readiness](#007-demo-readiness) | Sẵn sàng cho buổi demo: kiểm tra trước demo, canh show, báo cáo tổng duyệt 30 phút, video dự phòng | M1d | In progress (2026-11-13) | 58/59 | Phần máy xong 2026-11-13; chờ người dùng T058 (xem video dự phòng, thử Meet, xác nhận ADR-057). GPU laptop: T054 show 30 phút 327 câu 0 lỗi, lặng p95 3,0 s (SC-004 đạt so 005), 2 cảnh báo sai đã sửa bằng `WATCHDOG_AUDIO_ACK_LIPSYNC_S` 6 s; T055 video dự phòng 157 s `Đạt`; T056 tắt fork giữa show báo sau 0,6 s; T057 không gọi LLM. Setup + Foundational + US1 xong (kiểm tra trước demo: `GET /api/readiness`, lệnh `python -m ai_live.ops readiness`, nút trên trang điều khiển, kiểm bằng trình duyệt); US2 canh show xong (`ops/watchdog.py`, tự bỏ câu kẹt 15 s, banner trên trang điều khiển, nhịp `host_status` từ tab host, kiểm bằng trình duyệt); US3 báo cáo tổng duyệt xong (`python -m ai_live.ops report`, `gaps.jsonl`); US4 video dự phòng xong phần code (show `verbatim`, lệnh `backup-video`, không có đường phát video); RUNBOOK + tài liệu (T051–T052); làm không gọi LLM free; ADR-057 Đề xuất |
+| [006-obs-output](#006-obs-output) | Đưa AI host vào OBS thành một nguồn hình có tiếng (bỏ YouTube) | M2 | In progress (2026-11-13) | 30/35 | Phần máy không GPU xong (trang `/obs`, vai obs > host, kiểm tra trước demo + canh show theo chế độ, runbook §8); còn 4 `[GPU]`, T029 chạy OBS portable (bị chặn quyền) và gói duyệt |
 
 ## Thẻ feature
 
@@ -25,7 +29,8 @@ Mỗi thẻ có cùng các key: `folder`, `status`, `artifacts`, `tasks`, `analy
   [research](../specs/001-local-reply-pipeline/research.md) · [data-model](../specs/001-local-reply-pipeline/data-model.md) ·
   [contracts](../specs/001-local-reply-pipeline/contracts/) · [quickstart](../specs/001-local-reply-pipeline/quickstart.md) ·
   [tasks](../specs/001-local-reply-pipeline/tasks.md)
-- `tasks`: 101/116 xong, 0 chờ GPU. Còn lại: T038, T083 (test `live_llm`), T098–T110 (docs, đo SC, chạy quickstart, `/update-context`)
+- `tasks`: 107/116 xong, 0 chờ GPU. 2026-11-13 xong T098, T099, T105–T107, T109 và nửa `fake` của T100 (kết quả thô `out/001_checks/`).
+  Còn lại cần LLM thật: T038, T083 (test `live_llm`), T100 lần hai, T101–T104, T108; T110 `/update-context`
 - `analyze`: TODO: chưa ghi kết quả `/sdd.analyze` lần cuối vào đây (chạy trước khi có `progress/`)
 - `adrs`: ADR-002, 003, 005, 012, 014, 015, 016, 017, 018, 019, 020, 026
 - `depends_on`: —
@@ -86,7 +91,7 @@ Mỗi thẻ có cùng các key: `folder`, `status`, `artifacts`, `tasks`, `analy
   kèm bản ping-pong, `talk_01`, `talk_02`), khoảng 9,5 phút một clip. Kết quả ở `assets/avatars/demo_host_01/` (gitignore). Kiểm thô bằng
   OpenCV (2026-11-06): cả 4 clip đúng một mặt mọi khung, idle miệng khép suốt, bản ping-pong lặp mượt; `talk_01` hé miệng thấy răng ở
   khung ~84–106; cuối clip nói lệch tư thế so với khung đầu clip chờ (plan cần xử lý chỗ về clip chờ). Người dùng chưa duyệt bằng mắt. Bản chạy lượt 2 trên Kaggle có thêm ghim commit ComfyUI và kiểm sha256 ảnh đã duyệt, bản trong repo chưa có
-- `tasks`: 80/83, 0 `[~]` (còn T068 người xem, T075 phần bộ clip nhỏ hơn / RunPod chờ người dùng, T080 Meet; US4 2026-11-12: T069–T072, T083 cột fps + clip trong `/api/latency`, test `lipskip`; T073 show 30 phút 322 câu 0 lỗi, `render_fps` p50 25,1, VRAM 2 656 MB không đổi, lặng giữa câu p95 2,98 s; thử `LIVETALKING_LEAD_S` 0 / 1,3 / 2,5 → lặng nghe được p95 3,19 / 1,96 / 0,76–1,00 s, đề xuất 2,5 chờ duyệt; sửa 2 lỗi đo khi `LEAD_S` > 0 (`sentence_gap` tính từ `sentence_played`, `RenderSettleSource`) và nối `SessionLog.record_avatar` (2c7bbf3); T074 lệch ack ↔ Chrome trung vị 0,28 s; T075 batch 16/8/4 + `LIP_EVERY_N` 2: chỉ batch 16 gần 25 khung/giây, n = 2 không tăng `render_fps`; T076–T079 docs; T081 1929 passed, fork 114 passed; T064–T067 2026-11-12: T064–T067 2026-11-12: `ClipScheduler` + `Crossfade` trong fork, bộ ghi luồng chấm 4 bản ghi: 0 chỗ giật; lần đầu tìm ra câu kịch bản nào cũng `seq 0` nên clip nói đổi và chạy lại từ khung 0 ở mọi câu, sửa spec rồi code: giữ clip qua các câu trong khoảng giữ, đổi sau một vòng ở ranh giới câu, `LIVETALKING_HOLD_S=2.5`; 0/49 khoảng nghỉ về clip chờ; miệng r 0,08 do đoạn đầu ngửa trong clip nói, chờ người dùng xem; T063 2026-11-12: lỗi giả lập 1 rồi 2 lượt → ảnh tĩnh + dải cảnh báo, bật lại → video; tắt fork giữa show → 2 lượt lỗi, ảnh tĩnh, show chạy tiếp; bật lại fork → `renderer_restarted`; sửa `host.js` để video tự phát sau khi fork bật lại lúc đang ảnh tĩnh; T062 2026-11-12: tự kiểm bằng bộ ghi luồng + Chrome DevTools, SC-003 đạt (80 câu), SC-004 đạt sau khi fork bỏ mọi tiếng nói vào trước `stop` (1,0–1,5 s → 0,00–0,56 s), tạm dừng không còn phát câu đã gửi fork mà chưa nghe (12 lần chạy lại, 0 lỗi), comment hỏi giá đúng; US2 #1 giữ clip nói chưa đạt → T064–T066; US2 2026-11-11: T048–T061 phần code + test (renderer lỗi/nối lại, `SwitchingRenderer` tự về ảnh tĩnh sau 2 lượt lỗi, `record_render_outcome` + `render_stats` từ director và script runner, `GET /api/avatar`, `POST /api/avatar/lipsync`, `/health` có `avatar`, tin `mode` ở trang host, dải cảnh báo + nút bật lại ở trang điều khiển, fork bắt OOM/lỗi suy luận → `error` + về clip chờ); còn T062–T063 [GPU] (máy tự chạy bằng bộ tự kiểm quickstart §11, thêm 2026-11-12: bộ ghi luồng của fork + `scripts/selfcheck/lipsync_check.py`); US1 xong; T047 đạt 2026-11-11: 12/12 ảnh Chrome headless (6 chờ, 6 nói) có nhãn "AI" trong khung hình, nhãn CSS ẩn khi video chạy; T046 đạt 2026-11-11: 10 đoạn VieNeu `Thùy Dung` 5,0–7,0 s chấm 10/10 khớp, `first_frame_s` 0,92–1,16 s, `render_fps` 24,8–25,3, đoạn 34,9 s và đoạn im lặng đạt, VRAM 2 656 MB không đổi; T045 đạt 2026-11-10: clip Wan 2.2 rung nhẹ liên tục, làm mượt bằng `scripts/avatar_clips/smooth_clips.py` (quickstart bước 4b), clip chờ mượt 5 khung, `talk_02` mượt 3 khung đặt lên đầu, `talk_01` giữ gốc; trước đó: T043 người dùng viết `character.json` / bổ sung `provenance.json`; T044–T047 `[GPU]` laptop, cần T043)
+- `tasks`: 81/83, 0 `[~]` (còn T068 người xem, T080 Meet; T075 người dùng chốt 2026-11-16: `LEAD_S` 2,5 thành mặc định, batch 16, không làm bộ clip nhỏ hơn, không RunPod; US4 2026-11-12: T069–T072, T083 cột fps + clip trong `/api/latency`, test `lipskip`; T073 show 30 phút 322 câu 0 lỗi, `render_fps` p50 25,1, VRAM 2 656 MB không đổi, lặng giữa câu p95 2,98 s; thử `LIVETALKING_LEAD_S` 0 / 1,3 / 2,5 → lặng nghe được p95 3,19 / 1,96 / 0,76–1,00 s, đề xuất 2,5 chờ duyệt; sửa 2 lỗi đo khi `LEAD_S` > 0 (`sentence_gap` tính từ `sentence_played`, `RenderSettleSource`) và nối `SessionLog.record_avatar` (2c7bbf3); T074 lệch ack ↔ Chrome trung vị 0,28 s; T075 batch 16/8/4 + `LIP_EVERY_N` 2: chỉ batch 16 gần 25 khung/giây, n = 2 không tăng `render_fps`; T076–T079 docs; T081 1929 passed, fork 114 passed; T064–T067 2026-11-12: T064–T067 2026-11-12: `ClipScheduler` + `Crossfade` trong fork, bộ ghi luồng chấm 4 bản ghi: 0 chỗ giật; lần đầu tìm ra câu kịch bản nào cũng `seq 0` nên clip nói đổi và chạy lại từ khung 0 ở mọi câu, sửa spec rồi code: giữ clip qua các câu trong khoảng giữ, đổi sau một vòng ở ranh giới câu, `LIVETALKING_HOLD_S=2.5`; 0/49 khoảng nghỉ về clip chờ; miệng r 0,08 do đoạn đầu ngửa trong clip nói, chờ người dùng xem; T063 2026-11-12: lỗi giả lập 1 rồi 2 lượt → ảnh tĩnh + dải cảnh báo, bật lại → video; tắt fork giữa show → 2 lượt lỗi, ảnh tĩnh, show chạy tiếp; bật lại fork → `renderer_restarted`; sửa `host.js` để video tự phát sau khi fork bật lại lúc đang ảnh tĩnh; T062 2026-11-12: tự kiểm bằng bộ ghi luồng + Chrome DevTools, SC-003 đạt (80 câu), SC-004 đạt sau khi fork bỏ mọi tiếng nói vào trước `stop` (1,0–1,5 s → 0,00–0,56 s), tạm dừng không còn phát câu đã gửi fork mà chưa nghe (12 lần chạy lại, 0 lỗi), comment hỏi giá đúng; US2 #1 giữ clip nói chưa đạt → T064–T066; US2 2026-11-11: T048–T061 phần code + test (renderer lỗi/nối lại, `SwitchingRenderer` tự về ảnh tĩnh sau 2 lượt lỗi, `record_render_outcome` + `render_stats` từ director và script runner, `GET /api/avatar`, `POST /api/avatar/lipsync`, `/health` có `avatar`, tin `mode` ở trang host, dải cảnh báo + nút bật lại ở trang điều khiển, fork bắt OOM/lỗi suy luận → `error` + về clip chờ); còn T062–T063 [GPU] (máy tự chạy bằng bộ tự kiểm quickstart §11, thêm 2026-11-12: bộ ghi luồng của fork + `scripts/selfcheck/lipsync_check.py`); US1 xong; T047 đạt 2026-11-11: 12/12 ảnh Chrome headless (6 chờ, 6 nói) có nhãn "AI" trong khung hình, nhãn CSS ẩn khi video chạy; T046 đạt 2026-11-11: 10 đoạn VieNeu `Thùy Dung` 5,0–7,0 s chấm 10/10 khớp, `first_frame_s` 0,92–1,16 s, `render_fps` 24,8–25,3, đoạn 34,9 s và đoạn im lặng đạt, VRAM 2 656 MB không đổi; T045 đạt 2026-11-10: clip Wan 2.2 rung nhẹ liên tục, làm mượt bằng `scripts/avatar_clips/smooth_clips.py` (quickstart bước 4b), clip chờ mượt 5 khung, `talk_02` mượt 3 khung đặt lên đầu, `talk_01` giữ gốc; trước đó: T043 người dùng viết `character.json` / bổ sung `provenance.json`; T044–T047 `[GPU]` laptop, cần T043)
 - `analyze`: 2026-11-06 Sẵn sàng implement (0 CRITICAL, 1 HIGH, 7 MEDIUM, 7 LOW). HIGH: giữa hai câu cùng lượt fork về clip chờ (im lặng ≥ 1 lô suy luận, giao thức không có tin hết lượt), trái US2 #1; nên sửa fork-protocol + T014/T042/T066 trước khi implement. MEDIUM: T072 thiếu test, nút giảm kích thước khung (R8) không có task, Owns của agent, trường hợp biên (câu > 30 s, tiếng im lặng, đóng host), FR-019 hiển thị ↔ ack, test chặn `/api/debug/speak-audio` khi tắt router debug, đo lặng giữa câu / câu đầu show ở US4. Sửa 2026-11-06 theo đồng ý của người dùng: HIGH theo cách (b), fork giữ clip nói tối đa `LIVETALKING_HOLD_S` (1,5 s, miệng khép) sau mỗi câu bằng `ClipScheduler` trong `rotation.py` (research R7, fork-protocol §4, T014, T042, T064–T067, T062); MEDIUM: thêm T083 (test `lipskip`), nút (2) R8 vào T075, trường hợp biên vào T046/T050, ghi chú FR-019 ↔ ack, 404 khi tắt router debug vào T028, đo lặng giữa câu / câu đầu show + chọn `LIVETALKING_LEAD_S` vào T073; LOW: T003 đã có sẵn, plan thêm `test_script_runner.py` và sửa FR-004/005, nhãn US1 #1/#4 sang T045, số đo ghi vào ADR-041 + quickstart. Còn để người dùng quyết: Owns của agent cho file mới (chỉ chặn `/sdd.dispatch`), 3 TODO (nơi đẩy fork R2, logo LiveTalking R5, quy ước `CUSTOMER_ID`)
 - `adrs`: ADR-004, 008, 016, 019, 023, 025, 029, 036, 041–048 (041–047 chốt 2026-11-06, 048 chốt đủ 2026-11-07)
 - `depends_on`: 001 (pipeline, mock comment); 003 (giọng thật)
@@ -106,6 +111,109 @@ Mỗi thẻ có cùng các key: `folder`, `status`, `artifacts`, `tasks`, `analy
 - `roadmap`: M1a (chặn G1–G5 của 004, T075–T079)
 - `open`: không còn `[NEEDS CLARIFICATION]`; làm rõ 2026-11-03: mỗi lượt bắt đầu từ mục cao nhất đang sẵn sàng (quay lại ngay), không có nút ghim/tắt mục giữa show. Làm rõ sau plan (freellmapi chỉ dùng 1 ngày demo, ưu tiên chính xác): nghỉ cố định 60 s, không Retry-After, không tắt mục, không kiểm 15 s, không thống kê token; kiểm key + model bằng `GET /models` lúc khởi động (lỗi thì không khởi động); mục freellmapi khai `platform`, `X-Routed-Via` sai thì từ chối và chuyển mục. Chờ câu đầu 3,5 / 2,0 / 2,0 s. httpx sang runtime đã duyệt (T001). `fake_openai` không có chế độ server; bước bằng tay US2 dùng chuỗi thật. dotenv đọc được `LLM_CHAIN` JSON không nháy (test T004 đọc `.env.example`). TODO: tên model chính xác (`/v1/models`), Groq/freellmapi có trả `usage` khi stream không
 
+### 009-live-scene-layout
+- `folder`: [specs/009-live-scene-layout/](../specs/009-live-scene-layout/)
+- `status`: Done (2026-11-13; plan → implement tự làm theo ủy quyền "chạy liên tục"; phần cần người ở `open`). Hướng B của ghi chú 2026-11-07: ghép lớp ảnh tĩnh + chữ vào chính khung hình gửi đi, không tạo lại
+  clip, không tách nền người, không thêm phông (host giữ đầy khung dọc)
+- `artifacts`: [spec](../specs/009-live-scene-layout/spec.md): 3 user story (P1 bàn trước host bày mọi sản phẩm + thẻ tên/giá trong
+  khung dọc 9:16; P2 làm nổi + to sản phẩm đang nói; P3 phụ đề trong khung), 22 FR, 7 SC · [plan](../specs/009-live-scene-layout/plan.md)
+  (cổng Hiến pháp đạt) · [research](../specs/009-live-scene-layout/research.md) R1–R12 ·
+  [data-model](../specs/009-live-scene-layout/data-model.md) · [contracts](../specs/009-live-scene-layout/contracts/) (scene-set,
+  fork-protocol, api, adapters) · [quickstart](../specs/009-live-scene-layout/quickstart.md) ·
+  [tasks](../specs/009-live-scene-layout/tasks.md): 38 task (Setup 3, Foundational 6, US1 17, US2 4, US3 2, Hoàn thiện 6), `[GPU]` T026, T034
+- `tasks`: 38/38
+- `results` (2026-11-13): SC-001 30/30 ảnh không đổi trong vùng mặt/nhãn/watermark; SC-002 12/12 thẻ khớp nguyên văn giá và khuyến mãi (kể cả sau thay file; một tên dài bị cắt bằng "…"); SC-003 146 lần đổi món nổi, lệch so với ack phát câu đầu 1–17 ms (p95 0,016 s); SC-005 show 30 phút, thay file ở phút 15, 356 mẫu, 0 lỗi sản phẩm; SC-004 (GPU laptop, 2 show 10 phút) `render_fps` 25,10 → 25,10, `scene_ms` trung vị 4,66 ms, lặng p95 3,05 → 2,14 s; T026: cảnh trong WebRTC dưới watermark + nhãn, tắt fork → ảnh tĩnh giữ cảnh
+- `analyze`: 2026-11-13 Sẵn sàng implement (0 CRITICAL, 0 HIGH, 1 MEDIUM, 1 LOW). Mọi FR có task; MEDIUM: SC-002/003/005 chưa có
+  task đo → thêm T038; LOW: FR-020 chưa có test riêng → thêm vào T012. Đã sửa ngay
+- `adrs`: ADR-051 (Pillow trực tiếp, font của máy), ADR-052 (ghép cảnh, `scene_layer`, bộ cảnh ngoài git, làm nổi theo ack phát),
+  cả hai tự chốt theo ủy quyền, chờ xác nhận; ADR-044 (nhãn "AI" trong khung, giữ watermark), ADR-046 (tự về ảnh tĩnh), ADR-016 (ảnh tĩnh + nhãn CSS), ADR-036 (ảnh tạo bằng
+  AI, chỉ áp dụng cho ảnh bàn). Có thể cần ADR mới ở plan nếu vẽ chữ tiếng Việt có dấu trong khung cần thêm phụ thuộc (ADR-044 đã loại
+  Pillow vì "chưa cần")
+- `depends_on`: 005 (khung hình nhân vật, nhãn, watermark, tự về ảnh tĩnh); 004 (sản phẩm của câu đang phát, cho US2); 001 (dữ liệu
+  sản phẩm, thay file giữa phiên)
+- `agents`: ai-media (chính: ghép cảnh vào khung trong fork và ở chế độ ảnh tĩnh, trang host); ai-orchestrator (cấu hình, gửi sản phẩm
+  nổi, bảng độ trễ, trang điều khiển); ai-brain (định dạng giá/khuyến mãi từ dữ liệu sản phẩm); ai-qa (test vùng cấm, khớp thẻ ↔ file)
+- `roadmap`: M1b mục "Bố cục cảnh live quanh host"; dùng cho M1d
+- `open`: không còn `[NEEDS CLARIFICATION]`. Làm rõ 2026-11-13: khung dọc 9:16; khách chỉ có ảnh chụp sản phẩm, mình chỉnh trước phiên
+  (cắt nền, cỡ, sáng, bóng; không vẽ thêm chi tiết, giữ ảnh gốc + hồ sơ chỉnh, SC-007); host giữ đầy khung, phông của clip làm phông sau;
+  mọi sản phẩm bày trên bàn cùng lúc, món đang nói to hơn. Để plan: cách cắt nền (tay hay công cụ; model mới cần ADR), cách vẽ chữ
+  tiếng Việt trong khung, định dạng giá, cỡ/hiệu ứng làm nổi. Giả định: phụ đề trong khung mặc định tắt cho demo Meet. Chờ người dùng (2026-11-13): ảnh thật của khách thay ảnh mẫu "ẢNH MẪU" + `provenance.json` (SC-007), SC-006 (3 người xem, gộp 005 T068), xác nhận ADR-051/052, license font (RISKS L12)
+
+### 007-demo-readiness
+- `folder`: [specs/007-demo-readiness/](../specs/007-demo-readiness/)
+- `status`: In progress (2026-11-13; người dùng: "Tiếp tục feature mới mà không đụng đến LLM API Free", làm liên tục theo ủy quyền).
+  Phần máy xong 2026-11-13, chỉ còn T058 chờ người dùng
+- `artifacts`: [spec](../specs/007-demo-readiness/spec.md): 4 user story (P1 kiểm tra trước demo; P2 canh show khi đang chạy; P3 báo cáo
+  tổng duyệt 30 phút theo PRD tiêu chí 3, 4; P4 làm video dự phòng 2–3 phút), 21 FR, 7 SC; [plan](../specs/007-demo-readiness/plan.md),
+  [research](../specs/007-demo-readiness/research.md) R1–R9, [data-model](../specs/007-demo-readiness/data-model.md),
+  [contracts](../specs/007-demo-readiness/contracts/) (api, files, cli), [quickstart](../specs/007-demo-readiness/quickstart.md), [tasks](../specs/007-demo-readiness/tasks.md)
+- `tasks`: 58/59 (2026-11-13: T053 kiểm sạch; T054–T057 trên GPU laptop, quickstart "Kết quả kiểm chứng" §5, §6, §T056, §T057: show 30
+  phút 327 câu 0 lỗi, lặng p95 3,0 s so 005 2,98 s; 2 cảnh báo mất tiếng sai → thêm `WATCHDOG_AUDIO_ACK_LIPSYNC_S` 6 s; video dự phòng
+  157 s `Đạt`; tắt fork giữa show: `fork_lost` sau 0,6 s, bấm bật lại sớm thì bấm lại (chữ banner + RUNBOOK đã sửa); T059 xong.
+  Trước đó: T001–T026 xong: Setup, Foundational, US1 kiểm tra trước demo; T027–T035 xong: US2 canh show; cả hai kiểm bằng trình duyệt ở quickstart "Kết quả kiểm chứng" §1, §2; T036–T042 xong: US3 báo cáo tổng duyệt, §3; T043–T050 xong: US4 video dự phòng phần code; T051–T052 xong: RUNBOOK, ARCHITECTURE, RISKS Q25–Q27, src/README) (Setup T001–T004, Foundational T005–T017, US1 T018–T026, US2 T027–T035, US3 T036–T042, US4 T043–T050, Polish
+  T051–T059; GPU T054–T056; T058 chờ người dùng)
+- `analyze`: 2026-11-13: Sẵn sàng implement (0 CRITICAL, 0 HIGH, 4 MEDIUM, 4 LOW): nhãn Điều V/VII/IX trong bảng constitution của plan
+  lệch tên; `HOST_STATUS` mỗi giây sẽ bị `/ws/control` chuyển hết lên trang điều khiển; `[P]` sai ở T028/T029, T043/T044 (cùng file);
+  FR-012 so với "tắt canh" còn SC-004 so với 005 T073; đã sửa theo ủy quyền làm liên tục
+- `adrs`: ADR-057 (Đề xuất, đã ghi trong DECISIONS: tự bỏ câu kẹt, tín hiệu tab host, video dự phòng `verbatim` + recorder, nguồn điện qua ctypes; thêm hai ngưỡng mất tiếng sau T054); liên quan ADR-023 (nhép miệng trên laptop), ADR-026, ADR-040
+- `depends_on`: 004 (show, chế độ dự phòng), 005 (fork, bộ ghi luồng, `lipsync_health`), 009 (cảnh, ảnh mẫu), `docs/RUNBOOK.md`
+- `agents`: ai-orchestrator (kiểm tra, canh show, báo cáo, trang điều khiển); ai-media (tab host báo khung/tiếng, video dự phòng); ai-qa
+- `roadmap`: M1d (phiên 30 phút, video dự phòng, runbook)
+- `open`: không còn `[NEEDS CLARIFICATION]`; clarify 2026-11-13 tự chọn khuyến nghị (tự bỏ câu kẹt ở 15 giây; video dự phòng mặc định
+  đọc nguyên văn file sản phẩm), người dùng xem lại ở gói duyệt. Chờ người dùng ([OPEN.md](OPEN.md) §2, §4): xem video dự phòng + thử
+  Meet (T058), xác nhận ADR-057, xóa `AILIVE_RECORD_DIR` khỏi `.env` trước demo, tổng duyệt 30 phút với LLM thật ở T-1 ngày
+
+### 010-natural-mouth-shapes
+- `folder`: [specs/010-natural-mouth-shapes/](../specs/010-natural-mouth-shapes/)
+- `status`: In progress (2026-11-13; specify → implement tự làm liên tục theo ủy quyền, cho phép cài tool mỗi thứ một ADR). Phần máy xong,
+  còn 2 task chờ người dùng (T018 chấm A/B, T019 show nếu đổi mặc định); T026 xong 2026-11-16 (giữ ngưỡng 35/20/30); tra cứu repo khác ở research R13
+- `artifacts`: [spec](../specs/010-natural-mouth-shapes/spec.md): 3 user story (P1 khẩu hình giống người hơn trong show; P2 bộ đo khách
+  quan + gói xem mù; P3 clip nói chỉ dùng đoạn mặt thẳng), 14 FR, 7 SC · [plan](../specs/010-natural-mouth-shapes/plan.md) (cổng Hiến pháp
+  đạt) · [research](../specs/010-natural-mouth-shapes/research.md) R1–R12 · [data-model](../specs/010-natural-mouth-shapes/data-model.md)
+  · [contracts](../specs/010-natural-mouth-shapes/contracts/) (mouth-method, mouth-eval) ·
+  [quickstart](../specs/010-natural-mouth-shapes/quickstart.md) (§7 gói duyệt) · [tasks](../specs/010-natural-mouth-shapes/tasks.md):
+  32 task (Setup 4, Foundational 3, US2 7, US1 5, US3 7, Hoàn thiện 6), `[GPU]` T010–T014, T019, T025, T026
+- `tasks`: 30/32
+- `results` (2026-11-13, 24 câu bộ v1, `demo_host_01__talk_01`, GTX 1650 Ti): `w2l` LSE-C 6,394, closure 0,677, open_ratio 1,230,
+  spread_ratio 0,985, corr 0,220, `render_fps` 28,8. Không núm hậu kỳ nào (paste/color/sharpen/gain/ref offset/ref môi khép) đạt SC-001.
+  `shift=-1`: lệch hình–tiếng SyncNet −1 → 0 khung, corr +16%, closure −6%, LSE-C −0,7%. SC-002/003 chưa đạt với mọi cách (giới hạn của
+  wav2lip256 + clip nói hiện có); SC-005 đạt với mặc định `w2l` (số show 30 phút của 005); SC-006 đạt hiển nhiên (ngưỡng mặc định không
+  loại khung nào, R11); SC-007 đạt (r4 trùng r2/r3 từng chữ số); SC-004 chờ người xem. MuseTalk 1.5 ~0,7 khung/giây trên laptop → loại
+  r5 (bộ câu v2, thêm nhóm số): baseline mới cho lần đo sau, `s1` LSE-C 6,465 ≥ `w2l` 6,399 nhưng vẫn 1/4 chỉ số hình miệng → SC-001 chưa đạt
+- `analyze`: 2026-11-13 tự chạy sau tasks (tasks viết sau khi đã làm, xem ghi chú tasks.md): mọi FR có task; FR-014 không dùng (không
+  tinh chỉnh model); SC-001/002/003 ghi rõ "chưa đạt" thay vì sửa ngưỡng
+- `adrs`: ADR-053 (MediaPipe Face Landmarker, sửa bởi ADR-056), ADR-054 (SyncNet + python_speech_features, chỉ đo), ADR-055 (núm
+  `LIVETALKING_MOUTH_METHOD`, mặc định `w2l`, loại MuseTalk trên laptop), ADR-056 (loại đoạn clip nói đầu nghiêng lúc `prepare`); ADR-023,
+  ADR-041, ADR-044
+- `depends_on`: 005 (fork, wav2lip256, clip nhân vật, bảng độ trễ); 003 (VieNeu đọc bộ câu)
+- `agents`: ai-media (fork, bộ đo, prepare); ai-orchestrator (cột "Miệng" bảng độ trễ); ai-qa (test)
+- `roadmap`: M1b mục "Khẩu hình giống người"
+- `open`: không còn `[NEEDS CLARIFICATION]`. Chờ người dùng (gói duyệt quickstart §7): chấm A/B `out/mouth/runs/r4/ab/PHIEU.md` (≥ 3
+  người); giữ hay siết ngưỡng góc đầu 35/20/30; nếu khẩu hình vẫn chưa đủ: quay clip nói mới hay thử model mạnh hơn trên GPU thuê (tốn tiền)
+
+### 006-obs-output
+- `folder`: [specs/006-obs-output/](../specs/006-obs-output/)
+- `status`: In progress (2026-11-13; specify → implement tự làm liên tục theo ủy quyền, người dùng xem lại ở gói duyệt). Phần không GPU
+  xong: `/obs`, `/ws/host?role=` (4000/4001), `OUTPUT_MODE=meet|obs` (`webrtc` cũ chạy như meet), kiểm tra trước demo và canh show
+  theo chế độ (`WATCHDOG_HOST_STALE_S`), trang điều khiển "Đầu ra", RUNBOOK §8, ARCHITECTURE. Kiểm: pytest 2461 passed, ruff sạch,
+  Chrome MCP (quickstart §5). T029: OBS 33.0.1 portable đã tải và dựng cấu hình ngoài repo, chạy `obs64.exe` bị bộ phân quyền chặn
+- `artifacts`: [spec](../specs/006-obs-output/spec.md): 3 user story (P1 thêm AI host vào OBS thành một nguồn có tiếng, không bấm gì;
+  P2 chạy lâu, tự nối lại, trang host không cướp tiếng; P3 kiểm tra trước demo + cảnh báo khi đầu ra OBS đứt), 14 FR, 7 SC;
+  [plan](../specs/006-obs-output/plan.md) (Browser Source trang `/obs`, vai `obs` > `host` với mã đóng 4001, nhả phiên WebRTC của fork,
+  `OUTPUT_MODE=meet|obs`, không thư viện mới); [research](../specs/006-obs-output/research.md) R1–R12;
+  [data-model](../specs/006-obs-output/data-model.md); [contracts/api.md](../specs/006-obs-output/contracts/api.md);
+  [quickstart](../specs/006-obs-output/quickstart.md); [tasks](../specs/006-obs-output/tasks.md)
+- `tasks`: 30/35. Còn: T018, T019, T030, T031 `[GPU]`; T029 `[~]` (chờ cho phép chạy OBS)
+- `analyze`: 2026-11-13 Sẵn sàng implement (0 CRITICAL, 1 HIGH, 1 MEDIUM, 2 LOW, đã sửa hết: luật nhịp ngừng `WATCHDOG_HOST_STALE_S` cho FR-010 vào contracts §8 + T021/T024; T031 ghi rõ show 30 phút; T012 kiểm ảnh chờ trước show; T027 thêm tắt chế độ ngủ)
+- `adrs`: ADR-058 (Đề xuất: bỏ M1c YouTube; OBS Browser Source `/obs`; vai obs > host; `OUTPUT_MODE=meet|obs`), ADR-059 (Chấp nhận, tự
+  chọn theo ủy quyền: OBS portable làm công cụ kiểm ngoài repo); rủi ro Q28–Q32
+- `depends_on`: 005 (fork, khung nhép miệng, ảnh tĩnh dự phòng), 007 (kiểm tra trước demo, canh show), 009 (cảnh trong khung)
+- `agents`: ai-orchestrator (vai kết nối, kiểm tra, canh show); ai-media (trang đầu ra OBS); ai-qa
+- `roadmap`: M2 "Output cho OBS" (làm sớm); thay đề xuất `006-youtube-live` (M1c) vì người dùng không live trên YouTube
+- `open`: không còn `[NEEDS CLARIFICATION]`; clarify 2026-11-13 tự chọn khuyến nghị (xem thử trong cửa sổ OBS, đầu ra OBS ưu tiên hơn
+  trang host, chế độ phát chọn lúc khởi động mặc định Meet, không phụ đề trong khung OBS); TODO plan: đo thời gian fork nhả phiên WebRTC
+  (R5), `framesDecoded` và tiếng vào mixer trong CEF của OBS (R3), bộ tự kiểm đọc được Fragmented MP4 của OBS không (R10)
+
 ## Đề xuất chưa tạo
 
 Mỗi dòng là một lần `/sdd.specify`. Thứ tự theo ROADMAP; người dùng có thể gộp, tách hoặc đổi.
@@ -113,23 +221,6 @@ Mỗi dòng là một lần `/sdd.specify`. Thứ tự theo ROADMAP; người d�
 | Đề xuất ID | Nội dung | Mốc | Cần GPU |
 |-----------|----------|-----|---------|
 | ~~002-product-qa-eval~~ | Đã gộp vào `001` (User Story 5), chốt khi clarify 2026-10-30 | M1a | Không |
-| 006-youtube-live | Đẩy RTMP lên YouTube Unlisted (phần đọc comment tạm hoãn, ADR-026) | M1c | Có (phần RTMP + avatar) |
-| 007-demo-readiness | Chạy liên tục 30 phút, watchdog cơ bản, runbook, video dự phòng | M1d | Có |
-| 009-live-scene-layout | Bố cục cảnh live quanh host AI (người dùng yêu cầu 2026-11-07, làm sau 003). Chi tiết ở dưới bảng | M1b/M1d | Không (hướng B); Có (hướng C) |
+| ~~006-youtube-live~~ | Bỏ 2026-11-13: người dùng không live trên YouTube; số 006 dùng cho `006-obs-output` | M1c | – |
 
-**Ghi chú 009-live-scene-layout** (ghi lại từ trao đổi 2026-11-07, chưa phải spec; `/sdd.specify` dùng làm đầu vào):
-
-- **Yêu cầu của người dùng:** live bán hàng bằng AI thường có bố cục người ngồi sau bàn, sản phẩm đặt hai bên hoặc phía sau. Hiện host
-  005 đứng trên phông trơn đúng như clip nền làm trên Kaggle (FR-002 của 005 giữ nguyên bối cảnh ảnh gốc); chưa feature nào làm cảnh.
-- **Ba hướng đã bàn:**
-  - A. Vẽ sẵn bàn/kệ vào ảnh gốc rồi tạo lại clip nền: không thêm code, nhưng đổi sản phẩm phải làm lại clip + `prepare`, và sản phẩm do AI
-    vẽ dễ sai hình thật (trái ràng buộc 7).
-  - B. **Đề xuất**: ghép lớp realtime mỗi khung: phông sau, ảnh thật sản phẩm do khách gửi, thẻ tên/giá lấy từ file dữ liệu sản phẩm, phụ
-    đề; làm nổi sản phẩm host đang nói (ShowDirector biết phân đoạn). Demo Meet có thể bắt đầu bằng bố cục web quanh `<video>`; khi
-    ra OBS/YouTube/Shopee phải ghép trong khung hình như nhãn AI (ADR-044).
-  - C. Tách nền người (matting) đặt vào cảnh bàn: đẹp nhất nhưng cần model mới + ADR, GPU 4 GB đã dùng ~2,7 GB; để sau.
-- **Ràng buộc giữ nguyên:** nhãn "AI" luôn trong khung, watermark "LiveTalking" không bị che (RISKS L1); ảnh nền và ảnh sản phẩm tĩnh
-  không phải video dựng sẵn; giá/tên chỉ lấy từ dữ liệu sản phẩm.
-- TODO: khung dọc 9:16 (kiểu Shopee) hay ngang 16:9?
-- TODO: khách có ảnh thật sản phẩm (tốt nhất nền trong suốt) không?
-- TODO: có cần làm nổi sản phẩm đang được nói tới không?
+Ghi chú 009-live-scene-layout (2026-11-07) đã chuyển vào [spec 009](../specs/009-live-scene-layout/spec.md) (Bối cảnh, Giả định, Ngoài phạm vi).

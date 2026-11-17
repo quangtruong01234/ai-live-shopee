@@ -7,9 +7,15 @@
 
 (() => {
   const CLOSE_REPLACED = 4000;
+  const CLOSE_YIELDED = 4001; // 006: an OBS source took playback from this /host page
+  // 006 `/obs`: the OBS Browser Source. It starts on load (OBS's browser allows sound without a click), shows only the
+  // picture and the AI label, and reloads itself after the app comes back (research R6).
+  const OBS = document.body.classList.contains("obs");
+  const RECONNECT_MS = 1000;
   // Small lead before the first sentence: schedule once the first chunk is here so a slow local hop does not stutter.
   const LEAD_S = 0.05;
   const REOFFER_DELAY_MS = 2000;
+  const HEARTBEAT_MS = 1000; // 007 `host_status`: what the viewer's screen really does, for the show watchdog
 
   const subtitle = document.getElementById("subtitle");
   const avatar = document.getElementById("avatar");
@@ -32,8 +38,14 @@
   let lipsyncSession = null;
   let subtitleKey = null; // `${utterance_id}:${seq}` of the subtitle shown in livetalking mode
   let reofferTimer = null;
+  let sceneVersion = 0; // newest scene still asked for (009 contracts/api.md §5)
+  let heartbeat = null;
+  let released = false; // lost playback for good (4000/4001): nothing may reconnect or re-offer
+  let lostServer = false; // `/obs` only: the socket dropped once, so the next successful open reloads the page
 
   function setStatus(text) {
+    // OBS captures the whole page: an operator message there would go out to the viewers.
+    if (OBS) return;
     status.textContent = text;
     status.hidden = !text;
   }
@@ -139,6 +151,28 @@
     showVideo(active === "livetalking" && lipsyncSession !== null);
   }
 
+  // ---------- 009: live scene on the still image ----------
+
+  function applyScene(scene) {
+    if (!scene || !scene.enabled) return;
+    document.querySelector(".stage").classList.add("scene-on");
+    // The scene draws the sentence into the frame; a second copy on top would cover the product cards (FR-018).
+    if (scene.subtitles) subtitle.classList.add("in-frame");
+    if (scene.version) onScene({ version: scene.version });
+  }
+
+  function onScene(msg) {
+    const version = Number(msg.version);
+    if (!(version > sceneVersion)) return;
+    sceneVersion = version;
+    // Swap only once the new picture is decoded, so the stage never flashes empty between two scenes.
+    const next = new Image();
+    next.onload = () => {
+      if (version === sceneVersion) avatar.src = next.src;
+    };
+    next.src = `/api/scene/still.png?v=${version}`;
+  }
+
   function onMode(msg) {
     if (msg.mode !== "static" && msg.mode !== "livetalking") return;
     active = msg.mode;
@@ -203,11 +237,15 @@
   }
 
   async function startLipsync() {
+    if (released) return;
     try {
       lipsyncSession = await offer();
+      if (released) return releasePeer();
       setStatus("");
     } catch (_) {
       lipsyncSession = null;
+      // An offer cut short by releasePlayback() (its peer was closed) is not a fork problem.
+      if (released) return;
       // The server fails the turn and falls back to the still image; this text tells the operator why.
       setStatus("Chưa nối được phần nhép miệng (LiveTalking).");
       scheduleReoffer();
@@ -217,26 +255,96 @@
   }
 
   function scheduleReoffer() {
-    if (reofferTimer !== null) return;
+    if (released || reofferTimer !== null) return;
     reofferTimer = setTimeout(() => {
       reofferTimer = null;
       startLipsync();
     }, REOFFER_DELAY_MS);
   }
 
+  // ---------- 007: heartbeat for the show watchdog (contracts/api.md §4) ----------
+
+  async function decodedFrames() {
+    // Only the lip-sync picture moves; the still image has no frame count, so the frozen rule does not apply to it.
+    if (!pc || active !== "livetalking" || video.hidden) return null;
+    try {
+      const stats = await pc.getStats();
+      for (const report of stats.values()) {
+        if (report.type === "inbound-rtp" && report.kind === "video") return report.framesDecoded ?? null;
+      }
+    } catch (_) {
+      // A peer closed mid-call: unknown, not frozen.
+    }
+    return null;
+  }
+
+  async function sendHostStatus() {
+    const onVideo = active === "livetalking" && !video.hidden;
+    send({
+      type: "host_status",
+      frames: await decodedFrames(),
+      audio: ctx ? ctx.state : null,
+      // The <video> carries the voice only in lip-sync; on the still image it is muted on purpose.
+      video_muted: onVideo ? video.muted : null,
+      video_paused: onVideo ? video.paused : null,
+      visible: document.visibilityState === "visible",
+    });
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeat = setInterval(sendHostStatus, HEARTBEAT_MS);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeat !== null) clearInterval(heartbeat);
+    heartbeat = null;
+  }
+
+  // ---------- 006: giving playback away ----------
+
+  function releasePeer() {
+    if (reofferTimer !== null) clearTimeout(reofferTimer);
+    reofferTimer = null;
+    // Closing the peer lets the fork drop this session, so the page that now plays gets the lip-sync picture and
+    // the fork never speaks twice (research R5).
+    if (pc) pc.close();
+    pc = null;
+    lipsyncSession = null;
+  }
+
+  function releasePlayback() {
+    released = true;
+    stopHeartbeat();
+    stopAll();
+    releasePeer();
+    video.muted = true;
+    video.pause();
+    video.srcObject = null;
+    if (ctx) ctx.suspend().catch(() => {});
+    // Back to the still image with the AI label, never a blank stage (Article I).
+    showVideo(false);
+  }
+
   // ---------- Server link ----------
 
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/ws/host`);
+    ws = new WebSocket(`${proto}://${location.host}/ws/host?role=${OBS ? "obs" : "host"}`);
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
+      if (lostServer) {
+        // The app restarted: its scene versions count from zero again, so only a fresh page matches it (R6).
+        location.reload();
+        return;
+      }
       // Keep the lip-sync warning: only the server link came back.
       if (config.mode !== "livetalking" || lipsyncSession !== null) setStatus("");
       const ready = { type: "ready" };
       // A static page sends no session at all, so it never clears one (static_renderer handle_message).
       if (config.mode === "livetalking") ready.lipsync_session = lipsyncSession;
       send(ready);
+      startHeartbeat();
     };
     ws.onmessage = (ev) => {
       if (typeof ev.data !== "string") return onAudio(ev.data);
@@ -246,17 +354,22 @@
       else if (msg.type === "subtitle") onSubtitle(msg);
       else if (msg.type === "subtitle_clear") onSubtitleClear(msg);
       else if (msg.type === "mode") onMode(msg);
+      else if (msg.type === "scene") onScene(msg);
       else if (msg.type === "stop") stopAll();
     };
     ws.onclose = (ev) => {
-      stopAll();
-      if (ev.code === CLOSE_REPLACED) {
-        // Another host page took over playback; do not reconnect, or the two would keep taking it from each other.
-        setStatus("Đã có màn hình host khác. Tải lại trang nếu muốn phát ở đây.");
+      if (ev.code === CLOSE_REPLACED || ev.code === CLOSE_YIELDED) {
+        // Another page took over playback; do not reconnect, or the two would keep taking it from each other.
+        releasePlayback();
+        if (ev.code === CLOSE_YIELDED) setStatus("Đang phát qua OBS, xem trong cửa sổ OBS. Tải lại trang nếu muốn phát ở đây.");
+        else setStatus("Đã có màn hình host khác. Tải lại trang nếu muốn phát ở đây.");
         return;
       }
+      stopHeartbeat();
+      stopAll();
+      if (OBS) lostServer = true;
       setStatus("Mất kết nối server, đang thử nối lại…");
-      setTimeout(connect, 1000);
+      setTimeout(connect, RECONNECT_MS);
     };
   }
 
@@ -270,14 +383,26 @@
     // A page reloaded after a fallback starts on the still image; it still offers, so switching back is quick.
     active = config.active || config.mode;
     video.muted = active !== "livetalking";
+    applyScene(config.scene);
   }
+
+  // A page left for another URL may sit in the back/forward cache with its socket still open; the server would only
+  // see the host gone after the ping timeout (~40 s in the 007 T035 check), so the operator's banner came late.
+  window.addEventListener("pagehide", () => {
+    if (ws && ws.readyState <= WebSocket.OPEN) ws.close(1001, "pagehide");
+  });
 
   ["playing", "pause", "emptied", "waiting"].forEach((name) => video.addEventListener(name, updateLabel));
 
-  document.getElementById("start-btn").addEventListener("click", async () => {
-    // The click unlocks sound for both Web Audio (fallback) and the WebRTC <video> (Chrome autoplay policy).
+  async function start() {
     ctx = new AudioContext();
-    await ctx.resume();
+    if (OBS) {
+      // No click in OBS: OBS's browser lets sound play on its own. A plain Chrome tab leaves the context suspended
+      // without a click, and that resume() would never settle, so it is not awaited (the heartbeat reports it, Q32).
+      ctx.resume().catch(() => {});
+    } else {
+      await ctx.resume();
+    }
     overlay.hidden = true;
     await loadConfig();
     if (config.mode === "livetalking") {
@@ -286,5 +411,13 @@
       await startLipsync();
     }
     connect();
-  });
+  }
+
+  if (OBS) {
+    overlay.hidden = true;
+    start();
+  } else {
+    // The click unlocks sound for both Web Audio (fallback) and the WebRTC <video> (Chrome autoplay policy).
+    document.getElementById("start-btn").addEventListener("click", start);
+  }
 })();

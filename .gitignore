@@ -39,6 +39,7 @@ checkpoints/
 
 # ---------- Avatar / media lớn ----------
 assets/avatars/
+assets/scenes/
 media/
 recordings/
 out/

@@ -6,11 +6,14 @@ A new source or provider is a new class satisfying a Protocol, never a change to
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
-from typing import Protocol, runtime_checkable
+from collections.abc import AsyncIterator, Callable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ai_live.core.models import Comment, Priority, QueuedComment, RenderTurnStats, SegmentRequest
 from ai_live.products.models import Product, ProductCatalog
+
+if TYPE_CHECKING:
+    from ai_live.scene.models import FrameGeometry, SceneLayer
 
 
 class RendererUnavailable(RuntimeError):
@@ -164,3 +167,30 @@ class RenderSettleSource(Protocol):
     """
 
     def turn_settled(self, utterance_id: str) -> asyncio.Future[None] | None: ...
+
+
+# Live scene hooks (009 contracts/adapters.md §1–§3).
+
+
+class PlaybackListener(Protocol):
+    """Told when a sentence is really heard, not when it is prepared (FR-016).
+
+    Called synchronously on the event loop; must return quickly. A listener that raises is logged and skipped.
+    """
+
+    def playback_started(self, utterance_id: str, seq: int, text: str) -> None: ...
+    def playback_ended(self, utterance_id: str, seq: int) -> None: ...
+    def playback_stopped(self) -> None: ...
+
+
+@runtime_checkable
+class PlaybackSource(Protocol):
+    def add_playback_listener(self, listener: PlaybackListener) -> None: ...
+
+
+@runtime_checkable
+class SceneSink(Protocol):
+    """A renderer that composites scene layers into its own frames (the lip-sync fork)."""
+
+    def set_scene_layer(self, name: str, layer: SceneLayer | None) -> None: ...
+    def add_scene_geometry_listener(self, callback: Callable[[FrameGeometry], None]) -> None: ...

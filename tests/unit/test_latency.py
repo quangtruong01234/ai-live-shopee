@@ -26,6 +26,7 @@ def _turn(
     utt = Utterance(utterance_id=uid, comment_id=f"c-{uid}", catalog_version="v1", outcome=outcome)
     utt.mark(M.COMMENT_RECEIVED, received)
     utt.mark(M.TURN_STARTED, received + queue_wait)
+    utt.mark(M.FLOOR_ACQUIRED, received + queue_wait)  # no show: the player takes the floor at once
     utt.mark(M.LLM_FIRST_SENTENCE, received + first_sentence)
     utt.mark(M.TTS_FIRST_CHUNK, received + first_sentence + first_chunk)
     utt.mark(M.AVATAR_FIRST_FRAME, received + first_sentence + first_chunk + first_frame)
@@ -284,3 +285,31 @@ def test_attach_render_fills_a_recorded_turn():
     assert tracker.summary().render_fps.count == 1
     assert tracker.attach_render("u9", _render("u9", 20.0)) is False
     assert tracker.attach_render("u2", None) is False
+
+
+# --- floor_wait: a reply waiting for the scripted sentence being spoken (sửa lỗi 2026-11-17, data-model.md §4) ---
+
+
+def test_wait_for_the_scripted_sentence_is_floor_wait_not_render():
+    tracker = LatencyTracker()
+    utt = _turn("u1", queue_wait=0.0, first_sentence=1.0, first_chunk=0.2, first_frame=2.5)
+    utt.marks[M.FLOOR_ACQUIRED] = 1.2 + 2.2  # the scripted sentence ended 2.2 s after the first chunk
+    tracker.record(utt)
+    s = tracker.summary()
+
+    assert s.steps["floor_wait"].median == pytest.approx(2.2)
+    assert s.steps["tts_first_chunk_to_first_frame"].median == pytest.approx(0.3)
+    assert s.steps["total"].median == pytest.approx(3.7)
+    assert s.idle_completed == 0  # not an idle host, though queue_wait is 0
+
+
+def test_floor_taken_before_the_first_chunk_is_no_wait():
+    tracker = LatencyTracker()
+    utt = _turn("u1", queue_wait=0.0, first_sentence=1.0, first_chunk=0.2, first_frame=0.3)
+    utt.marks[M.FLOOR_ACQUIRED] = 0.01
+    tracker.record(utt)
+    s = tracker.summary()
+
+    assert s.steps["floor_wait"].median == pytest.approx(0.0)
+    assert s.steps["tts_first_chunk_to_first_frame"].median == pytest.approx(0.3)
+    assert s.idle_completed == 1

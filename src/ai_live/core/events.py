@@ -41,6 +41,12 @@ class EventType(StrEnum):
     # feature 005 avatar / lip-sync (specs/005-lipsync-livetalking/contracts/events.md §1)
     AVATAR_MODE = "avatar_mode"
     LIPSYNC_HEALTH = "lipsync_health"
+    # feature 009 live scene: payload `kind` is highlight / error / rendered (009 contracts/api.md §6)
+    SCENE = "scene"
+    # feature 007 demo readiness: HOST_STATUS is the host tab's 1 s heartbeat (watchdog input, never forwarded to the
+    # control page); ALERT is a watchdog alert open/escalate/close (specs/007-demo-readiness/contracts/api.md)
+    HOST_STATUS = "host_status"
+    ALERT = "alert"
 
 
 @dataclass(frozen=True)

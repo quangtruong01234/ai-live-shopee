@@ -36,6 +36,10 @@ flowchart LR
 **Tiến độ (ADR-028):** mọi lệnh đọc `progress/STATUS.md` và thẻ feature trong `progress/FEATURES.md` trước, cuối lệnh cập nhật
 `progress/` (trạng thái, câu hỏi mở, một dòng nhật ký). Giao thức và bảng "khi đổi X thì rà Y" ở `progress/README.md`.
 
+**Lệnh phụ `/schedule-resume <giờ reset>`:** hẹn Windows Task Scheduler mở lại Claude Code ở repo này 1 phút sau khi hạn mức
+reset để làm tiếp kế hoạch (`scripts/claude/schedule_resume.ps1`, xem/hủy bằng `status`/`cancel`). Khi đã hết hạn mức thì lệnh không
+chạy được (model hết lượt): gõ `! powershell -ExecutionPolicy Bypass -File scripts/claude/schedule_resume.ps1 -At 10:00`.
+
 ## 2. Khi nào được đi đường tắt
 
 | Loại việc | Quy trình |

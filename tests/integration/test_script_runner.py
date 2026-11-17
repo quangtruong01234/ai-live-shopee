@@ -221,6 +221,9 @@ async def test_opening_first_and_each_sentence_is_its_own_utterance(tmp_path, se
         assert started[0]["topic_label"] == Topic.OPENING.label
         sentence_events = [e.payload for e in events if e.type is EventType.SENTENCE]
         assert sentence_events and all(p.get("segment_id") for p in sentence_events)
+        # 009 FR-015: the scene maps each scripted sentence to its product; the opening speaks of none.
+        assert sentence_events[0]["product_id"] is None
+        assert any(p["product_id"] == first_slot.product_id for p in sentence_events)
         # The 001 latency table keeps meaning comment turns only (contracts/events.md §3).
         assert not [e for e in events if e.type in (EventType.TURN_STARTED, EventType.TURN_FINISHED)]
 
@@ -300,6 +303,16 @@ async def test_sentence_gaps_are_script_or_segment_boundary(tmp_path, settings, 
     for g in gaps:
         assert g["seconds"] >= 0
         assert g["from_utterance_id"] != g["to_utterance_id"]
+
+    # 007 T011: every gap is also a gaps.jsonl line, so the rehearsal report survives an app crash.
+    rows = rig.jsonl("gaps.jsonl")
+    assert [(r["from_id"], r["to_id"], r["seconds"], r["kind"]) for r in rows] == [
+        (g["from_utterance_id"], g["to_utterance_id"], g["seconds"], g["kind"]) for g in gaps
+    ]
+    for r in rows:
+        assert r["show_id"] == SHOW_ID
+        assert r["counted"] is True
+        assert r["at"].endswith("Z")
 
 
 async def test_next_segment_is_ready_before_the_current_one_finishes(tmp_path, settings, json_log_lines):
@@ -548,6 +561,8 @@ async def test_pause_finishes_the_sentence_drops_voiced_audio_and_resume_revoice
     assert len(voiced) == 2
     gap = next(g for g in _events(json_log_lines, "sentence_gap") if g["to_utterance_id"] == first_dropped)
     assert gap["kind"] == "paused"
+    row = next(r for r in rig.jsonl("gaps.jsonl") if r["to_id"] == first_dropped)
+    assert (row["kind"], row["counted"]) == ("paused", False)
     # The silence includes the whole pause: from the last sentence played until resume, and more.
     assert paused_for >= 0.5
     assert gap["seconds"] >= round(paused_for, 3)
@@ -1125,6 +1140,7 @@ async def test_an_injected_fault_labels_the_gap_fault(tmp_path, settings, json_l
     kinds = {g["kind"] for g in _events(json_log_lines, "sentence_gap")}
     assert "fault" in kinds
     assert "error" not in kinds
+    assert {(r["kind"], r["counted"]) for r in rig.jsonl("gaps.jsonl") if r["kind"] == "fault"} == {("fault", False)}
 
 
 async def test_host_disconnect_is_a_render_error_and_the_show_keeps_running(tmp_path, settings):

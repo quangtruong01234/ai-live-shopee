@@ -10,6 +10,7 @@ import asyncio
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from ai_live.avatar.character import (
     AvatarCharacter,
@@ -54,6 +55,25 @@ def _print_valid(character: AvatarCharacter) -> None:
         print(f"  Cảnh báo: {warning}")
 
 
+_POSE_REASONS = {"roll": "đầu nghiêng", "pitch": "đầu ngửa/cúi", "yaw": "đầu quay", "no_face": "không thấy mặt"}
+
+
+def _print_pose(pose: Any) -> None:
+    """Talk-clip frames the fork will not speak on (010 US3, FR-011)."""
+    if not isinstance(pose, dict):
+        return
+    if pose.get("skipped"):
+        print(f"    góc đầu: bỏ qua, {pose['skipped']}")
+        return
+    excluded = [e for e in pose.get("excluded") or [] if isinstance(e, dict)]
+    print(f"    góc đầu: dùng {pose.get('usable_frames', '?')} khung, loại {len(excluded)} đoạn")
+    for e in excluded:
+        reason = _POSE_REASONS.get(e.get("reason"), "đoạn còn lại quá ngắn")
+        print(f"      khung {e.get('start')}–{e.get('end')}: {reason}")
+    if pose.get("warning") == "talk_too_short":
+        print("    Cảnh báo: clip nói còn quá ít khung dùng được (< 4 giây), nên quay lại clip nói mặt thẳng hơn")
+
+
 def _print_prepare(result: PrepareResult) -> None:
     print(f"Kết quả prepare: {result.status} (fork {result.fork_commit or '?'}, khung {result.frame_size or '?'})")
     if result.clips:
@@ -61,6 +81,7 @@ def _print_prepare(result: PrepareResult) -> None:
         for clip_id, info in result.clips.items():
             info = info if isinstance(info, dict) else {}
             print(f"  {clip_id:<16}{info.get('frames', '?')!s:>8}{info.get('fps', '?')!s:>8}")
+            _print_pose(info.get("pose"))
     for item in result.errors:
         print(f"  {item.describe()}")
 

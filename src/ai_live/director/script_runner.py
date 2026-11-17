@@ -44,7 +44,7 @@ import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
 from ai_live.brain.guard import OutputGuard, word_form
@@ -89,6 +89,8 @@ from ai_live.director.segment_planner import NoSlotAvailable, PlannedSlot, Segme
 from ai_live.director.session_log import (
     SessionLog,
     error_record,
+    gap_record,
+    render_record,
     script_sentence_record,
     segment_record,
     utterance_record,
@@ -456,6 +458,14 @@ class ScriptRunner:
             segment = self._closing_segment
         task = self._speak_task
         cut = speaking is not None and task is not None and not task.done()
+        voicing, job = self._voice_line, self._voice_job
+        stuck = not cut and voicing is not None and not voicing.handed and job is not None and not job.done()
+        if stuck:
+            # Nothing is speaking and the voicer has not got the next line's first chunk: that line is what the host
+            # waits for (a hung TTS call, 007 US2 #1), so the skip drops its segment. Waiting `TTS_TIMEOUT_S` instead
+            # would keep the host silent after the watchdog's one auto-skip.
+            assert voicing is not None
+            segment = voicing.segment
         utterance_id: str | None = None
         if cut:
             assert speaking is not None and task is not None
@@ -470,6 +480,8 @@ class ScriptRunner:
             if self._closing_segment is not None and self._closing_segment.segment_id in self._open:
                 self._finalize(self._closing_segment, SegmentStatus.SKIPPED)
             self._closing_done.set()
+        if stuck and job is not None and voicing is not None and voicing.segment.status in FINAL_SEGMENT_STATUSES:
+            job.cancel()  # the voicer closes the TTS stream and moves on to the next line
         if cut:
             await self.renderer.interrupt()
         if segment is None and utterance_id is None:
@@ -675,6 +687,8 @@ class ScriptRunner:
         `closing`: the end-of-show segment, 1 to 2 sentences, with `CLOSING_FALLBACK_SENTENCE` when nothing usable came.
         In fallback mode this call is the retry of R10 (shorter timeout); when it fails too, a fallback segment follows.
         """
+        if self.show.content_source == "verbatim":
+            return await self._prepare_verbatim(slot, closing=closing)
         catalog = self.store.catalog
         segment, settled, requested = self._open_segment(slot.product_id, slot.topic, slot.origin, catalog)
         if closing:
@@ -706,6 +720,24 @@ class ScriptRunner:
             if self.show.mode is ShowMode.FALLBACK:
                 return await self._prepare_fallback(slot.product_id)
             await asyncio.sleep(self.llm_retry_delay_s)
+        return settled
+
+    async def _prepare_verbatim(self, slot: PlannedSlot, *, closing: bool) -> asyncio.Event:
+        """007 R6, the backup video: the customer's own text, read the way R10 fallback reads it. No engine call.
+
+        The show stays in `normal` mode (nothing failed), so no `fallback_mode` alert and no retry. The closing is the
+        fixed `CLOSING_FALLBACK_SENTENCE`, still through the guard, TTS and the realtime renderer.
+        """
+        if not closing:
+            return await self._prepare_fallback(slot.product_id)
+        catalog = self.store.catalog
+        segment, settled, requested = self._open_segment(slot.product_id, slot.topic, slot.origin, catalog)
+        self._closing_segment = segment
+        if self._take(segment, catalog, CLOSING_FALLBACK_SENTENCE, requested, over_max=False, dedup=False):
+            self._lines.put_nowait(_SegmentEnd(segment))
+            return settled
+        blocked = any(s.status is SentenceStatus.BLOCKED for s in segment.sentences)
+        self._finalize(segment, SegmentStatus.BLOCKED if blocked else SegmentStatus.FAILED)
         return settled
 
     def _open_segment(
@@ -1150,6 +1182,7 @@ class ScriptRunner:
                             "seq": 0,
                             "text": sentence.text,
                             "segment_id": segment.segment_id,
+                            "product_id": segment.product_id,
                         },
                     )
                 )
@@ -1196,8 +1229,11 @@ class ScriptRunner:
             utterance_id=sentence.utterance_id,
             t_mono=played_at,
         )
-        # No `TurnLatency` for scripted sentences (004 R2): the figures go to the log only.
-        collect_render_stats_when_settled(self.renderer, sentence.utterance_id)
+        # No `TurnLatency` for scripted sentences (004 R2): the figures go to the log and `avatar.jsonl` only.
+        show_id = self.show.show_id
+        collect_render_stats_when_settled(
+            self.renderer, sentence.utterance_id, on_stats=lambda s: self.log.write_avatar(render_record(s, show_id))
+        )
         self.history.add(SpokenLine(sentence.text, sentence.word_form, segment.product_id, _source(segment)))
         self._write_sentence(segment, sentence)
         utt = Utterance(
@@ -1289,6 +1325,8 @@ class ScriptRunner:
             kind = GapKind.SCRIPT if last_segment == segment.segment_id else GapKind.SEGMENT_BOUNDARY
         gap = SentenceGap(last_id, sentence.utterance_id, round(max(0.0, first - last_played_at), 3), kind)
         self.stats.record_gap(gap)
+        started_at = self._wall() - timedelta(seconds=max(0.0, self._clock() - first))
+        self.log.write_gap(gap_record(self.show.show_id, gap, started_at))
         log_event(
             logger,
             "sentence_gap",
@@ -1415,9 +1453,17 @@ class ScriptRunner:
         if self._inflight_forms.get(sentence.word_form) == sentence.utterance_id:
             # Final now: spoken lines live on in `history`; a line that never played may be said later.
             del self._inflight_forms[sentence.word_form]
-        source = _source(segment)
+        source = self._logged_source(segment)
         self.log.write_script_sentence(script_sentence_record(sentence, source))
         self.stats.record_sentence(sentence, source)
+
+    def _logged_source(self, segment: Segment) -> Literal["script", "fallback", "verbatim"]:
+        # A verbatim show reads through the fallback path but nothing failed, so its lines are not fallback lines in
+        # the logs and reports (004 contracts/events.md §2).
+        source = _source(segment)
+        if source == "fallback" and self.show.content_source == "verbatim":
+            return "verbatim"
+        return source
 
     def _log_milestone(self, segment: Segment, sentence: ScriptSentence, milestone: Milestone, at: float) -> None:
         sentence.marks.setdefault(milestone, at)
@@ -1481,6 +1527,7 @@ class ScriptRunner:
             "show_id": show.show_id,
             "state": show.state.value,
             "mode": show.mode.value,
+            "content_source": show.content_source,
             "started_at": _iso(show.started_at),
             "current": self._current_json(),
             "next": self._next_json(),

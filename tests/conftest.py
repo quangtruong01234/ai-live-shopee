@@ -30,6 +30,8 @@ _ENV_PREFIXES = (
     "CONTENT_",
     "SESSION_",
     "VIENEU_",
+    "SCENE_",
+    "CUSTOMER_ID",
 )
 
 

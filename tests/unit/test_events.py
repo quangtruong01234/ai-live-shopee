@@ -95,6 +95,11 @@ def test_event_types_cover_contract():
         # feature 005 (specs/005-lipsync-livetalking/contracts/events.md §1)
         "avatar_mode",
         "lipsync_health",
+        # feature 009 (specs/009-live-scene-layout/contracts/api.md §6)
+        "scene",
+        # feature 007 (specs/007-demo-readiness/contracts/api.md)
+        "host_status",
+        "alert",
     }
     assert {t.value for t in EventType} == expected
 

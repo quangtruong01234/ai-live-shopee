@@ -2,6 +2,7 @@
 
 - **Ngày:** 2026-11-06 · Nguồn quyết định: [research.md](../research.md) R2–R8, R10, R11.
 - Fork là process riêng (venv riêng), chỉ nghe `127.0.0.1:8010`. App là client; trang host là client WebRTC.
+- Lớp cảnh live (`scene_layer`, `hello.scene`, `stats.scene_ms`) do 009 thêm: [009 contracts/fork-protocol.md](../../009-live-scene-layout/contracts/fork-protocol.md).
 - Mọi đoạn trong fork do mình viết nằm ở gói `ailive_ext/`; file gốc chỉ có móc nhỏ, đánh dấu `# ailive:` (Apache-2.0 §4b: ghi rõ file đã sửa).
 
 ## 1. Endpoint của fork
@@ -11,7 +12,7 @@
 | `POST /offer` | trang host | upstream | SDP JSON `{sdp, type}` → `{sdp, type, sessionid}`; `sessionid` là chuỗi UUID của upstream (mở, app không phân tích). `max_session: 1`; phiên thứ hai bị từ chối (upstream trả HTTP 200 `{"code": -1, "msg"}`) |
 | `GET /ailive/ws?sessionid=<str>` | app | **mới** | §2–§3. `sessionid` không tồn tại → đóng mã `4404` |
 | `POST /interrupt_talk` | (không dùng) | upstream | Thay bằng tin `stop` trên `/ailive/ws` |
-| `GET /ailive/health` | quickstart, script | **mới** | `{"ok": true, "boot_id", "fork_commit", "sessions": [..], "vram_used_mb"}` |
+| `GET /ailive/health` | quickstart, script | **mới** | `{"ok": true, "boot_id", "fork_commit", "sessions": [..], "vram_used_mb", "record_enabled"}` (`record_enabled` thêm ở 007: `AILIVE_RECORD_DIR` đang đặt) |
 | `POST /ailive/record/start?sessionid=<str>[&name=<tên>]` | `scripts/selfcheck/lipsync_check.py` | **mới** (công cụ tự kiểm) | Chỉ khi `AILIVE_RECORD_DIR` có giá trị, ngược lại `404`. Ghi khung + tiếng gửi WebRTC ra `<dir>/<tên>.mp4/.wav/.jsonl` (`ailive_ext/recorder.py`); tên chỉ gồm `A-Za-z0-9_.-`, sai → `400`; đang ghi → `409`. Tự dừng sau `AILIVE_RECORD_MAX_S` giây. Không bao giờ chặn luồng ra: hàng đợi đầy thì bỏ khung và đếm |
 | `POST /ailive/record/stop?sessionid=<str>` | như trên | **mới** | Dừng, đợi ghi xong, trả `{prefix, frames, dropped, seconds, stopped_by, error, files}`; không đang ghi → `409`. Chấm điểm: `python -m ailive_ext.analyze <prefix>` (quickstart §11) |
 
@@ -33,10 +34,10 @@ Fork tự đệm, app được gửi nhanh hơn thời gian thật (hàng đợi
 
 | Tin | Trường | Khi nào |
 |-----|--------|---------|
-| `hello` | `boot_id: str` (uuid mỗi lần process bật), `fork_commit: str`, `sessionid: str`, `fps: 25`, `batch_size: int`, `lip_every_n: int`, `ai_label: str` | Ngay khi nối |
+| `hello` | `boot_id: str` (uuid mỗi lần process bật), `fork_commit: str`, `sessionid: str`, `fps: 25`, `batch_size: int`, `lip_every_n: int`, `ai_label: str`, `mouth_method: str \| null` (010: tên cách tạo miệng; `null` khi avatar không phải wav2lip; fork cũ không gửi) | Ngay khi nối |
 | `playback_started` | `utterance_id`, `seq` | WebRTC gửi khung tiếng mang `status:"start"` của câu (cùng khung hình nhép miệng đầu tiên), qua `notify` của avatar |
 | `sentence_played` | `utterance_id`, `seq` | WebRTC gửi khung tiếng mang `status:"end"` của câu |
-| `stats` | `utterance_id`, `seq`, `frames: int`, `infer_fps: float`, `render_fps: float`, `clip_id: str` | Ngay sau `sentence_played` |
+| `stats` | `utterance_id`, `seq`, `frames: int`, `infer_fps: float`, `render_fps: float`, `clip_id: str`, `mouth_method?: str` (010 FR-010, chỉ avatar wav2lip) | Ngay sau `sentence_played` |
 | `health` | `vram_used_mb: int`, `vram_peak_mb: int`, `infer_fps: float \| null` | Mỗi 5 s |
 | `error` | `kind: str`, `message: str`, `utterance_id?: str`, `vram_peak_mb?: int` (chỉ `vram_oom`) | `vram_oom` (bắt `torch.cuda.OutOfMemoryError` trong vòng suy luận), `bad_audio`, `inference_failed`. Lỗi suy luận: lô hỏng thành khung im lặng, fork `flush_talk()` (bỏ tiếng còn trong hàng đợi, như `stop`), bỏ phần tiếng còn lại của `utterance_id` đó và về clip chờ |
 | `pong` | — | Trả `ping` |
@@ -67,6 +68,18 @@ Ack chỉ gửi cho câu đã nhận `sentence_start` trên **cùng** kết nố
   cả chỉ số clip chờ về 0 khi quay lại chờ.
 - **Giảm tải** (`lipskip.py`, numpy): `LIVETALKING_LIP_EVERY_N = n`: chỉ suy luận miệng cho 1/n khung trong lô, khung khác dán lại miệng vừa tạo lên khung nền
   hiện tại. `LIVETALKING_BATCH_SIZE` truyền vào `batch_size` của LiveTalking.
+- **Cách tạo miệng** (`mouth.py`, 010, thêm 2026-11-13): `LIVETALKING_MOUTH_METHOD` là tên có sẵn (`w2l` = như trên, mặc định) hoặc chuỗi
+  `ref=same|offset:N|closed:W;paste=rect|feather;color=0|1;sharpen=x;gain_db=x;shift=N`: lấy nửa tham chiếu của model từ khung cách N
+  bước trong clip, dán mềm chỉ nửa dưới mặt, chỉnh màu theo khung nền, làm nét, tăng độ to model nghe (tiếng người xem nghe không đổi),
+  dời cửa sổ tiếng N khung (`shift`, âm = sớm hơn, không thêm độ trễ). `ref=closed:W` chỉ dùng trong bộ đo; ở live fork chưa có độ mở
+  môi từng khung nên chạy như `ref=same`. Đọc một lần lúc
+  bật; chuỗi sai → log lỗi, dùng `w2l` (FR-005). Dán lỗi ở một khung → khung đó dán hộp như `w2l`, log một lần. Nhãn "AI" và watermark vẫn
+  vẽ sau phần dán, không đổi (FR-013). Chi tiết: `specs/010-natural-mouth-shapes/`.
+- **Đoạn clip nói theo góc đầu** (`pose.py`, 010 US3, thêm 2026-11-13): nếu thư mục avatar của clip nói có `ailive_pose.json` (do
+  `prepare` viết), fork chỉ phát các đoạn dùng được: mỗi đoạn thành một clip nói riêng có `clip_id` dạng `talk_01~1`, `talk_01~2` (một
+  đoạn thì giữ nguyên `clip_id`). `clip_id` trong `stats` và `clips_used` của app vì thế có thể mang hậu tố `~n`. Không có file, hoặc số
+  khung khác với clip đã nạp → phát nguyên clip. Mọi clip nói đều không còn đoạn nào → phát nguyên clip và log ghi chú. Clip chờ không
+  bao giờ bị cắt. Chi tiết: `specs/010-natural-mouth-shapes/data-model.md` §4.
 - **Nạp avatar**: một thư mục avatar LiveTalking cho mỗi clip (`<character_id>__<clip_id>`), nạp hết lúc khởi động (R7 TODO RAM).
 
 ## 5. Khởi động và chuẩn bị
@@ -79,6 +92,11 @@ Ack chỉ gửi cho câu đã nhận `sentence_start` trên **cùng** kết nố
 - `python -m ailive_ext.prepare <AVATAR_DIR> --json`: đọc `character.json`, chạy `genavatar` cho từng clip, đếm mặt bằng S3FD mọi khung,
   in **một** dòng JSON ra stdout: `{"status": "ready"|"failed", "fork_commit", "frame_size", "clips": {...}, "errors": [PrepareError]}`.
   Mã thoát 0 khi `ready`, 1 khi `failed`, 2 khi lỗi không lường trước. Nhật ký chi tiết ra stderr.
+- Từ 010 US3: sau `genavatar`, nếu đã `ready`, `prepare` đo góc đầu từng khung clip nói (MediaPipe, ADR-053, ADR-056), so với tư thế
+  trung vị của các clip chờ, viết `ailive_pose.json` vào thư mục avatar của clip nói và thêm vào `clips.<talk_id>` khóa `pose`:
+  `{"usable_frames", "excluded": [{start, end, reason}], "warning": "talk_too_short"|null}`, hoặc `{"skipped": "<lý do>"}` khi không đo
+  được (thiếu model, lỗi MediaPipe). Không đo được **không** làm `prepare` thất bại. Ngưỡng: cờ `--max-roll`, `--max-pitch`, `--max-yaw`
+  (mặc định 35/20/30 độ).
 
 ## 6. Kiểm thử của fork (venv fork, không GPU)
 

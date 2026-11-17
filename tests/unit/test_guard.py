@@ -329,6 +329,53 @@ def test_unsupported_claim_allowed_when_file_has_it(live_guard):
     assert live_guard.check("Sữa rửa mặt Y hợp da nhạy cảm và không gây kích ứng nha.", catalog).ok
 
 
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        # Honest "no information" answers name the claim without making it (004 FR-010, amended 2026-11-16).
+        "Dạ shop chưa có thông tin về việc sản phẩm có gây kích ứng hay không, anh chị nhắn shop giúp em nha.",
+        "Hiện em chưa có thông tin sản phẩm có phù hợp với da nhạy cảm không ạ.",
+        "Shop chưa có thông tin về độ an toàn cho da nhạy cảm nha anh chị.",
+        "Dạ em không rõ sản phẩm có thể gây kích ứng hay không ạ.",
+        "shop chua co thong tin ve kich ung nha",
+    ],
+)
+def test_no_info_sentence_naming_a_claim_passes(live_guard, catalog, sentence):
+    assert live_guard.check(sentence, catalog).ok
+
+
+@pytest.mark.parametrize(
+    ("sentence", "detail"),
+    [
+        # A new clause after punctuation is a new statement.
+        ("Shop chưa có thông tin về giá, nhưng sản phẩm an toàn cho da nha.", "an toàn cho da"),
+        ("Chưa có thông tin về kích ứng, an toàn tuyệt đối luôn nha.", "an toàn tuyệt đối"),
+        ("Chưa có thông tin về kích ứng – an toàn cho da lắm nha.", "an toàn cho da"),
+        # A word outside the connector list closes the scope.
+        ("Em chưa có thông tin về giá nhưng an toàn cho da lắm.", "an toàn cho da"),
+        ("Không có thông tin nào cho thấy kem gây kích ứng đâu ạ.", "kích ứng"),
+        ("Shop chưa có thông tin về kích ứng và an toàn cho da nha.", "an toàn cho da"),
+        # Only the claim inside the scope is exempt; the affirmative one is still blocked.
+        ("Sản phẩm không gây kích ứng, shop chưa có thông tin về da nhạy cảm.", "kích ứng"),
+        # Punctuation inside a claim must not let it escape through the clause split.
+        ("Chưa có thông tin về giá, an toàn, cho da nha.", "an toàn cho da"),
+        # A claim before the marker is not covered by it.
+        ("Kem an toàn cho da, còn giá thì shop chưa có thông tin.", "an toàn cho da"),
+    ],
+)
+def test_no_info_exemption_does_not_cover_other_statements(live_guard, catalog, sentence, detail):
+    result = live_guard.check(sentence, catalog)
+    assert not result.ok
+    assert result.reason is GuardReason.UNSUPPORTED_CLAIM
+    assert result.detail == detail
+
+
+def test_no_info_exemption_does_not_apply_to_platform_phrases(catalog):
+    guard = OutputGuard(["giỏ hàng"], ["kích ứng"])
+    result = guard.check("Shop chưa có thông tin về giỏ hàng nha.", catalog)
+    assert result.reason is GuardReason.PLATFORM_PHRASE
+
+
 def test_platform_phrase_is_checked_before_claim_phrase(catalog):
     guard = OutputGuard(["giỏ hàng"], ["sẵn hàng"])
     result = guard.check("Em có sẵn hàng, anh chị thêm vô giỏ hàng nha.", catalog)

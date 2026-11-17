@@ -72,6 +72,7 @@ class ShowStats:
         self._segment_times: list[tuple[datetime | None, str | None, SegmentStatus]] = []
         self._sentence_counts: Counter[str] = Counter()
         self._fallback_spoken = 0
+        self._verbatim_spoken = 0
         self._reached_dedup = 0
         self._duplicate_drops = 0
         self._spoken_script_forms: list[str] = []
@@ -107,12 +108,14 @@ class ShowStats:
         at = segment.started_at or segment.requested_at
         self._segment_times.append((at, segment.product_id, segment.status))
 
-    def record_sentence(self, sentence: ScriptSentence, source: Literal["script", "fallback"]) -> None:
+    def record_sentence(self, sentence: ScriptSentence, source: Literal["script", "fallback", "verbatim"]) -> None:
         status = sentence.status
         self._sentence_counts[status.value] += 1
         if status is SentenceStatus.SPOKEN:
             if source == "fallback":
                 self._fallback_spoken += 1
+            elif source == "verbatim":
+                self._verbatim_spoken += 1
             else:
                 self._spoken_script_forms.append(sentence.word_form)
                 self._spoken_by_segment.setdefault(sentence.segment_id, []).append(sentence.word_form)
@@ -159,7 +162,9 @@ class ShowStats:
     def _segments_section(self) -> dict[str, Any]:
         return {
             "total": len(self._segments),
-            "by_product": dict(Counter(s.product_id for s in self._segments if s.product_id is not None)),
+            "by_product": dict(
+                Counter(s.product_id for s in self._segments if s.product_id is not None and s.status in _PLAYED)
+            ),
             "by_topic": dict(Counter(s.topic.value for s in self._segments)),
             "by_status": dict(Counter(s.status.value for s in self._segments)),
             "primary_share": self._primary_share(),
@@ -238,6 +243,7 @@ class ShowStats:
                 "render_error": counts[SentenceStatus.RENDER_ERROR.value],
                 "interrupted": counts[SentenceStatus.INTERRUPTED.value],
                 "fallback_spoken": self._fallback_spoken,
+                "verbatim_spoken": self._verbatim_spoken,
             },
             gaps={
                 "counted": self._gap_stats(self._counted_gaps()),

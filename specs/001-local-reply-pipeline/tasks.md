@@ -374,12 +374,13 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
 
 ## Phase 8: Hoàn thiện và việc chung
 
-- [ ] T098 [P] Cập nhật `docs/ARCHITECTURE.md` §2 (mô hình `Product` có biến thể, `ProductCatalog`) theo `data-model.md` §2, và thêm `qa_eval/`,
+- [x] T098 [P] Cập nhật `docs/ARCHITECTURE.md` §2 (mô hình `Product` có biến thể, `ProductCatalog`) theo `data-model.md` §2, và thêm `qa_eval/`,
   `core/protocols.py`, các `__main__.py` của từng khâu vào `src/README.md` (§3 đã sửa ở T023)
-- [ ] T099 [P] Soạn bộ ≥ 10 câu hỏi bẫy và ép host (bảo hành, công dụng y tế, giá giả, khuyến mãi, ra lệnh đổi luật) cho file demo trong
+- [x] T099 [P] Soạn bộ ≥ 10 câu hỏi bẫy và ép host (bảo hành, công dụng y tế, giá giả, khuyến mãi, ra lệnh đổi luật) cho file demo trong
   `data/eval/adversarial_questions.json`, cùng định dạng `contracts/content-template.md` §2 (phục vụ SC-002)
-- [ ] T100 Chạy `quickstart.md` từ mục 0 tới US5 (kể cả "Chạy riêng từng khâu") trên laptop, lần đầu với `REPLY_ENGINE=fake`, lần hai với
+- [~] T100 Chạy `quickstart.md` từ mục 0 tới US5 (kể cả "Chạy riêng từng khâu") trên laptop, lần đầu với `REPLY_ENGINE=fake`, lần hai với
   `REPLY_ENGINE=gemini`; sửa `quickstart.md` chỗ nào không khớp thực tế
+  *(2026-11-13: lần `fake` xong, đã sửa US2 #2 và US5 #1; lần với LLM thật còn chờ, engine mặc định nay là `chain`, ADR-035/040)*
 - [ ] T101 So sánh `gemini-3.8-flash` và `gemini-3.5-flash-lite` theo research R5 (độ trễ câu đầu theo quy trình US3 và điểm bộ câu hỏi mẫu),
   ghi kết quả và model chọn vào ADR-018 trong `docs/DECISIONS.md`, cập nhật `LLM_MODEL` trong `.env.example`. Chỉ chọn model mới khi điểm bộ
   câu hỏi mẫu không thấp hơn model đang dùng (Điều III). Chạy trên free tier, không chạy ngay trước buổi demo (rủi ro Q11)
@@ -391,18 +392,20 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
 - [ ] T104 Kiểm SC-008 và SC-009: chạy `qa_eval run` với `data/eval/demo_questions.json --repeat 3` (cả 3 lần ≥ 8/10), người vận hành điền cột
   "Chấm tay" trong báo cáo `.md` và đối chiếu (≥ 9/10 câu khớp); ghi kết quả vào mục "Kết quả kiểm chứng" của `quickstart.md`, điểm này là mốc
   hồi quy cho Điều III
-- [ ] T105 Kiểm SC-005 và SC-006: chạy liên tục 30 phút, khoảng 1 comment mỗi 30 s, giả lập ≥ 3 lỗi ở bước `llm` hoặc `tts` qua
+- [x] T105 Kiểm SC-005 và SC-006: chạy liên tục 30 phút, khoảng 1 comment mỗi 30 s, giả lập ≥ 3 lỗi ở bước `llm` hoặc `tts` qua
   `/api/debug/fault`, phiên không dừng; chụp ≥ 10 ảnh màn hình host vào thời điểm ngẫu nhiên, nhãn AI có trong mọi ảnh (ảnh không commit);
   ghi kết quả vào mục "Kết quả kiểm chứng" của `quickstart.md`
-- [ ] T106 Kiểm SC-007: 10 lần Bỏ qua và 10 lần Tạm dừng, đọc `latency_ms` của mọi dòng log `control_applied`, mọi lần ≤ 1000 ms và sau lệnh
+- [x] T106 Kiểm SC-007: 10 lần Bỏ qua và 10 lần Tạm dừng, đọc `latency_ms` của mọi dòng log `control_applied`, mọi lần ≤ 1000 ms và sau lệnh
   tạm dừng không có `turn_started`; ghi giá trị lớn nhất vào mục "Kết quả kiểm chứng" của `quickstart.md`
-- [ ] T107 Kiểm file Word từ nhiều ứng dụng (rủi ro Q7, research R1): mở và lưu lại `data/products/template.docx` và `demo.docx` bằng Word giao
+- [x] T107 Kiểm file Word từ nhiều ứng dụng (rủi ro Q7, research R1): mở và lưu lại `data/products/template.docx` và `demo.docx` bằng Word giao
   diện tiếng Việt, Google Docs (tải về `.docx`) và WPS Office bản miễn phí, chạy `python -m ai_live.products validate` cho từng file; ghi kết
   quả vào research R1 và mục "Kết quả kiểm chứng" của `quickstart.md`. Ứng dụng nào không có sẵn thì ghi `TODO:` thay vì đoán
+  *(2026-11-13: chỉ có Word giao diện tiếng Anh, đạt; Word tiếng Việt, Google Docs, WPS ghi `TODO:` ở research R1)*
 - [ ] T108 Hồi quy Điều III: sau lần sửa cuối cùng của `brain/prompt.py`, `brain/guard.py`, `brain/gemini_engine.py` hoặc `LLM_MODEL` trong
   pha này, chạy lệnh ở mục "Hồi quy khi đổi prompt, engine hoặc model" của `quickstart.md`; điểm không thấp hơn mốc T104, thấp hơn thì hoàn
   lại thay đổi hoặc hỏi người dùng; ghi kết quả vào "Kết quả kiểm chứng" (phụ thuộc T104)
-- [ ] T109 `uv run pytest` và `uv run ruff check . && uv run ruff format --check .` đều sạch
+- [x] T109 `uv run pytest` và `uv run ruff check . && uv run ruff format --check .` đều sạch
+  *(2026-11-13: pytest 2461 passed, 11 xfailed; ruff check và format sạch sau khi sửa hai file test của 006/007)*
 - [ ] T110 Chạy `/update-context`
 
 ## Phụ thuộc và thứ tự

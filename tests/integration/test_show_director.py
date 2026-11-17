@@ -39,6 +39,7 @@ from ai_live.core.models import (
     DropReason,
     ErrorStep,
     GuardReason,
+    Milestone,
     Priority,
     Topic,
     TurnOutcome,
@@ -726,6 +727,14 @@ async def test_comment_lands_after_current_sentence_then_script_resumes(tmp_path
     assert [(c["status"], c["show_id"]) for c in comments] == [("answered", rig.show.show_id)]
     summary = json.loads((rig.folder / f"show_summary_{rig.show.show_id}.json").read_text("utf-8"))
     assert summary["comments"]["answered"] == 1
+
+    # Waiting for the scripted sentence is `floor_wait`, not render time (001 data-model.md §4, sửa lỗi 2026-11-17).
+    assert Milestone.FLOOR_ACQUIRED in reply.marks
+    turn = next(t for t in rig.director.latency.turns if t.utterance_id == reply.utterance_id)
+    held = reply.marks[Milestone.AVATAR_FIRST_FRAME] - reply.marks[Milestone.TTS_FIRST_CHUNK]
+    wait = max(0.0, reply.marks[Milestone.FLOOR_ACQUIRED] - reply.marks[Milestone.TTS_FIRST_CHUNK])
+    assert turn.durations["floor_wait"] == pytest.approx(wait)
+    assert turn.durations["tts_first_chunk_to_first_frame"] == pytest.approx(held - wait)
 
 
 async def test_several_comments_answered_in_priority_order_before_script(tmp_path, settings, json_log_lines):

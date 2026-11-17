@@ -69,6 +69,23 @@ def test_prepare_prints_clip_table(tmp_path: Path, capsys: pytest.CaptureFixture
     assert read_character(avatar_dir)["prepare"]["status"] == "ready"
 
 
+def test_prepare_prints_head_pose_of_talk_clips(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """010 US3 (FR-011): the operator sees which talk frames the fork will skip and why."""
+    out_json = _ready()
+    out_json["clips"]["talk_01"]["pose"] = {
+        "usable_frames": 60,
+        "excluded": [{"start": 60, "end": 120, "reason": "roll"}],
+        "warning": "talk_too_short",
+    }
+    out_json["clips"]["talk_02"]["pose"] = {"skipped": "thiếu face_landmarker.task"}
+    assert main(["prepare", str(make_character_dir(tmp_path)), "--python", "py"], run=FakeForkRun(0, out_json)) == 0
+    out = capsys.readouterr().out
+    assert "góc đầu: dùng 60 khung, loại 1 đoạn" in out
+    assert "khung 60–120: đầu nghiêng" in out
+    assert "quá ít khung" in out
+    assert "góc đầu: bỏ qua, thiếu face_landmarker.task" in out
+
+
 def test_prepare_failed_shows_clip_and_frame(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out_json = {
         **_ready(),

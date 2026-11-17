@@ -39,6 +39,12 @@ def test_post_comment_bad_schema_is_422_json_error(client):
     assert isinstance(body["details"], list)
 
 
+def test_favicon_is_empty_not_404(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code == 204
+    assert r.content == b""
+
+
 def test_host_page_shows_label(client):
     html = client.get("/host").text
     assert 'id="ai-label"' in html
@@ -236,6 +242,7 @@ STEP_NAMES = {
     "first_sentence_to_tts_first_chunk",
     "tts_first_chunk_to_first_frame",
     "queue_wait",
+    "floor_wait",
     "total",
 }
 
@@ -467,3 +474,35 @@ def test_debug_fault_404_when_not_dev(app_settings):
     with TestClient(create_app(s)) as c:
         r = c.post("/api/debug/fault", json={"step": "llm", "mode": "error", "count": 1})
     assert r.status_code == 404
+
+
+def test_session_json_records_run_conditions_without_secrets(app_settings):
+    # 007 T013 (data-model §3, contracts/files.md §1): the rehearsal report reads the run conditions from here.
+    from pydantic import SecretStr
+
+    s = app_settings.model_copy(update={"gemini_api_key": SecretStr(FAKE_KEY), "customer_id": "shop_a"})
+    with TestClient(create_app(s)) as c:
+        session_id = c.get("/api/state").json()["session"]["session_id"]
+        catalog_version = c.get("/api/state").json()["catalog"]["version"]
+        path = s.session_data_dir / session_id / "session.json"
+        text = path.read_text(encoding="utf-8")
+    info = json.loads(text)
+    assert info["session_id"] == session_id
+    assert info["started_at"].endswith("Z")
+    assert (info["app_env"], info["reply_engine"], info["tts_provider"], info["avatar_mode"]) == (
+        s.app_env,
+        s.reply_engine,
+        s.tts_provider,
+        s.avatar_mode,
+    )
+    assert info["scene_enabled"] is False
+    assert (info["customer_id"], info["avatar_id"]) == ("shop_a", s.avatar_id)
+    assert info["catalog_version"] == catalog_version
+    assert info["power"] in ("ac", "battery", None)
+    assert info["watchdog"] == {
+        "enabled": s.watchdog_enabled,
+        "silence_s": s.watchdog_silence_s,
+        "frozen_s": s.watchdog_frozen_s,
+        "autoskip_s": s.watchdog_autoskip_s,
+    }
+    assert FAKE_KEY not in text

@@ -26,6 +26,10 @@ _PERCENT = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+(?![.,]?\d)|\d+(?:[.,]\
 
 LINK_DETAIL_MAX_CHARS = 40
 
+# Clause breaks for the no-info exemption: a claim after one of these starts a new statement (contracts/adapters.md §4).
+# A plain hyphen is not a break: "chữa-khỏi" is one word run.
+_CLAUSE_BREAK = re.compile(r"[,.;:!?…–—\n]+")
+
 
 class GuardConfigError(RuntimeError):
     """The guard cannot be built from its rule files; the app must not start without them."""
@@ -42,9 +46,34 @@ def claim_forms(text: str) -> set[str]:
     Such a character can sit inside a word ("mụ\\u00adn") or replace the space between words ("khỏi\\u200bmụn"),
     so it is both dropped and turned into a space; a claim matching either form is blocked.
     """
+    return {word_form(variant) for variant in _format_variants(text)}
+
+
+# Saying the shop lacks information about a claim is honest, not the claim itself (004 FR-010, amended 2026-11-16).
+NO_INFO_MARKERS = (
+    "chưa có thông tin",
+    "không có thông tin",
+    "chưa có dữ liệu",
+    "không có dữ liệu",
+    "chưa rõ",
+    "không rõ",
+)
+# Words allowed between a marker and its claim ("chưa có thông tin về việc sản phẩm có gây kích ứng").
+# "và", "không", "nào" are left out on purpose: they can start a second, affirmative statement
+# ("không có thông tin nào cho thấy... gây kích ứng").
+NO_INFO_CONNECTORS = frozenset(
+    match_form(
+        "về việc mức độ tình trạng khả năng liệu sản phẩm này có thể gây bị dùng cho phù hợp với là loại chuyện phần"
+        " cụ thể chính xác hay hoặc"
+    ).split()
+)
+
+
+def _format_variants(text: str) -> tuple[str, str]:
+    """`text` with invisible format characters dropped, and with them turned into spaces (see `claim_forms`)."""
     dropped = _drop_format_chars(text)
     spaced = "".join(" " if unicodedata.category(ch) == "Cf" else ch for ch in text)
-    return {word_form(dropped), word_form(spaced)}
+    return dropped, spaced
 
 
 def refusal_sentence(addressee: str) -> str:
@@ -109,6 +138,7 @@ class OutputGuard:
     def __init__(self, platform_phrases: Sequence[str] = (), claim_phrases: Sequence[str] = ()) -> None:
         self._phrases = _phrase_forms(platform_phrases)
         self._claims = _phrase_forms(claim_phrases)
+        self._claim_tokens = tuple(tuple(form.split()) for form, _ in self._claims)
         self._catalog_key: ProductCatalog | None = None
         self._catalog_form = ""
 
@@ -144,15 +174,76 @@ class OutputGuard:
             catalog_form = self._catalog_word_form(catalog)
             padded = {_padded(form) for form in forms}
             # A phrase the shop wrote itself is allowed: the content file is the ground truth (FR-010, FR-013).
-            for phrases, reason in (
-                (self._phrases, GuardReason.PLATFORM_PHRASE),
-                (self._claims, GuardReason.UNSUPPORTED_CLAIM),
-            ):
-                for form, phrase in phrases:
-                    needle = _padded(form)
-                    if any(needle in f for f in padded) and needle not in catalog_form:
-                        return GuardResult.blocked(reason, phrase)
+            for form, phrase in self._phrases:
+                needle = _padded(form)
+                if any(needle in f for f in padded) and needle not in catalog_form:
+                    return GuardResult.blocked(GuardReason.PLATFORM_PHRASE, phrase)
+            claim_hits = [
+                (form, phrase)
+                for form, phrase in self._claims
+                if any(_padded(form) in f for f in padded) and _padded(form) not in catalog_form
+            ]
+            if claim_hits:
+                variants = [_ClaimView(v, self._claim_tokens) for v in _format_variants(sentence)]
+                for form, phrase in claim_hits:
+                    if any(view.unexempt(tuple(form.split())) for view in variants):
+                        return GuardResult.blocked(GuardReason.UNSUPPORTED_CLAIM, phrase)
         return GuardResult.passed()
+
+
+_MARKER_TOKENS = tuple(tuple(word_form(m).split()) for m in NO_INFO_MARKERS)
+
+
+def _match_len(words: Sequence[str], i: int, candidates: Iterable[tuple[str, ...]]) -> int:
+    """Length of the longest candidate starting at `words[i]`, 0 when none does."""
+    return max((len(c) for c in candidates if tuple(words[i : i + len(c)]) == c), default=0)
+
+
+def _count(words: Sequence[str], phrase: tuple[str, ...], mask: Sequence[bool] | None = None) -> int:
+    n = len(phrase)
+    return sum(
+        1
+        for i in range(len(words) - n + 1)
+        if tuple(words[i : i + n]) == phrase and (mask is None or all(mask[i : i + n]))
+    )
+
+
+def _no_info_mask(words: Sequence[str], claims: Sequence[tuple[str, ...]]) -> list[bool]:
+    """Per word of one clause: True when it belongs to a claim the clause says the shop has no information about.
+
+    The scope opens after a marker, runs through connectors and claim phrases, and closes at any other word.
+    """
+    scoped = [False] * len(words)
+    in_scope = False
+    covered = 0  # words before this index are inside a marker or a scoped claim
+    for i in range(len(words)):
+        if marker := _match_len(words, i, _MARKER_TOKENS):
+            in_scope, covered = True, max(covered, i + marker)
+            continue
+        if not in_scope:
+            continue
+        if claim := _match_len(words, i, claims):
+            scoped[i : i + claim] = [True] * claim
+            covered = max(covered, i + claim)
+            continue
+        if i < covered or words[i] in NO_INFO_CONNECTORS:
+            continue
+        in_scope = False
+    return scoped
+
+
+class _ClaimView:
+    """One format variant of a sentence, split into words and clauses for the no-info exemption."""
+
+    def __init__(self, text: str, claims: Sequence[tuple[str, ...]]) -> None:
+        self._words = word_form(text).split()
+        clauses = (word_form(c).split() for c in _CLAUSE_BREAK.split(match_form(text)))
+        self._clauses = [(words, _no_info_mask(words, claims)) for words in clauses if words]
+
+    def unexempt(self, phrase: tuple[str, ...]) -> bool:
+        # Counting on the whole sentence keeps a claim split by punctuation ("an toàn, cho da") blocked.
+        exempt = sum(_count(words, phrase, mask) for words, mask in self._clauses)
+        return _count(self._words, phrase) > exempt
 
 
 def _phrase_forms(phrases: Sequence[str]) -> tuple[tuple[str, str], ...]:

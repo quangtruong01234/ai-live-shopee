@@ -45,7 +45,7 @@ $port = ([System.Uri]$cfg['LIVETALKING_URL']).Port
 
 # ailive_ext reads these from the environment; the label is drawn inside the fork's frames (constitution: AI label always visible).
 foreach ($name in 'AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE', 'LIVETALKING_LIP_EVERY_N',
-                  'LIVETALKING_TRANSITION_S', 'LIVETALKING_HOLD_S') {
+                  'LIVETALKING_MOUTH_METHOD', 'LIVETALKING_TRANSITION_S', 'LIVETALKING_HOLD_S') {
     Set-Item -Path "Env:$name" -Value $cfg[$name]
 }
 

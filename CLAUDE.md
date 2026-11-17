@@ -15,18 +15,25 @@ A livestream-selling service with an **AI host**: a real-time lip-synced avatar,
 - **Later phase:** Shopee Live via OBS (RTMP + Stream Key), about 15 hours/day.
 - **Code status:** `src/ai_live/` has the 001 pipeline (101/116 tasks, paused by ADR-026), the 004 show director (80/81), the
   003 Vietnamese TTS (done), the 005 lip-sync fork (80/83: US1–US3 done except T068, US4 measured, T075 tail and T080 wait for
-  the user) and the 008 LLM chain (done).
+  the user), the 008 LLM chain (done) and the 009 live scene (done: desk, product cards and highlight composited into the frame;
+  real customer photos and viewer checks wait for the user) and the 010 mouth shapes (29/32: mouth-shape benchmark,
+  `LIVETALKING_MOUTH_METHOD` default `w2l`, head-pose trimming of talk clips; the blind A/B review waits for the user)
+  and the 007 demo readiness (58/59: `src/ai_live/ops/` readiness check, show watchdog with control-page banners, rehearsal
+  report, `verbatim` backup video via `python -m ai_live.ops backup-video`; reviewing the backup video waits for the user)
+  and the 006 OBS output (30/35: `/obs` page as an OBS Browser Source, role `obs` beats `/host`, `OUTPUT_MODE=meet|obs`,
+  readiness and watchdog per mode; the GPU runs and the review in real OBS wait for the user).
   Current status: `progress/STATUS.md`.
 
 ## Architecture (summary)
 
 The pipeline has 6 stages, each an adapter behind a common interface:
-**Comment source** (mock / YouTube Live Chat / Shopee) → **Priority queue** (spam filter, dedup, drop stale comments)
+**Comment source** (mock / Shopee; YouTube dropped by ADR-058) → **Priority queue** (spam filter, dedup, drop stale comments)
 → **ReplyEngine** (`REPLY_ENGINE=chain`: pinned free models, SEA-LION via freellmapi then Qwen3.8 on Groq, switching on
 error, ADR-035/040; streams sentence by sentence, grounded only in product data) → **Vietnamese TTS**
 (`TTS_PROVIDER`: VieNeu on CPU for live sessions, Gemini TTS free tier only for short tries, ADR-024; PCM16 mono 16 kHz
 in chunks) → **AvatarRenderer** (local: `static` = image + audio; GPU: LiveTalking fork with Wav2Lip or MuseTalk)
-→ **Output** (WebRTC for the demo, virtual cam or RTMP for OBS / YouTube / Shopee).
+→ **Output** (`OUTPUT_MODE=meet`: the `/host` page shared on Meet; `obs`: the `/obs` page as an OBS Browser Source, OBS pushes
+RTMP to Shopee, ADR-058; YouTube dropped).
 The "AI" label layer is composited directly into the frame before output. **ADR-026: reading chat to reply to viewers is postponed;**
 the host's main content is a product-introduction script that `ShowDirector` generates in real time (feature 004). The 001 comment
 path stays in code as a test tool. Every stage logs timestamps. Latency targets (constitution VI): scripted show first sentence
@@ -115,12 +122,14 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 - `docs/ROADMAP.md`: milestones Demo → Pilot → real Shopee → Multi-customer, with checklists
 - `docs/RISKS.md`: policy, technical, license, GPU and security risks
 - `docs/RUNPOD.md`: setting up the rented GPU environment for demos
-- `docs/VENDORS.md`: candidate SDKs/APIs per stage (not installed; using one requires an ADR)
+- `docs/RUNBOOK.md`: demo-day runbook (draft): T-1 day and T-1 hour checklists, incident table, backup video
+- `docs/VENDORS.md`: candidate SDKs/APIs per stage (not installed; using one requires an ADR); comparison with similar AI-host
+  products on the market (2026-11-17)
 - `docs/WORKFLOW.md`: the Spec-Driven process and the `/sdd.*` commands
 - `.specify/memory/constitution.md`: project constitution · `.specify/templates/`: spec, plan, tasks templates
 - `progress/`: current status, feature registry, pending decisions, work log (single place for progress)
 - `src/README.md`: source tree layout
-- `.claude/commands/`: `/update-context` and `/sdd.*`
+- `.claude/commands/`: `/update-context`, `/sdd.*` and `/schedule-resume` (reopen Claude Code after the usage limit resets)
 
 ## Open questions
 

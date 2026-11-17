@@ -15,12 +15,16 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from ai_live.avatar.static_renderer import HostConnection, StaticRenderer
+from ai_live.avatar.static_renderer import HostConnection, HostRole, StaticRenderer
 from ai_live.core.events import EventBus, avatar_mode_event
 from ai_live.core.logging import log_event
-from ai_live.core.models import AvatarMode, AvatarModeState, RenderTurnStats
+from ai_live.core.models import AvatarMode, AvatarModeState, HostStatus, RenderTurnStats
+from ai_live.core.protocols import PlaybackListener
+
+if TYPE_CHECKING:
+    from ai_live.scene.models import FrameGeometry, SceneLayer
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +188,25 @@ class SwitchingRenderer:
         await self.lipsync.interrupt()
         await self.static.interrupt()
 
+    def add_playback_listener(self, listener: PlaybackListener) -> None:
+        # Both renderers report: a turn plays on whichever it was routed to (009 contracts/adapters.md).
+        self.static.add_playback_listener(listener)
+        add = getattr(self.lipsync, "add_playback_listener", None)
+        if add is not None:
+            add(listener)
+
+    # ---------- SceneSink: only the fork composites; the still image is drawn by the scene controller ----------
+
+    def set_scene_layer(self, name: str, layer: SceneLayer | None) -> None:
+        sink = getattr(self.lipsync, "set_scene_layer", None)
+        if sink is not None:
+            sink(name, layer)
+
+    def add_scene_geometry_listener(self, callback: Callable[[FrameGeometry], None]) -> None:
+        add = getattr(self.lipsync, "add_scene_geometry_listener", None)
+        if add is not None:
+            add(callback)
+
     # ---------- Host page channel (owned by the still-image renderer) ----------
 
     @property
@@ -194,14 +217,22 @@ class SwitchingRenderer:
     def lipsync_session(self) -> str | None:
         return self.static.lipsync_session
 
+    @property
+    def host_status(self) -> HostStatus | None:
+        return self.static.host_status
+
     async def send_to_host(self, message: dict[str, Any]) -> bool:
         return await self.static.send_to_host(message)
 
     def on_session_change(self, callback: Callable[[str | None], None]) -> None:
         self.static.on_session_change(callback)
 
-    async def attach(self, conn: HostConnection) -> None:
-        await self.static.attach(conn)
+    @property
+    def host_role(self) -> HostRole | None:
+        return self.static.host_role
+
+    async def attach(self, conn: HostConnection, role: str = "host") -> bool:
+        return await self.static.attach(conn, role)
 
     def detach(self, conn: HostConnection) -> None:
         self.static.detach(conn)
