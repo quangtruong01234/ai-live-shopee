@@ -2,7 +2,7 @@
 name = "ai-live"
 version = "0.1.0"
 description = "AI host livestream bán hàng: avatar nhép miệng realtime, giọng tiếng Việt, tự trả lời comment"
-readme = "CLAUDE.md"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.162.0",
