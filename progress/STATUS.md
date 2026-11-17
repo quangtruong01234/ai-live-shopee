@@ -4,7 +4,7 @@
 
 - `last_updated`: 2026-11-18
 - `branch`: main (không tách branch theo feature, ADR-027)
-- `last_commit`: c955600 "ROADMAP M1a: tick items already built and tested in 001" (fork `ailive` local: 477d4e4, còn thay đổi chưa commit, kiểm 2026-11-17); 006, 007, 009, 010 chưa commit
+- `last_commit`: ae9f9ca "Add OBS output, demo readiness, live scene, mouth shapes and avatar training notebooks" (fork `ailive` local: 477d4e4, còn thay đổi chưa commit, kiểm 2026-11-17)
 - `current_milestone`: M1a: Logic chạy local — [docs/ROADMAP.md](../docs/ROADMAP.md) mục "M1a"
 - `active_feature`: [006-obs-output](FEATURES.md#006-obs-output) — In progress 2026-11-13 (30/35): phần máy không GPU xong, chờ gói duyệt ([006 quickstart](../specs/006-obs-output/quickstart.md) §5) và 4 task `[GPU]`;
   001 (107/116): việc không cần LLM xong 2026-11-13;

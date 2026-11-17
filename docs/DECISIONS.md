@@ -1177,7 +1177,8 @@
        - Đo nhanh `--bench_steps`, ảnh xem trước, `history.json`, `--pth_every` để đầu ra Kaggle không quá nặng (mỗi file ~49 MB).
      - **AMP trên laptop** (batch 16): 3,33 → **17,2 ảnh/giây**, VRAM đỉnh 5,24 → 3,33 GB (số 3,9 GB ở trên đo bằng `train.py` gốc).
        Video 3 phút sẽ khoảng 4,5 phút mỗi epoch, 200 epoch khoảng 15 giờ: vẫn dài cho laptop, nên vẫn huấn luyện trên Kaggle.
-     - **Notebook Kaggle `scripts/avatar_clips/train_ultralight.ipynb`** (2026-11-18, chưa chạy):
+     - **Notebook Kaggle `scripts/avatar_clips/train_ultralight.ipynb`** (2026-11-18, chưa chạy; đã đẩy lên Kaggle dạng
+       riêng tư, T4, chỉ lưu chưa chạy: `jintran0501/ai-host-train-ultralight-demo-host-02`, version 1):
        - Đầu vào: đầu ra của notebook InfiniteTalk (video `<CHARACTER_ID>_train_v1.mp4`), gắn trong giao diện Kaggle.
        - Đổi video sang 25 khung/giây nếu cần, chạy `process.py --asr hubert`, kiểm số khung/điểm mặt/đặc trưng tiếng
          (vì `process.py` gọi lệnh qua `os.system`, lỗi không làm dừng), lưu ảnh kiểm vùng cắt miệng.
