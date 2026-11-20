@@ -5,7 +5,7 @@ import hashlib
 import pytest
 
 from ai_live.products.docx_loader import load_catalog
-from ai_live.products.models import ContentLoadError
+from ai_live.products.models import ContentLoadError, product_detail
 from fixtures.content_builder import build_docx, product_blocks, valid_blocks, valid_docx
 
 MAX = 5 * 1024 * 1024
@@ -240,3 +240,29 @@ def test_issue_messages_are_vietnamese_with_product_and_section():
     assert issue.section == "Giá"
     assert "Kem X" in issue.message and "Giá" in issue.message
     assert "Kem X" in str(exc.value)
+
+
+# ---------- Product detail for the control page (012 FR-022, data-model §8) ----------
+
+
+def test_product_detail_is_the_file_word_for_word_without_the_link():
+    kem, sua = load(valid_blocks()).products[:2]
+    detail = product_detail(kem)
+    assert detail == {
+        "id": kem.id,
+        "name": "Kem chống nắng X",
+        "is_primary": True,
+        "description": kem.description,
+        "intro": kem.intro,
+        "price": None,
+        "variants": [{"name": "50 ml", "price": 250_000}, {"name": "100 ml", "price": 420_000}],
+        "specs": [["Dung tích", "50 ml"], ["Chỉ số chống nắng", "SPF 50"]],
+        "faq": [["Dùng cho da dầu được không?", "Dạ dùng được cho da dầu."]],
+        "promotions": ["Giảm 30.000đ cho đơn từ 500.000đ"],
+        "forbidden_claims": ["chữa khỏi mụn"],
+    }
+    # The link is never read aloud, and the operator does not need it to check what the AI says.
+    assert "link" not in detail
+    assert product_detail(sua)["price"] == 159_000
+    assert product_detail(sua)["variants"] == []
+    assert product_detail(sua)["forbidden_claims"] == []

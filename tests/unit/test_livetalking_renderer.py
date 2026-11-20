@@ -130,6 +130,38 @@ async def test_speak_sends_sentence_to_fork(fork: FakeFork, make_renderer: MakeR
     assert bytes(sentence.audio) == data
 
 
+async def test_prebuffer_holds_audio_until_head_start(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    """ADR-070: nothing reaches the fork until `prebuffer_s` of audio is in hand, then it streams as before."""
+    renderer, _ = await make_renderer(prebuffer_s=0.5)
+    gate = asyncio.Event()
+    yielded: list[int] = []
+
+    async def slow_tts() -> AsyncIterator[bytes]:
+        for seconds in (0.2, 0.2):
+            yielded.append(1)
+            yield pcm(seconds)
+        await gate.wait()
+        yield pcm(0.2)  # crosses 0.5 s
+        yield pcm(0.2)
+
+    task = asyncio.create_task(renderer.speak("u1", "Chào cả nhà.", slow_tts(), SAMPLE_RATE))
+    await until(lambda: len(yielded) == 2)
+    await asyncio.sleep(0.05)
+    assert fork.audio_bytes_received == 0
+    gate.set()
+    await task
+    [sentence] = fork.sentences
+    assert bytes(sentence.audio) == pcm(0.2) * 4
+
+
+async def test_prebuffer_flushes_short_sentence_at_end(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    renderer, _ = await make_renderer(prebuffer_s=1.0)
+    data = pcm(0.3)
+    await renderer.speak("u1", "Dạ.", audio(data), SAMPLE_RATE)
+    [sentence] = fork.sentences
+    assert bytes(sentence.audio) == data
+
+
 async def test_seq_counts_sentences_of_a_turn(fork: FakeFork, make_renderer: MakeRenderer) -> None:
     renderer, _ = await make_renderer()
     for text in ("Câu một.", "Câu hai."):
@@ -447,3 +479,81 @@ async def test_health_message_publishes_lipsync_health(fork: FakeFork, make_rend
     events = [e.payload for e in sub.drain() if e.type is EventType.LIPSYNC_HEALTH]
     assert events and events[-1]["vram_used_mb"] == 2656
     assert events[-1]["infer_fps"] == pytest.approx(30.0)
+
+
+# ---------- 011 T014: the `lipsync` block of `hello` (contracts/lipsync-selection.md §5) ----------
+
+_SHA = "a" * 64
+_EXPECTED_ULTRALIGHT = {
+    "model": "ultralight",
+    "teacher": "musetalk",
+    "character_id": "demo_host_02",
+    "checkpoint_sha256": _SHA,
+}
+
+
+async def test_hello_lipsync_block_is_kept_and_logged(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.lipsync = FakeFork.lipsync_block(
+        "ultralight", teacher="musetalk", character_id="demo_host_02", checkpoint_sha256=_SHA
+    )
+    bus = EventBus()
+    sub = bus.subscribe()
+    renderer, _ = await make_renderer(bus=bus, expected_lipsync=dict(_EXPECTED_ULTRALIGHT))
+    assert renderer.health.lipsync == fork.lipsync
+    assert renderer.health.model_mismatch is False
+    [fields] = records(caplog, "lipsync_connected")
+    assert fields["lipsync"] == fork.lipsync
+    assert records(caplog, "lipsync_model_mismatch") == []
+    events = [e for e in sub.drain() if e.type is EventType.LIPSYNC_HEALTH]
+    assert events[-1].payload["lipsync"] == fork.lipsync and events[-1].payload["model_mismatch"] is False
+
+
+@pytest.mark.parametrize(
+    "running",
+    [
+        FakeFork.lipsync_block("wav2lip", character_id="demo_host_02"),
+        FakeFork.lipsync_block(
+            "ultralight", teacher="infinitetalk", character_id="demo_host_02", checkpoint_sha256=_SHA
+        ),
+        FakeFork.lipsync_block("ultralight", teacher="musetalk", character_id="demo_host_01", checkpoint_sha256=_SHA),
+        FakeFork.lipsync_block(
+            "ultralight", teacher="musetalk", character_id="demo_host_02", checkpoint_sha256="b" * 64
+        ),
+    ],
+    ids=["model", "teacher", "character", "checkpoint"],
+)
+async def test_lipsync_mismatch_warns_without_disconnecting(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture, running: dict[str, Any]
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.lipsync = running
+    renderer, host = await make_renderer(expected_lipsync=dict(_EXPECTED_ULTRALIGHT))
+    assert renderer.health.model_mismatch is True
+    [record] = [r for r in caplog.records if r.getMessage() == "lipsync_model_mismatch"]
+    assert record.levelno == logging.WARNING
+    # FR-014: the running show is not cut, and the app does not try to switch the fork's model.
+    assert renderer.ready and renderer.health.connected
+    assert renderer.health.lipsync == running
+    await renderer.speak("u-mismatch", "Xin chào.", audio(pcm(0.2)), SAMPLE_RATE)
+    assert len(fork.sentences) == 1
+
+
+async def test_old_fork_without_block_is_not_an_error(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.lipsync = None
+    renderer, _ = await make_renderer(expected_lipsync={"model": "wav2lip", "character_id": "demo_host_01"})
+    assert renderer.health.lipsync is None and renderer.health.model_mismatch is False
+    [fields] = records(caplog, "lipsync_connected")
+    assert fields["lipsync"] is None
+    assert records(caplog, "lipsync_model_mismatch") == []
+
+
+async def test_without_expectation_nothing_is_compared(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    fork.lipsync = FakeFork.lipsync_block("ultralight", teacher="musetalk", character_id="demo_host_02")
+    renderer, _ = await make_renderer()
+    assert renderer.health.lipsync == fork.lipsync and renderer.health.model_mismatch is False

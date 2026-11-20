@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from ai_live.core.config import Settings
 from ai_live.core.events import Event, EventBus, EventType
 from ai_live.products.models import ProductCatalog
 from ai_live.scene.controller import DISABLED_HOST_CONFIG, SceneController, disabled_status
@@ -16,6 +18,9 @@ from ai_live.scene.fonts import SceneFontError, SceneFonts, load_fonts
 from ai_live.scene.layout import estimate_geometry
 from ai_live.scene.models import SceneLayer
 from fixtures.scene_builder import CUSTOMER, catalog, demo_catalog, make_scene_dir, product
+
+# The label the controller estimates with when the settings keep the default.
+LABEL = Settings.model_fields["ai_label_text"].default
 
 pytestmark = pytest.mark.anyio
 
@@ -156,11 +161,11 @@ async def test_content_replace_drops_a_highlight_that_is_gone(rig) -> None:
 async def test_fork_geometry_redraws_only_when_the_frame_moves(rig) -> None:
     controller, renderer, _, _, _ = rig
     [listener] = renderer.geometry
-    same = estimate_geometry("AI", "top-right")
+    same = estimate_geometry(LABEL, "top-right")
     listener(type(same)(same.width, same.height, same.face_bottom, same.keep_out, "fork"))
     await settle(controller)
     assert controller.version == 1
-    listener(estimate_geometry("AI", "top-right", face_bottom=304))
+    listener(estimate_geometry(LABEL, "top-right", face_bottom=304))
     await settle(controller)
     assert controller.version == 2
     assert controller.status()["geometry"]["face_bottom"] == 304
@@ -186,7 +191,7 @@ async def test_draw_failure_reports_and_the_next_draw_works(scene_settings) -> N
     [error] = scene_events(events, "error")
     assert "không có font" in error["message"]
     assert controller.version == 0
-    controller.on_geometry(estimate_geometry("AI", "top-right", face_bottom=300))
+    controller.on_geometry(estimate_geometry(LABEL, "top-right", face_bottom=300))
     await settle(controller)
     assert controller.version == 1 and renderer.layers
     await controller.stop()
@@ -200,7 +205,7 @@ async def test_failed_host_send_is_only_logged(rig, caplog: pytest.LogCaptureFix
         raise ConnectionError("host gone")
 
     renderer.send_to_host = broken
-    controller.on_geometry(estimate_geometry("AI", "top-right", face_bottom=300))
+    controller.on_geometry(estimate_geometry(LABEL, "top-right", face_bottom=300))
     await settle(controller)
     assert controller.version == 2
     assert any(r.getMessage() == "scene_send_failed" for r in caplog.records)
@@ -379,3 +384,253 @@ async def test_no_subtitle_layer_when_off(rig) -> None:
     await settle(controller)
     assert all(n == "base" for n, _ in renderer.layers)
     assert controller.host_config()["subtitles"] is False
+
+
+# ---------- 011 T018: the scene block of the character in use ----------
+
+
+class _Character:
+    """The two fields the controller reads from `AvatarCharacter` (011 data-model §1)."""
+
+    def __init__(self, desk_in_image: bool, desk_top: float | None) -> None:
+        self.desk_in_image = desk_in_image
+        self.desk_top = desk_top
+
+
+def _left_desk_strip_clear(controller: SceneController, layer: SceneLayer) -> bool:
+    from PIL import Image
+
+    geometry = estimate_geometry(LABEL, "top-right")
+    frame = Image.new("RGBA", (geometry.width, geometry.height), (0, 0, 0, 0))
+    assert layer.image is not None
+    frame.alpha_composite(layer.image, (layer.x, layer.y))
+    x1, y1, _, y2 = controller._layout.desk_box
+    strip = frame.crop((x1, y1, x1 + 4, min(y2, geometry.height - 40)))
+    return strip.getchannel("A").getextrema()[1] == 0
+
+
+async def test_character_scene_block_moves_the_desk_and_drops_its_layer(scene_settings) -> None:
+    async def draw(character: Any) -> tuple[SceneController, FakeRenderer]:
+        renderer = FakeRenderer()
+        controller = SceneController(
+            scene_settings,
+            FakeStore(demo_catalog()),
+            renderer,
+            EventBus(),
+            None,
+            fonts_loader=_fonts,
+            character=character,
+        )
+        await controller.start()
+        await settle(controller)
+        await controller.stop()
+        return controller, renderer
+
+    plain, plain_renderer = await draw(None)
+    in_image, renderer = await draw(_Character(desk_in_image=True, desk_top=0.84))
+    assert in_image._layout.desk_box[1] > plain._layout.desk_box[1]
+    assert _left_desk_strip_clear(in_image, renderer.last("base"))
+    # A character without the block keeps the 009 scene: the desk is drawn.
+    assert not _left_desk_strip_clear(plain, plain_renderer.last("base"))
+    no_block, no_block_renderer = await draw(_Character(desk_in_image=False, desk_top=None))
+    assert no_block._layout.desk_box == plain._layout.desk_box
+    assert not _left_desk_strip_clear(no_block, no_block_renderer.last("base"))
+
+
+# ---------- 012 T006: reload() and preview() ----------
+
+UPLOAD_COLOR = (10, 200, 30)
+
+
+def _write_upload(root: Path, pid: str, *, size: tuple[int, int] = (200, 300), color=UPLOAD_COLOR) -> str:
+    from ai_live.scene.uploads import validate_and_normalize
+    from fixtures.scene_builder import image_bytes, write_manifest
+
+    image = validate_and_normalize(image_bytes("png", size=size, color=color))
+    path = root / "uploads" / pid / f"{image.version_id}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(image.png)
+    stamp = "2026-11-20T09:00:00.000Z"
+    version = {
+        "uploaded_at": stamp,
+        "source_name": "a.png",
+        "width": image.width,
+        "height": image.height,
+        "has_alpha": True,
+        "bytes": len(image.png),
+        "applied_at": stamp,
+        "rights_confirmed_at": stamp,
+    }
+    manifest = {
+        "schema_version": 1,
+        "customer_id": CUSTOMER,
+        "products": {
+            pid: {
+                "active": image.version_id,
+                "history": ["kit"],
+                "updated_at": stamp,
+                "versions": {image.version_id: version},
+            }
+        },
+    }
+    write_manifest(root, manifest)
+    return image.version_id
+
+
+async def test_reload_returns_after_a_fresh_draw(rig, scene_settings) -> None:
+    controller, renderer, _, _, _ = rig
+    vid = _write_upload(scene_settings.scene_dir, "toner")
+    version = await asyncio.wait_for(controller.reload(), 5)
+    assert version == controller.version == 2
+    art = controller.scene.art["toner"]
+    assert (art.source, art.version_id) == ("upload", vid)
+    assert renderer.last("base") is renderer.layers[-1][1]
+
+
+async def test_reload_logs_the_number_of_uploads(rig, scene_settings, caplog: pytest.LogCaptureFixture) -> None:
+    controller, _, _, _, _ = rig
+    caplog.set_level(logging.INFO, logger="ai_live")
+    _write_upload(scene_settings.scene_dir, "toner")
+    await asyncio.wait_for(controller.reload(), 5)
+    loaded = [r for r in caplog.records if r.getMessage() == "scene_loaded"]
+    assert loaded[-1].fields["uploads"] == 1  # type: ignore[attr-defined]
+
+
+async def test_close_reloads_fold_into_one_and_both_see_the_latest_manifest(rig, scene_settings) -> None:
+    controller, _, _, _, _ = rig
+    _write_upload(scene_settings.scene_dir, "toner", color=(200, 0, 0))
+    first = asyncio.create_task(controller.reload())
+    latest = _write_upload(scene_settings.scene_dir, "toner", color=(0, 0, 200))
+    second = asyncio.create_task(controller.reload())
+    versions = await asyncio.wait_for(asyncio.gather(first, second), 5)
+    assert versions == [2, 2]
+    assert controller.scene.art["toner"].version_id == latest
+
+
+async def test_reload_waits_for_a_draw_started_after_the_call(rig, scene_settings) -> None:
+    """A draw already running when `reload()` is called read the old manifest: it must not count."""
+    controller, _, bus, _, _ = rig
+    bus.publish(Event(EventType.CONTENT_REPLACED, {}))
+    for _ in range(5):
+        await asyncio.sleep(0)  # the old draw is now under way
+    vid = _write_upload(scene_settings.scene_dir, "toner")
+    await asyncio.wait_for(controller.reload(), 5)
+    assert controller.scene.art["toner"].version_id == vid
+
+
+async def test_reload_with_the_scene_off_returns_none(settings) -> None:
+    controller = SceneController(settings, FakeStore(demo_catalog()), FakeRenderer(), EventBus(), None)
+    assert await asyncio.wait_for(controller.reload(), 1) is None
+
+
+async def test_preview_swaps_one_image_without_touching_the_live_scene(rig, caplog: pytest.LogCaptureFixture) -> None:
+    from PIL import Image
+
+    from ai_live.scene.layout import compute_layout
+    from ai_live.scene.models import ProductArt
+
+    controller, renderer, bus, store, _ = rig
+    caplog.set_level(logging.INFO, logger="ai_live")
+    bus.publish(sentence("u1", "toner"))
+    await settle(controller)
+    controller.playback_started("u1", 0, "x")
+    await settle(controller)
+    version, layers, base = controller.version, len(renderer.layers), controller._base
+    candidate = Image.new("RGBA", (200, 300), (*UPLOAD_COLOR, 255))
+    override = ProductArt("toner", Path("candidate.png"), candidate, source="upload", version_id="0123456789ab")
+
+    png = await controller.preview(store.catalog, {"toner": override}, controller.highlight)
+
+    assert (controller.version, len(renderer.layers), controller._base) == (version, layers, base)
+    frame = Image.open(io.BytesIO(png)).convert("RGB")
+    sizes = {pid: art.image.size for pid, art in controller.scene.art.items()}
+    sizes["toner"] = candidate.size
+    expected = compute_layout(store.catalog.products, sizes, controller._geometry, controller.scene.layout, "toner")
+    slot = next(s for s in expected.slots if s.product_id == "toner")
+    assert slot.highlighted and slot.art_box is not None
+    x1, y1, x2, y2 = slot.art_box
+    assert frame.getpixel(((x1 + x2) // 2, (y1 + y2) // 2)) == pytest.approx(UPLOAD_COLOR, abs=8)
+    logged = [r for r in caplog.records if r.getMessage() == "scene_preview"]
+    assert logged and logged[-1].fields["render_ms"] >= 0  # type: ignore[attr-defined]
+
+
+async def test_preview_can_remove_an_image(rig) -> None:
+    controller, renderer, _, store, _ = rig
+    layers = len(renderer.layers)
+    png = await controller.preview(store.catalog, {"toner": None}, None)
+    assert png.startswith(b"\x89PNG")
+    assert "toner" in controller.scene.art and len(renderer.layers) == layers
+
+
+# ---------- 012 T030: hold() for "Áp dụng bộ mới" (research R7) ----------
+
+
+async def test_no_draw_runs_while_held_not_even_a_subtitle(subtitled) -> None:
+    controller, renderer = subtitled
+    version, layers = controller.version, len(renderer.layers)
+    async with controller.hold():
+        controller.playback_started("c1", 0, "Dạ chị ơi.")
+        for _ in range(20):
+            await asyncio.sleep(0)
+        await asyncio.sleep(0.05)
+        assert (controller.version, len(renderer.layers)) == (version, layers)
+    await settle(controller)
+    assert controller.version > version
+    assert renderer.last("subtitle").image is not None
+
+
+async def test_hold_waits_for_the_draw_under_way(rig) -> None:
+    import threading
+
+    controller, _, bus, _, _ = rig
+    started, release = threading.Event(), threading.Event()
+    real_draw = controller._draw
+
+    def slow_draw(snap: Any) -> list[str]:
+        started.set()
+        release.wait(5)
+        return real_draw(snap)
+
+    controller._draw = slow_draw  # type: ignore[method-assign]
+    bus.publish(Event(EventType.CONTENT_REPLACED, {}))
+    await asyncio.wait_for(asyncio.to_thread(started.wait, 5), 6)
+    entered = asyncio.Event()
+
+    async def enter() -> None:
+        async with controller.hold():
+            entered.set()
+
+    task = asyncio.create_task(enter())
+    await asyncio.sleep(0.05)
+    assert not entered.is_set()
+    release.set()
+    await asyncio.wait_for(task, 5)
+    assert entered.is_set()
+
+
+async def test_after_hold_one_draw_shows_the_new_catalog_with_its_images(rig, scene_settings) -> None:
+    controller, _, _, store, _ = rig
+    seen: list[tuple[str, str | None]] = []
+    real_draw = controller._draw
+
+    def recording_draw(snap: Any) -> list[str]:
+        art = snap.scene.art.get("serum")
+        seen.append((snap.catalog.version, art.source if art is not None else None))
+        return real_draw(snap)
+
+    controller._draw = recording_draw  # type: ignore[method-assign]
+    version = controller.version
+    async with controller.hold():
+        store.catalog = catalog(product("serum", primary=True), product("toner"), version="v2")
+        _write_upload(scene_settings.scene_dir, "serum")
+        await asyncio.sleep(0.02)
+    scene_version = await asyncio.wait_for(controller.reload(), 5)
+    assert scene_version == controller.version == version + 1
+    assert seen == [("v2", "upload")]
+
+
+async def test_hold_with_the_scene_off_is_a_plain_lock(settings) -> None:
+    controller = SceneController(settings, FakeStore(demo_catalog()), FakeRenderer(), EventBus(), None)
+    async with controller.hold():
+        pass
+    assert await asyncio.wait_for(controller.reload(), 1) is None

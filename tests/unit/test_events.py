@@ -194,7 +194,27 @@ def test_lipsync_health_event_payload():
         "infer_fps": 31.5,
         "last_error": None,
         "updated_at": CHANGED_AT.isoformat(),
+        "lipsync": None,
+        "model_mismatch": False,
     }
+
+
+def test_lipsync_health_event_carries_lipsync_block():
+    """011 data-model §4: the fork's `lipsync` block and the app's mismatch flag reach the control page."""
+    from ai_live.core.events import lipsync_health_event
+    from ai_live.core.models import LipsyncHealth
+
+    block = {
+        "model": "ultralight",
+        "teacher": "musetalk",
+        "character_id": "demo_host_02",
+        "avatar_id": "demo_host_02__ultralight_musetalk",
+        "checkpoint_sha256": "a" * 64,
+    }
+    health = LipsyncHealth(connected=True, lipsync=block, model_mismatch=True, updated_at=CHANGED_AT)
+    body = lipsync_health_event(health).to_json()
+    assert body["lipsync"] == block
+    assert body["model_mismatch"] is True
 
 
 def test_lipsync_health_event_redacts_error():

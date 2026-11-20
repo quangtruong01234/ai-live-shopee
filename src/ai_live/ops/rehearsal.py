@@ -17,6 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ai_live.core.models import lipsync_label
 from ai_live.director.session_log import (
     ALERTS_FILE,
     AVATAR_FILE,
@@ -425,6 +426,19 @@ def _render_fps(logs: ShowLogs) -> tuple[dict[str, Any] | None, str | None]:
     return {"p50": round(statistics.median(fps), 2), "min": round(min(fps), 2), "turns": len(fps)}, method
 
 
+def _lipsync_block(logs: ShowLogs) -> dict[str, Any] | None:
+    """The `lipsync` block of the session's last fork `hello` (011 contracts/lipsync-selection.md §5).
+
+    The hello reaches `avatar.jsonl` as a `health` line with `connected: true`. None when the fork is older than
+    011 (no block) or never connected.
+    """
+    for row in reversed(logs.avatar):
+        if row.get("kind") == "health" and row.get("connected") is True:
+            block = row.get("lipsync")
+            return dict(block) if isinstance(block, dict) else None
+    return None
+
+
 def build_report(logs: ShowLogs) -> RehearsalReport:
     notes: list[str] = []
     session = logs.session or {}
@@ -434,6 +448,7 @@ def build_report(logs: ShowLogs) -> RehearsalReport:
     render_fps, mouth_method = _render_fps(logs)
     conditions = {key: session.get(key) for key in CONDITION_KEYS}
     conditions["mouth_method"] = mouth_method
+    conditions["lipsync"] = _lipsync_block(logs) if session.get("avatar_mode") != "static" else None
     conditions["fake_run"] = fake_run
 
     start, end = _window(logs)
@@ -524,6 +539,13 @@ def _md_cell(value: Any) -> str:
     return "—" if value in (None, "") else str(value).replace("|", "\\|").replace("\n", " ")
 
 
+def _lipsync_text(conditions: dict[str, Any]) -> str:
+    if conditions.get("avatar_mode") == "static":
+        return "không dùng (ảnh tĩnh)"
+    block = conditions.get("lipsync") or {}
+    return lipsync_label(block.get("model"), block.get("teacher"), block.get("character_id"))
+
+
 def render_markdown(report: RehearsalReport) -> str:
     c = report.conditions
     g = report.gaps
@@ -543,6 +565,7 @@ def render_markdown(report: RehearsalReport) -> str:
         + (" · **chạy giả**" if c.get("fake_run") else ""),
         f"- Nhân vật: {_md_cell(c.get('avatar_mode'))} · cách tạo miệng: {_md_cell(c.get('mouth_method'))} · "
         f"cảnh live: {_md_cell(c.get('scene_enabled'))}",
+        f"- Model nhép miệng: {_md_cell(_lipsync_text(c))}",
         f"- Khách / nhân vật / bản nội dung: {_md_cell(c.get('customer_id'))} / {_md_cell(c.get('avatar_id'))} / "
         f"{_md_cell(c.get('catalog_version'))}",
         f"- Nguồn điện lúc mở app: {_md_cell(c.get('power'))}",

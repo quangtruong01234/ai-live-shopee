@@ -622,6 +622,10 @@ class LipsyncHealth:
     infer_fps: float | None = None
     last_error: str | None = None
     updated_at: datetime | None = None
+    # 011 data-model §4: the model the fork says it runs; None = an older fork that sends no `lipsync` block.
+    lipsync: dict[str, Any] | None = None
+    # The fork runs a different model, teacher, character or checkpoint than the app is configured for.
+    model_mismatch: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -633,7 +637,28 @@ class LipsyncHealth:
             "infer_fps": self.infer_fps,
             "last_error": self.last_error,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "lipsync": dict(self.lipsync) if self.lipsync is not None else None,
+            "model_mismatch": self.model_mismatch,
         }
+
+
+LIPSYNC_MODEL_NAMES = {"wav2lip": "Wav2Lip", "ultralight": "Ultralight"}
+LIPSYNC_TEACHER_NAMES = {"musetalk": "MuseTalk", "infinitetalk": "InfiniteTalk"}
+
+
+def lipsync_label(model: str | None, teacher: str | None = None, character_id: str | None = None) -> str:
+    """Text like "Ultralight · thầy MuseTalk · demo_host_02" for readiness and the rehearsal report (011 FR-009).
+
+    `model` None = an older fork that sends no `lipsync` block: "không rõ". The control page builds the same text in JS.
+    """
+    if not model:
+        return "không rõ"
+    parts = [LIPSYNC_MODEL_NAMES.get(model, model)]
+    if teacher:
+        parts.append(f"thầy {LIPSYNC_TEACHER_NAMES.get(teacher, teacher)}")
+    if character_id:
+        parts.append(character_id)
+    return " · ".join(parts)
 
 
 _AUDIO_STATES = ("running", "suspended", "closed")

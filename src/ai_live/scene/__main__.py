@@ -20,8 +20,9 @@ from ai_live.products.models import ContentLoadError, ProductCatalog
 from ai_live.scene.fonts import SceneFontError, load_fonts
 from ai_live.scene.layout import compute_layout, estimate_geometry
 from ai_live.scene.loader import load_scene_set
-from ai_live.scene.models import SceneIssue
+from ai_live.scene.models import SceneIssue, SceneSet
 from ai_live.scene.render import compose_still, cover_crop, draw_debug_zones, render_base, render_subtitle
+from ai_live.scene.uploads import ProductImageStore
 
 LEVEL_LABEL = {"error": "LỖI ", "warning": "CHÚ Ý"}
 LABEL_POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
@@ -30,6 +31,18 @@ LABEL_POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
 def _print_issues(issues: list[SceneIssue]) -> None:
     for issue in issues:
         print(f"{LEVEL_LABEL[issue.level]}  {issue.code}  {issue.message}")
+
+
+def _uploads_summary(scene_dir: Path, scene: SceneSet, product_ids: list[str]) -> str | None:
+    """One line about uploaded images (012 contracts/scene-set.md §5); None when the set has no uploads yet."""
+    store = ProductImageStore(scene_dir)
+    if not store.manifest_path.is_file():
+        return None
+    in_use = sum(art.source == "upload" for art in scene.art.values())
+    unconfirmed = sum(issue.code == "missing_confirmation" for issue in scene.issues)
+    entries = store.entries()
+    removed = sum(1 for pid in product_ids if pid in entries and entries[pid].get("active", "kit") is None)
+    return f"Ảnh tải lên: {in_use} đang dùng, {unconfirmed} thiếu xác nhận, {removed} đã gỡ"
 
 
 def _catalog(path: Path, settings: Settings) -> ProductCatalog | None:
@@ -80,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     issues = [*scene.issues, *layout.issues]
     _print_issues(issues)
     if args.command == "check":
+        summary = _uploads_summary(args.scene_dir, scene, [p.id for p in catalog.products])
+        if summary:
+            print(summary)
         errors = sum(i.level == "error" for i in issues)
         print(f"Bộ cảnh {args.scene_dir}: {errors} lỗi, {len(issues) - errors} chú ý.")
         return 1 if errors else 0

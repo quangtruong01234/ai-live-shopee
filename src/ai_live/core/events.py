@@ -159,7 +159,10 @@ def avatar_mode_event(state: AvatarModeState) -> Event:
 
 
 def lipsync_health_event(health: LipsyncHealth) -> Event:
-    """`lipsync_health`. `last_error` goes through `redact`: it carries the fork's error text."""
+    """`lipsync_health`, with the fork's `lipsync` block and `model_mismatch` (011).
+
+    `last_error` goes through `redact`: it carries the fork's error text.
+    """
     payload = health.to_json()
     if payload["last_error"] is not None:
         payload["last_error"] = redact_text(payload["last_error"])

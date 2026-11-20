@@ -224,6 +224,11 @@ async def test_opening_first_and_each_sentence_is_its_own_utterance(tmp_path, se
         # 009 FR-015: the scene maps each scripted sentence to its product; the opening speaks of none.
         assert sentence_events[0]["product_id"] is None
         assert any(p["product_id"] == first_slot.product_id for p in sentence_events)
+        # 012 FR-020: "AI vừa nói" shows each sentence's topic; the older keys stay as they were.
+        topics = {p["segment_id"]: p["topic"] for p in started}
+        assert all(p["topic"] == topics[p["segment_id"]] for p in sentence_events)
+        assert sentence_events[0]["topic"] == "opening"
+        assert all({"utterance_id", "seq", "text", "segment_id", "product_id"} <= set(p) for p in sentence_events)
         # The 001 latency table keeps meaning comment turns only (contracts/events.md §3).
         assert not [e for e in events if e.type in (EventType.TURN_STARTED, EventType.TURN_FINISHED)]
 
@@ -370,6 +375,9 @@ async def test_blocked_sentences_are_skipped_and_an_all_blocked_segment_is_block
         guard_events = [e.payload for e in events if e.type is EventType.GUARD_BLOCKED]
         assert len(guard_events) == 3
         assert all(p.get("segment_id") for p in guard_events)
+        # 012 FR-020: a blocked sentence never reaches "AI vừa nói", which listens to `sentence` only.
+        said = [e.payload["text"] for e in events if e.type is EventType.SENTENCE]
+        assert all(s["text"] not in said for s in blocked)
 
 
 async def test_symbols_are_cleaned_and_a_too_short_sentence_is_dropped(tmp_path, settings):

@@ -20,11 +20,12 @@ from typing import TYPE_CHECKING, Any
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from ai_live.app import routes, ws
+from ai_live.app import image_routes, routes, ws
 from ai_live.app.context import AppContext
 from ai_live.app.errors import install_error_handlers
+from ai_live.app.spoken import SpokenLog
 from ai_live.avatar.character import AvatarModeError
-from ai_live.avatar.factory import avatar_image_path, create_renderer, load_session_character
+from ai_live.avatar.factory import avatar_image_path, create_renderer, expected_lipsync, load_session_character
 from ai_live.brain.factory import create_reply_engine
 from ai_live.brain.guard import load_guard
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
@@ -45,6 +46,7 @@ from ai_live.ops.watchdog import WatchdogService
 from ai_live.products.models import ContentLoadError
 from ai_live.products.store import DocxProductStore
 from ai_live.scene.controller import SceneController
+from ai_live.scene.uploads import ProductImageStore
 from ai_live.tts.factory import create_tts
 
 if TYPE_CHECKING:
@@ -113,7 +115,9 @@ def create_app(
         avatar_events = bus.subscribe()
         # Same reason for the watchdog: it must know the starting avatar mode and fork health (007 R2).
         watchdog_events = bus.subscribe() if settings.watchdog_enabled else None
-        renderer = create_renderer(settings, bus=bus, character=character)
+        # 011: what the fork should run; hashing the model file stays off the loop.
+        lipsync = await asyncio.to_thread(expected_lipsync, settings, character)
+        renderer = create_renderer(settings, bus=bus, character=character, lipsync=lipsync)
         tts_engine = tts if tts is not None else create_tts(settings)
         await _warm_up_tts(tts_engine, settings)
         queue = InMemoryCommentQueue(max_size=settings.comment_queue_max, max_age_s=settings.comment_max_age_s, bus=bus)
@@ -142,13 +146,19 @@ def create_app(
             faults=faults,
         )
         avatar_image = avatar_image_path(settings, character)
-        scene = SceneController(settings, store, renderer, bus, avatar_image) if settings.scene_enabled else None
+        scene = (
+            SceneController(settings, store, renderer, bus, avatar_image, character=character)
+            if settings.scene_enabled
+            else None
+        )
         watchdog = None
         if watchdog_events is not None:
             watchdog = WatchdogService(
                 settings, bus, watchdog_events, skip=director.skip_current, session_log=session_log
             )
             watchdog.attach(renderer)
+        # 012 US4: "AI vừa nói"; its task starts with the others, before any request can start a show.
+        spoken = SpokenLog(bus, lambda: store.catalog)
         app.state.ctx = AppContext(
             settings=settings,
             session_id=session_id,
@@ -165,6 +175,8 @@ def create_app(
             character=character,
             scene=scene,
             watchdog=watchdog,
+            images=ProductImageStore(settings.scene_dir, settings.customer_id),
+            spoken=spoken,
         )
         await renderer.start()
         if scene is not None:
@@ -191,6 +203,7 @@ def create_app(
                 using="meet",
                 hint="Đổi OUTPUT_MODE=webrtc thành meet (hoặc obs) trong .env",
             )
+        spoken.start()
         tasks = [
             asyncio.create_task(director.run(), name="show_director"),
             asyncio.create_task(queue.run_sweeper(QUEUE_SWEEP_INTERVAL_S), name="queue_sweeper"),
@@ -215,6 +228,7 @@ def create_app(
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             await renderer.stop()
+            await spoken.stop()
             if chain is not None:
                 # After the director stopped, so no turn is still streaming on the client being closed.
                 await chain.aclose()
@@ -232,11 +246,25 @@ def create_app(
     app = FastAPI(title="AI Live", lifespan=lifespan, docs_url="/docs" if settings.app_env == "dev" else None)
     install_error_handlers(app)
     app.include_router(routes.router)
+    app.include_router(image_routes.router)
     app.include_router(ws.router)
     if settings.app_env == "dev":
         app.include_router(routes.debug_router)
-    app.mount("/static", StaticFiles(directory=routes.STATIC_DIR), name="static")
+    app.mount("/static", _RevalidatedStaticFiles(directory=routes.STATIC_DIR), name="static")
     return app
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """Static files that browsers must revalidate on every load.
+
+    With only Last-Modified, OBS's browser kept running an old host.js after an app update (006 T029, 2026-11-19);
+    an ETag check costs a 304 and guarantees the page runs the code the app was started with.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _session_info(settings: Settings, session_id: str, store: DocxProductStore) -> dict[str, Any]:

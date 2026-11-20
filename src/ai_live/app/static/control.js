@@ -5,6 +5,10 @@
 // 008 FR-017, FR-020: the read-only "Model LLM" area (008 contracts/api.md §3) and, in dev, the fault form with the
 // per-entry modes.
 // 007 FR-001, FR-005: the "Kiểm tra trước demo" button shows `GET /api/readiness` as a table plus the manual checks.
+// 012 US1: the "Ảnh sản phẩm" block uploads, previews and applies one product's picture (012 contracts/api.md §1).
+// 012 US3: the same block shows the image in use (times, versions, size of uploads/) with "Về ảnh trước" and "Gỡ ảnh".
+// 012 US4: "AI vừa nói" lists the scripted sentences just said; a product name opens that product's text from the
+// file ("Nội dung sản phẩm"), live or staged (012 contracts/api.md §4).
 // 005 FR-011: in dev, the "Thử bằng tiếng có sẵn" form posts a WAV to `/api/debug/speak-audio` (005 contracts/api.md §1).
 // Comment text is viewer data and script text is LLM output: assign both only through textContent, never innerHTML.
 "use strict";
@@ -30,8 +34,10 @@
     ended: "đã kết thúc",
   };
   const SHOW_MODE_LABELS = { normal: "bình thường", fallback: "dự phòng" };
-  // Same wording as Topic.label in core/models.py (opening/closing are never offered: the director owns them).
+  // Same wording as Topic.label in core/models.py. The picker never offers opening/closing (it reads only
+  // `available_topics`; the director owns those two), but "AI vừa nói" labels them.
   const TOPIC_LABELS = {
+    opening: "Chào mở màn",
     intro: "Giới thiệu chung",
     highlights: "Điểm nổi bật",
     specs: "Thông số",
@@ -39,7 +45,10 @@
     promotion: "Khuyến mãi",
     faq: "Câu hỏi thường gặp",
     call_to_action: "Kêu gọi mua",
+    closing: "Chào kết",
   };
+  // Same cap as SPOKEN_MAX in app/spoken.py.
+  const SPOKEN_MAX = 100;
   const SHOW_RECENT = 10;
   // Same wording as DropReason.label in core/models.py.
   const DROP_LABELS = {
@@ -186,10 +195,31 @@
     $("avatar-warning-text").textContent = `Nhân vật nhép miệng lỗi ${turns} lượt liền, đang dùng ảnh tĩnh.`;
   }
 
+  const LIPSYNC_MODELS = { wav2lip: "Wav2Lip", ultralight: "Ultralight" };
+  const LIPSYNC_TEACHERS = { musetalk: "MuseTalk", infinitetalk: "InfiniteTalk" };
+
+  // Same text as `lipsync_label` in core/models.py (011 contracts/lipsync-selection.md §7).
+  function lipsyncModelText(block) {
+    if (!block || !block.model) return "Model: không rõ (fork cũ)";
+    const parts = [LIPSYNC_MODELS[block.model] || block.model];
+    if (block.teacher) parts.push(`thầy ${LIPSYNC_TEACHERS[block.teacher] || block.teacher}`);
+    if (block.character_id) parts.push(block.character_id);
+    return "Model: " + parts.join(" · ");
+  }
+
   function renderLipsyncHealth(health) {
     // Configured `static` has no fork: the status stays hidden.
     $("lipsync-status").hidden = !health;
+    const mismatch = Boolean(health && health.model_mismatch);
+    $("lipsync-mismatch").hidden = !mismatch;
+    $("lipsync-mismatch").textContent = mismatch
+      ? "Model nhép miệng không khớp cấu hình: " + lipsyncModelText(health.lipsync) +
+        ". Tắt fork rồi bật lại (scripts/livetalking/run.ps1), rồi bấm Kiểm tra trước demo."
+      : "";
     if (!health) return;
+    // The block comes with the fork's hello: before the first one there is nothing to name.
+    $("lipsync-model").hidden = !health.connected;
+    $("lipsync-model").textContent = lipsyncModelText(health.lipsync);
     const parts = [health.connected ? "đã nối" : "mất nối"];
     if (health.vram_used_mb != null) parts.push(`VRAM ${health.vram_used_mb} MB`);
     if (health.infer_fps != null) parts.push(`${Number(health.infer_fps).toFixed(1)} fps`);
@@ -228,6 +258,670 @@
       // The next `scene` event brings the highlight; the line stays hidden meanwhile.
     }
   }
+
+  // ---------- 012: product images ----------
+
+  // Same states as ProductImageStatus.state (012 data-model §4).
+  const IMAGE_STATE_LABELS = { kit: "ảnh bộ cảnh", upload: "ảnh tải lên", removed: "đã gỡ ảnh", none: "chưa có ảnh" };
+  const images = { products: [], sceneEnabled: true, sceneUsable: true, catalogVersion: null, uploadsBytes: 0 };
+  // The product being edited and the uploaded version waiting for "Áp dụng"; nothing here touches live.
+  const pick = { pid: null, vid: null, previewOf: null, previewUrl: null };
+
+  async function apiMessage(res) {
+    try {
+      const body = await res.json();
+      return body.message || `HTTP ${res.status}`;
+    } catch (_) {
+      return `HTTP ${res.status}`;
+    }
+  }
+
+  function refreshLiveStill() {
+    const img = $("image-live");
+    img.hidden = false;
+    img.onerror = () => {
+      img.hidden = true;
+    };
+    img.src = `/api/scene/still.png?t=${Date.now()}`;
+  }
+
+  function clearPreview(reason) {
+    if (pick.previewUrl) URL.revokeObjectURL(pick.previewUrl);
+    pick.previewUrl = null;
+    pick.previewOf = null;
+    $("image-preview").hidden = true;
+    $("image-preview").removeAttribute("src");
+    $("image-preview-empty").hidden = false;
+    if (reason) $("image-msg").textContent = reason;
+  }
+
+  function resetCandidate() {
+    pick.vid = null;
+    clearPreview();
+    $("image-file").value = "";
+    $("image-rights").checked = false;
+    $("image-bg-warning").hidden = true;
+    $("image-upload-msg").textContent = "";
+    updateImageButtons();
+  }
+
+  function updateImageButtons() {
+    $("image-preview-btn").disabled = !pick.vid || !images.sceneEnabled || !images.sceneUsable;
+    // FR-006: nothing goes live without the rights box ticked.
+    $("image-apply-btn").disabled = !pick.vid || !$("image-rights").checked;
+  }
+
+  function imageItem(p) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "image-item" + (p.product_id === pick.pid ? " selected" : "");
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    if (p.thumb_url) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = p.thumb_url;
+      thumb.append(img);
+    } else {
+      const none = document.createElement("span");
+      none.className = "empty";
+      none.textContent = p.state === "removed" ? "Đã gỡ: chỉ hiện thẻ tên/giá" : "Chưa có ảnh";
+      thumb.append(none);
+    }
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = p.is_primary ? `${p.name} (chính)` : p.name;
+    const state = document.createElement("div");
+    state.className = "state";
+    state.textContent = IMAGE_STATE_LABELS[p.state] || p.state;
+    btn.append(thumb, name, state);
+    for (const issue of p.issues || []) {
+      const line = document.createElement("div");
+      line.className = issue.level === "error" ? "state err" : "state";
+      line.textContent = issue.message;
+      btn.append(line);
+    }
+    btn.addEventListener("click", () => selectImageProduct(p.product_id));
+    return btn;
+  }
+
+  function renderImages() {
+    $("images-scene-off").hidden = images.sceneEnabled;
+    const badge = $("images-badge");
+    badge.hidden = !images.sceneEnabled || images.sceneUsable;
+    badge.className = "badge bad";
+    badge.textContent = "bộ cảnh chưa dùng được";
+    const list = $("images-list");
+    if (images.products.length === 0) {
+      list.replaceChildren(emptyItem("File nội dung chưa có sản phẩm nào."));
+    } else {
+      list.replaceChildren(
+        ...images.products.map((p) => {
+          const li = document.createElement("li");
+          li.append(imageItem(p));
+          return li;
+        }),
+      );
+    }
+    const current = images.products.find((p) => p.product_id === pick.pid);
+    $("image-editor").hidden = !current;
+    if (current) {
+      $("image-editor-title").textContent = `Đổi ảnh: ${current.name}`;
+      renderCurrentImage(current);
+    }
+    updateImageButtons();
+  }
+
+  // ---------- 012 US3: the image in use, "Về ảnh trước", "Gỡ ảnh" (FR-016–FR-018) ----------
+
+  function stamp(ts) {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? ts : d.toLocaleString("vi-VN", { hour12: false });
+  }
+
+  function sizeText(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function renderCurrentImage(p) {
+    $("image-current-state").textContent = IMAGE_STATE_LABELS[p.state] || p.state;
+    // Kit art and removed images have no upload record: the three times only describe an uploaded version.
+    $("image-current-uploaded").textContent = stamp(p.uploaded_at);
+    $("image-current-applied").textContent = stamp(p.applied_at);
+    $("image-current-rights").textContent = stamp(p.rights_confirmed_at);
+    // FR-016: one step back, locked when there is nothing before.
+    $("image-revert-btn").disabled = !p.can_revert;
+    $("image-remove-btn").disabled = p.state === "removed" || p.state === "none";
+    const versions = p.versions || [];
+    $("image-versions-count").textContent = String(versions.length);
+    const list = $("image-versions");
+    if (versions.length === 0) {
+      list.replaceChildren(emptyItem("Chưa tải ảnh nào cho món này."));
+    } else {
+      list.replaceChildren(
+        ...versions.map((v) => {
+          const li = document.createElement("li");
+          const inUse = v.version_id === p.version_id;
+          li.className = inUse ? "active" : "";
+          const name = v.source_name ? ` · ${v.source_name}` : "";
+          const applied = v.applied_at ? ` · áp ${stamp(v.applied_at)}` : " · chưa áp";
+          li.textContent = `${stamp(v.uploaded_at)}${name}${applied}${inUse ? " (đang dùng)" : ""}`;
+          return li;
+        }),
+      );
+    }
+    $("image-uploads-size").textContent = sizeText(images.uploadsBytes);
+  }
+
+  async function changeImage(action, init) {
+    const pid = pick.pid;
+    if (!pid) return;
+    const revert = $("image-revert-btn");
+    const remove = $("image-remove-btn");
+    revert.disabled = true;
+    remove.disabled = true;
+    $("image-msg").textContent = action === "revert" ? "Đang quay về ảnh trước…" : "Đang gỡ ảnh…";
+    try {
+      const res = await fetch(`/api/scene/images/${encodeURIComponent(pid)}/${action}`, { method: "POST", ...init });
+      if (!res.ok) {
+        $("image-msg").textContent = `Không đổi được, live giữ nguyên. ${await apiMessage(res)}`;
+        return;
+      }
+      const body = await res.json();
+      const what =
+        action === "remove"
+          ? "Đã gỡ ảnh; món chỉ còn thẻ tên/giá"
+          : body.active === "kit"
+            ? "Đã về ảnh bộ cảnh"
+            : body.active === null
+              ? "Đã về trạng thái không ảnh"
+              : "Đã về ảnh trước";
+      $("image-msg").textContent = body.scene_enabled
+        ? `${what}; live đổi sau ${Math.round(body.to_frame_ms ?? 0)} ms.`
+        : `${what}, nhưng cảnh đang tắt nên live chưa đổi.`;
+      refreshLiveStill();
+    } catch (err) {
+      $("image-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      // The list carries the new can_revert and state, which re-enable the right buttons.
+      loadImages();
+    }
+  }
+
+  $("image-revert-btn").addEventListener("click", () => changeImage("revert", {}));
+  $("image-remove-btn").addEventListener("click", () => {
+    const p = images.products.find((x) => x.product_id === pick.pid);
+    if (!p) return;
+    // FR-017: removing takes the picture off live, so it asks first; "Về ảnh trước" brings it back.
+    const ok = confirm(`Gỡ ảnh của "${p.name}" khỏi live? Món vẫn còn thẻ tên/giá; bấm “Về ảnh trước” để lấy lại ảnh.`);
+    if (!ok) return;
+    changeImage("remove", {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    });
+  });
+
+  async function loadImages() {
+    try {
+      const res = await fetch("/api/scene/images");
+      if (!res.ok) return;
+      const body = await res.json();
+      const catalogChanged = images.catalogVersion !== null && body.catalog_version !== images.catalogVersion;
+      images.products = body.products || [];
+      images.sceneEnabled = body.scene_enabled;
+      images.sceneUsable = body.scene_usable;
+      images.catalogVersion = body.catalog_version;
+      images.uploadsBytes = body.uploads_bytes || 0;
+      if (pick.pid && !images.products.some((p) => p.product_id === pick.pid)) {
+        pick.pid = null;
+        resetCandidate();
+      } else if (catalogChanged && pick.previewOf) {
+        clearPreview("Nội dung sản phẩm vừa đổi nên bản xem trước đã hủy; bấm “Xem trước” lại.");
+      }
+      renderImages();
+    } catch (_) {
+      // The next `image_changed` or reconnect reloads the list.
+    }
+  }
+
+  function selectImageProduct(pid) {
+    if (pick.pid !== pid) {
+      pick.pid = pid;
+      resetCandidate();
+      $("image-msg").textContent = "";
+    }
+    renderImages();
+    refreshLiveStill();
+  }
+
+  async function previewImage() {
+    if (!pick.pid || !pick.vid) return;
+    const of = { pid: pick.pid, vid: pick.vid };
+    $("image-msg").textContent = "Đang dựng bản xem trước…";
+    try {
+      const q = new URLSearchParams({ product_id: of.pid, version_id: of.vid });
+      const res = await fetch(`/api/scene/preview.png?${q}`);
+      if (!res.ok) {
+        $("image-msg").textContent = `Không xem trước được: ${await apiMessage(res)}`;
+        return;
+      }
+      const blob = await res.blob();
+      // The operator may have picked another product or file meanwhile.
+      if (pick.pid !== of.pid || pick.vid !== of.vid) return;
+      clearPreview();
+      pick.previewUrl = URL.createObjectURL(blob);
+      pick.previewOf = of;
+      $("image-preview").src = pick.previewUrl;
+      $("image-preview").hidden = false;
+      $("image-preview-empty").hidden = true;
+      $("image-msg").textContent = "Xem trước xong; live chưa đổi.";
+      refreshLiveStill();
+    } catch (err) {
+      $("image-msg").textContent = `Không gửi được: ${err}`;
+    }
+  }
+
+  $("image-file").addEventListener("change", async () => {
+    const file = $("image-file").files[0];
+    if (!file || !pick.pid) return;
+    const pid = pick.pid;
+    pick.vid = null;
+    clearPreview();
+    $("image-bg-warning").hidden = true;
+    updateImageButtons();
+    $("image-upload-msg").textContent = "Đang kiểm ảnh…";
+    try {
+      // Raw body like PUT /api/content (012 research R3); the name is only shown back, never used as a path.
+      const res = await fetch(`/api/scene/uploads?product_id=${encodeURIComponent(pid)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+        body: file,
+      });
+      if (!res.ok) {
+        $("image-upload-msg").textContent = `Không nhận ảnh, live giữ ảnh cũ. ${await apiMessage(res)}`;
+        return;
+      }
+      const body = await res.json();
+      if (pick.pid !== pid) return;
+      pick.vid = body.version_id;
+      $("image-bg-warning").hidden = !(body.warnings || []).includes("has_background");
+      $("image-upload-msg").textContent = `Đã nhận ảnh ${body.width}×${body.height}${body.reused ? " (trùng ảnh đã tải trước)" : ""}.`;
+      updateImageButtons();
+      loadImages();
+      // FR-008: the operator sees the product on the desk before deciding.
+      if (images.sceneEnabled && images.sceneUsable) previewImage();
+    } catch (err) {
+      $("image-upload-msg").textContent = `Không gửi được: ${err}`;
+    }
+  });
+
+  $("image-rights").addEventListener("change", updateImageButtons);
+  $("image-preview-btn").addEventListener("click", previewImage);
+  $("image-cancel-btn").addEventListener("click", () => {
+    resetCandidate();
+    $("image-msg").textContent = "Đã hủy; live không đổi.";
+  });
+
+  $("image-apply-btn").addEventListener("click", async () => {
+    if (!pick.pid || !pick.vid || !$("image-rights").checked) return;
+    const btn = $("image-apply-btn");
+    btn.disabled = true;
+    $("image-msg").textContent = "Đang áp dụng…";
+    try {
+      const res = await fetch(`/api/scene/images/${encodeURIComponent(pick.pid)}/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: pick.vid, rights_confirmed: true }),
+      });
+      if (!res.ok) {
+        $("image-msg").textContent = `Không áp dụng được, live giữ ảnh cũ. ${await apiMessage(res)}`;
+        updateImageButtons();
+        return;
+      }
+      const body = await res.json();
+      resetCandidate();
+      $("image-msg").textContent = body.scene_enabled
+        ? `Đã áp dụng; ảnh lên live sau ${Math.round(body.to_frame_ms ?? 0)} ms.`
+        : "Đã lưu ảnh, nhưng cảnh đang tắt, ảnh chưa hiện trên live.";
+      refreshLiveStill();
+      loadImages();
+    } catch (err) {
+      $("image-msg").textContent = `Không gửi được: ${err}`;
+      updateImageButtons();
+    }
+  });
+
+  // Another tab (or this one) changed a product's picture: the list follows, and a preview of the old state is void.
+  function onImageChanged(msg) {
+    if (pick.previewOf && pick.previewOf.pid === msg.product_id) {
+      clearPreview("Ảnh của món này vừa đổi ở tab khác nên bản xem trước đã hủy.");
+    }
+    loadImages();
+    if (pick.pid) refreshLiveStill();
+  }
+
+  // ---------- 012 US2: "Chuẩn bị bộ mới" ----------
+
+  // Same values as StagedProductView.image (012 contracts/api.md §2).
+  const STAGED_IMAGE_LABELS = {
+    staged: "ảnh mới",
+    reused_upload: "dùng lại ảnh cũ",
+    reused_kit: "dùng lại ảnh cũ (bộ cảnh)",
+    removed: "đã gỡ ảnh: chỉ hiện thẻ tên/giá",
+    missing: "thiếu ảnh",
+  };
+  // The staged set as the server last sent it, the product being edited and its uploaded version not yet assigned.
+  const staging = { view: null, pid: null, vid: null, previewUrl: null };
+
+  function stagedProduct() {
+    return staging.view && staging.view.products.find((p) => p.product_id === staging.pid);
+  }
+
+  function refreshStagingLive() {
+    const img = $("staging-live");
+    img.hidden = false;
+    img.onerror = () => {
+      img.hidden = true;
+    };
+    img.src = `/api/scene/still.png?t=${Date.now()}`;
+  }
+
+  function clearStagingPreview() {
+    if (staging.previewUrl) URL.revokeObjectURL(staging.previewUrl);
+    staging.previewUrl = null;
+    $("staging-preview").hidden = true;
+    $("staging-preview").removeAttribute("src");
+    $("staging-preview-empty").hidden = false;
+  }
+
+  function resetStagingCandidate() {
+    staging.vid = null;
+    $("staging-image-file").value = "";
+    $("staging-rights").checked = false;
+    $("staging-bg-warning").hidden = true;
+    $("staging-upload-msg").textContent = "";
+    updateStagingButtons();
+  }
+
+  function updateStagingButtons() {
+    // FR-006 as in US1: an image joins the set only with the rights box ticked.
+    $("staging-assign-btn").disabled = !staging.vid || !$("staging-rights").checked;
+    const current = stagedProduct();
+    $("staging-unassign-btn").hidden = !current || current.image !== "staged";
+    $("staging-preview-btn").disabled = !images.sceneEnabled || !images.sceneUsable;
+  }
+
+  function stagedItem(p) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "image-item" + (p.product_id === staging.pid ? " selected" : "");
+    const thumb = document.createElement("div");
+    thumb.className = "thumb";
+    if (p.thumb_url) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = p.thumb_url;
+      thumb.append(img);
+    } else {
+      const none = document.createElement("span");
+      none.className = "empty";
+      none.textContent = p.image === "removed" ? "Đã gỡ ảnh" : "Chưa có ảnh";
+      thumb.append(none);
+    }
+    const name = document.createElement("div");
+    name.className = "name";
+    name.textContent = p.is_primary ? `${p.name} (chính)` : p.name;
+    const state = document.createElement("div");
+    const lacking = p.image === "removed" || p.image === "missing";
+    state.className = "state" + (lacking ? " warn" : p.image === "staged" ? " new" : "");
+    state.textContent = STAGED_IMAGE_LABELS[p.image] || p.image;
+    btn.append(thumb, name, state);
+    btn.addEventListener("click", () => {
+      if (staging.pid !== p.product_id) resetStagingCandidate();
+      staging.pid = p.product_id;
+      $("staging-editor-msg").textContent = "";
+      renderStaging();
+    });
+    return btn;
+  }
+
+  function renderStaging() {
+    const view = staging.view;
+    $("staging-body").hidden = !view;
+    if (!view) {
+      $("staging-list").replaceChildren();
+      $("staging-editor").hidden = true;
+      clearStagingPreview();
+      return;
+    }
+    const missing = view.missing.length;
+    $("staging-meta").textContent =
+      `File “${view.source_name}” · ${view.products.length} món · ` + (missing ? `${missing} món thiếu ảnh` : "đủ ảnh");
+    $("staging-live-changed").hidden = !view.live_changed;
+    $("staging-list").replaceChildren(
+      ...view.products.map((p) => {
+        const li = document.createElement("li");
+        li.append(stagedItem(p));
+        return li;
+      }),
+    );
+    const current = stagedProduct();
+    $("staging-editor").hidden = !current;
+    if (current) $("staging-editor-title").textContent = `Ảnh cho bộ mới: ${current.name}`;
+    if ($("staging-live").hidden) refreshStagingLive();
+    updateStagingButtons();
+  }
+
+  function setStagingView(view) {
+    const replaced = !view || !staging.view || view.staged_id !== staging.view.staged_id;
+    staging.view = view;
+    if (replaced) {
+      staging.pid = null;
+      resetStagingCandidate();
+      clearStagingPreview();
+      // A message about the previous set would be read as being about this one.
+      $("staging-msg").textContent = "";
+      $("staging-editor-msg").textContent = "";
+    } else if (staging.pid && !view.products.some((p) => p.product_id === staging.pid)) {
+      staging.pid = null;
+    }
+    renderStaging();
+  }
+
+  async function loadStaging() {
+    try {
+      const res = await fetch("/api/content/staging");
+      if (res.status === 404) return setStagingView(null);
+      if (!res.ok) return;
+      setStagingView(await res.json());
+    } catch (_) {
+      // The next `staging` event or reconnect reloads it.
+    }
+  }
+
+  function onStagingEvent(msg) {
+    const mine = staging.view && staging.view.staged_id === msg.staged_id;
+    if (mine && msg.action === "cancelled") $("staging-file-msg").textContent = "Bộ chuẩn bị đã bị hủy (ở tab khác).";
+    if (msg.action === "applied") {
+      loadImages();
+      refreshLiveStill();
+    }
+    loadStaging();
+  }
+
+  function stagingPost(path, body) {
+    return fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  }
+
+  $("staging-file").addEventListener("change", async () => {
+    const file = $("staging-file").files[0];
+    if (!file) return;
+    showContentIssues([], "staging-issues");
+    $("staging-file-msg").textContent = "Đang đọc file…";
+    try {
+      // Same raw body as `PUT /api/content`, but nothing is installed (FR-013).
+      const res = await fetch("/api/content/staging", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+        body: file,
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        $("staging-file-msg").textContent = `Không đọc được file, live không đổi. ${body.message || res.status}`;
+        showContentIssues(body.details || [], "staging-issues");
+        return;
+      }
+      setStagingView(body);
+      $("staging-file-msg").textContent = "Đã đọc file; live chưa đổi. Bấm từng món để gán ảnh.";
+    } catch (err) {
+      $("staging-file-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      $("staging-file").value = "";
+    }
+  });
+
+  $("staging-image-file").addEventListener("change", async () => {
+    const file = $("staging-image-file").files[0];
+    if (!file || !staging.pid) return;
+    staging.vid = null;
+    $("staging-bg-warning").hidden = true;
+    updateStagingButtons();
+    $("staging-upload-msg").textContent = "Đang kiểm ảnh…";
+    try {
+      const res = await fetch(`/api/scene/uploads?product_id=${encodeURIComponent(staging.pid)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
+        body: file,
+      });
+      if (!res.ok) {
+        $("staging-upload-msg").textContent = `Không nhận ảnh. ${await apiMessage(res)}`;
+        return;
+      }
+      const body = await res.json();
+      staging.vid = body.version_id;
+      $("staging-bg-warning").hidden = !(body.warnings || []).includes("has_background");
+      const reused = body.reused ? " (trùng ảnh đã tải trước)" : "";
+      $("staging-upload-msg").textContent = `Đã nhận ảnh ${body.width}×${body.height}${reused}. Tick xác nhận rồi bấm “Gán ảnh này”.`;
+      updateStagingButtons();
+    } catch (err) {
+      $("staging-upload-msg").textContent = `Không gửi được: ${err}`;
+    }
+  });
+
+  async function assignStaged(versionId) {
+    const view = staging.view;
+    if (!view || !staging.pid) return;
+    const body = { staged_id: view.staged_id, version_id: versionId, rights_confirmed: versionId ? $("staging-rights").checked : false };
+    $("staging-editor-msg").textContent = "Đang gán…";
+    try {
+      const res = await stagingPost(`/api/content/staging/images/${encodeURIComponent(staging.pid)}`, body);
+      if (!res.ok) {
+        $("staging-editor-msg").textContent = `Không gán được. ${await apiMessage(res)}`;
+        if (res.status === 409) loadStaging();
+        return;
+      }
+      setStagingView(await res.json());
+      resetStagingCandidate();
+      // The preview on screen no longer matches the set.
+      clearStagingPreview();
+      $("staging-editor-msg").textContent = versionId ? "Đã gán ảnh vào bộ mới; live chưa đổi." : "Đã bỏ ảnh đã gán.";
+    } catch (err) {
+      $("staging-editor-msg").textContent = `Không gửi được: ${err}`;
+    }
+  }
+
+  $("staging-rights").addEventListener("change", updateStagingButtons);
+  $("staging-assign-btn").addEventListener("click", () => {
+    if (staging.vid && $("staging-rights").checked) assignStaged(staging.vid);
+  });
+  $("staging-unassign-btn").addEventListener("click", () => assignStaged(null));
+  $("staging-close-btn").addEventListener("click", () => {
+    staging.pid = null;
+    resetStagingCandidate();
+    renderStaging();
+  });
+
+  $("staging-preview-btn").addEventListener("click", async () => {
+    if (!staging.view) return;
+    $("staging-msg").textContent = "Đang dựng bản xem trước bộ mới…";
+    try {
+      const res = await fetch(`/api/scene/preview.png?target=staging&t=${Date.now()}`);
+      if (!res.ok) {
+        $("staging-msg").textContent = `Không xem trước được: ${await apiMessage(res)}`;
+        return;
+      }
+      clearStagingPreview();
+      staging.previewUrl = URL.createObjectURL(await res.blob());
+      $("staging-preview").src = staging.previewUrl;
+      $("staging-preview").hidden = false;
+      $("staging-preview-empty").hidden = true;
+      refreshStagingLive();
+      $("staging-msg").textContent = "Xem trước xong; live chưa đổi.";
+    } catch (err) {
+      $("staging-msg").textContent = `Không gửi được: ${err}`;
+    }
+  });
+
+  async function applyStaging(confirmMissing) {
+    const view = staging.view;
+    const res = await stagingPost("/api/content/staging/apply", { staged_id: view.staged_id, confirm_missing: confirmMissing });
+    const body = await res.json();
+    if (res.status === 409 && body.error === "missing_images" && !confirmMissing) {
+      // FR-015: ask again, naming the products that would go live without a picture.
+      const names = (body.details || []).map((p) => `• ${p.name}`).join("\n");
+      const ok = window.confirm(`Còn món chưa có ảnh:\n${names}\nCác món này chỉ hiện thẻ tên/giá. Vẫn áp dụng bộ mới?`);
+      if (!ok) {
+        $("staging-msg").textContent = "Chưa áp dụng; live giữ bộ cũ.";
+        return;
+      }
+      return applyStaging(true);
+    }
+    if (!res.ok) {
+      $("staging-msg").textContent = `Không áp dụng được, live giữ bộ cũ. ${body.message || res.status}`;
+      if (body.error === "staging_changed") loadStaging();
+      return;
+    }
+    renderCatalog(body);
+    setStagingView(null);
+    loadImages();
+    refreshLiveStill();
+    const took = body.to_frame_ms != null ? ` sau ${Math.round(body.to_frame_ms)} ms` : "";
+    const lacking = body.missing_images ? `, ${body.missing_images} món chưa có ảnh` : "";
+    $("staging-file-msg").textContent = `Đã áp dụng bộ mới (phiên bản ${body.version}${lacking}); lên live${took}.`;
+  }
+
+  $("staging-apply-btn").addEventListener("click", async () => {
+    if (!staging.view) return;
+    const btn = $("staging-apply-btn");
+    btn.disabled = true;
+    $("staging-msg").textContent = "Đang áp dụng…";
+    try {
+      await applyStaging(false);
+    } catch (err) {
+      $("staging-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("staging-cancel-btn").addEventListener("click", async () => {
+    if (!staging.view) return;
+    if (!window.confirm("Hủy bộ chuẩn bị? Live không đổi; ảnh đã tải vẫn được giữ để dùng lại sau.")) return;
+    try {
+      const res = await fetch("/api/content/staging", { method: "DELETE" });
+      if (!res.ok && res.status !== 404) {
+        $("staging-msg").textContent = `Không hủy được: ${await apiMessage(res)}`;
+        return;
+      }
+      setStagingView(null);
+      $("staging-file-msg").textContent = "Đã hủy bộ chuẩn bị; ảnh đã tải vẫn còn.";
+    } catch (err) {
+      $("staging-msg").textContent = `Không gửi được: ${err}`;
+    }
+  });
 
   async function loadAvatar() {
     try {
@@ -363,6 +1057,177 @@
   // product_id -> {name, is_primary}, for the picker's labels; refreshed with every catalog.
   let catalogProducts = new Map();
 
+  // ---------- 012 US4: "AI vừa nói" (FR-020, FR-021) ----------
+
+  let spoken = []; // newest first, like `spoken` in `/api/state`
+  let spokenShowState = null;
+
+  function addSpoken(msg) {
+    // Every scripted sentence is its own utterance: a repeat of an id is the same line, keep one row.
+    if (spoken.some((s) => s.utterance_id === msg.utterance_id)) return;
+    const p = msg.product_id ? catalogProducts.get(msg.product_id) : null;
+    spoken.unshift({
+      ts: msg.ts,
+      utterance_id: msg.utterance_id,
+      segment_id: msg.segment_id,
+      text: msg.text,
+      product_id: msg.product_id || null,
+      // Looked up now, as the server does: a later file must not rename what was already said.
+      product_name: p ? p.name : null,
+      topic: msg.topic || null,
+    });
+    if (spoken.length > SPOKEN_MAX) spoken.length = SPOKEN_MAX;
+    renderSpoken();
+  }
+
+  function renderSpoken() {
+    $("spoken-count").textContent = String(spoken.length);
+    const body = $("spoken-list");
+    if (spoken.length === 0) {
+      const tr = document.createElement("tr");
+      tr.className = "empty";
+      const td = document.createElement("td");
+      td.colSpan = 4;
+      td.textContent = "Chưa có câu nào.";
+      tr.append(td);
+      body.replaceChildren(tr);
+      return;
+    }
+    body.replaceChildren(
+      ...spoken.map((s) => {
+        const tr = document.createElement("tr");
+        const when = document.createElement("td");
+        when.textContent = clock(s.ts);
+        const what = document.createElement("td");
+        if (s.product_id) {
+          what.append(detailLink(s.product_name || s.product_id, s.product_id, "live"));
+        } else {
+          what.textContent = "Cả show";
+        }
+        const topic = document.createElement("td");
+        topic.textContent = s.topic ? TOPIC_LABELS[s.topic] || s.topic : "—";
+        const text = document.createElement("td");
+        text.textContent = s.text;
+        tr.append(when, what, topic, text);
+        return tr;
+      }),
+    );
+  }
+
+  // ---------- 012 US4: "Nội dung sản phẩm" (FR-022, FR-023) ----------
+
+  function detailLink(label, pid, source) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "link-btn";
+    btn.textContent = label;
+    btn.title = "Xem nội dung món này trong file";
+    btn.addEventListener("click", () => openDetail(pid, source));
+    return btn;
+  }
+
+  function money(amount) {
+    return `${Number(amount).toLocaleString("vi-VN")}đ`;
+  }
+
+  function detailRows(pairs) {
+    const dl = document.createElement("dl");
+    for (const [key, value] of pairs) {
+      const dt = document.createElement("dt");
+      dt.textContent = key;
+      const dd = document.createElement("dd");
+      dd.textContent = value;
+      dl.append(dt, dd);
+    }
+    return dl;
+  }
+
+  function detailList(items) {
+    const ul = document.createElement("ul");
+    ul.append(
+      ...items.map((text) => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        return li;
+      }),
+    );
+    return ul;
+  }
+
+  function detailSection(title, content) {
+    const h = document.createElement("h3");
+    h.textContent = title;
+    return [h, content];
+  }
+
+  function renderDetail(d) {
+    $("detail-name").textContent = d.name;
+    const badge = $("detail-source");
+    const staged = d.source === "staging";
+    badge.className = staged ? "badge staging" : "badge ok";
+    badge.textContent = staged ? "bộ chuẩn bị, chưa lên live" : "đang live";
+    const parts = [
+      detailRows([
+        ["Mã món", d.id],
+        ["Loại", d.is_primary ? "Sản phẩm chính" : "Sản phẩm phụ"],
+        ["Giá", d.price !== null && d.price !== undefined ? money(d.price) : "theo phân loại"],
+        ["Mô tả", d.description || "—"],
+        ["Giới thiệu", d.intro || "—"],
+      ]),
+    ];
+    if (d.variants.length) {
+      parts.push(...detailSection("Phân loại", detailRows(d.variants.map((v) => [v.name, money(v.price)]))));
+    }
+    if (d.specs.length) parts.push(...detailSection("Thông số", detailRows(d.specs)));
+    if (d.faq.length) parts.push(...detailSection("Câu hỏi thường gặp", detailRows(d.faq)));
+    if (d.promotions.length) parts.push(...detailSection("Khuyến mãi", detailList(d.promotions)));
+    if (d.forbidden_claims.length) {
+      parts.push(...detailSection("Không được nói (câu nào có sẽ bị chặn)", detailList(d.forbidden_claims)));
+    }
+    $("detail-body").replaceChildren(...parts);
+  }
+
+  async function openDetail(pid, source) {
+    const panel = $("product-detail");
+    const url =
+      source === "staging"
+        ? `/api/content/staging/products/${encodeURIComponent(pid)}`
+        : `/api/content/products/${encodeURIComponent(pid)}`;
+    panel.hidden = false;
+    $("detail-name").textContent = pid;
+    $("detail-source").textContent = "";
+    $("detail-body").textContent = "Đang tải…";
+    panel.scrollIntoView({ block: "nearest" });
+    try {
+      const res = await fetch(url);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // A sentence about a product the newer file dropped: say so instead of an empty panel.
+        const why =
+          body.error === "unknown_product"
+            ? "Món này không còn trong file đang dùng."
+            : body.error === "no_staging"
+              ? "Không còn bộ chuẩn bị nào (đã hủy hoặc đã áp dụng)."
+              : `Lỗi: ${body.message || res.status}`;
+        $("detail-body").textContent = why;
+        return;
+      }
+      renderDetail(body);
+    } catch (err) {
+      $("detail-body").textContent = "Không tải được nội dung món, thử lại sau.";
+    }
+  }
+
+  $("detail-close").addEventListener("click", () => {
+    $("product-detail").hidden = true;
+  });
+  $("image-detail-btn").addEventListener("click", () => {
+    if (pick.pid) openDetail(pick.pid, "live");
+  });
+  $("staging-detail-btn").addEventListener("click", () => {
+    if (staging.pid) openDetail(staging.pid, "staging");
+  });
+
   function renderCatalog(catalog) {
     if (!catalog) return;
     catalogProducts = new Map((catalog.products || []).map((p) => [p.id, p]));
@@ -370,14 +1235,14 @@
     $("catalog-products").replaceChildren(
       ...(catalog.products || []).map((p) => {
         const li = document.createElement("li");
-        li.textContent = p.is_primary ? `${p.name} (sản phẩm chính)` : p.name;
+        li.append(detailLink(p.is_primary ? `${p.name} (sản phẩm chính)` : p.name, p.id, "live"));
         return li;
       }),
     );
   }
 
-  function showContentIssues(issues) {
-    const list = $("content-issues");
+  function showContentIssues(issues, listId = "content-issues") {
+    const list = $(listId);
     list.hidden = issues.length === 0;
     list.replaceChildren(
       ...issues.map((issue) => {
@@ -664,14 +1529,27 @@
       renderQueue(msg.queue || []);
       renderCatalog(msg.catalog);
       renderShow(msg.show || null);
+      // 012 US4: the server's list is the whole truth on (re)connect.
+      spoken = (msg.spoken || []).slice(0, SPOKEN_MAX);
+      spokenShowState = msg.show ? msg.show.state : null;
+      renderSpoken();
       llmChain = msg.llm_chain || null;
+      // 012 US2: a reopened page picks up the staged set the server still holds.
+      const stagedId = msg.staging ? msg.staging.staged_id : null;
+      if (stagedId !== (staging.view ? staging.view.staged_id : null)) loadStaging();
       renderLlmChain();
     },
     llm_chain(msg) {
       llmChain = { entries: msg.entries, last_entry: msg.last_entry, using_backup: msg.using_backup };
       renderLlmChain();
     },
-    show_state() {
+    show_state(msg) {
+      // A new show starts its own list, as SpokenLog does; resuming a paused show keeps it.
+      if (msg.state === "running" && [null, "idle", "ended"].includes(spokenShowState)) {
+        spoken = [];
+        renderSpoken();
+      }
+      spokenShowState = msg.state;
       refreshShow();
     },
     segment_started() {
@@ -694,6 +1572,10 @@
     },
     content_replaced(msg) {
       renderCatalog(msg);
+      // 012: the image list follows the new catalog; a running preview of the old one is cancelled there.
+      loadImages();
+      // The staged set compares against the live catalog (`live_changed`).
+      if (staging.view) loadStaging();
       // A new catalog changes `available_topics`, which the next-segment picker reads from the snapshot.
       refreshShow();
     },
@@ -719,6 +1601,7 @@
     sentence(msg) {
       if (msg.segment_id) {
         $("show-sentence").textContent = `Đang nói: ${msg.text}`;
+        addSpoken(msg);
         return;
       }
       if (msg.utterance_id !== currentId) return;
@@ -781,7 +1664,13 @@
       scene.enabled = true;
       if (msg.kind === "highlight") scene.highlight = msg.product_id;
       else if (msg.kind === "error") scene.error = msg.message;
-      else if (msg.kind === "rendered") return loadScene();
+      else if (msg.kind === "image_changed") return onImageChanged(msg);
+      else if (msg.kind === "staging") return onStagingEvent(msg);
+      else if (msg.kind === "rendered") {
+        if (pick.pid && !pick.previewOf) refreshLiveStill();
+        if (staging.view) refreshStagingLive();
+        return loadScene();
+      }
       renderScene();
     },
   };
@@ -796,6 +1685,7 @@
       // Nor the avatar mode: the `avatar_mode` event fires only on a change, so a fresh page asks once.
       loadAvatar();
       loadScene();
+      loadImages();
     };
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);

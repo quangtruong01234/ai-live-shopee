@@ -16,7 +16,8 @@
         Server <span id="server-badge" class="badge bad">mất kết nối</span>
         Đầu ra <span id="host-badge" class="badge bad">chưa mở</span>
         Phiên <span id="session-badge" class="badge">…</span>
-        <span id="lipsync-status" hidden>Nhép miệng <span id="lipsync-badge" class="badge bad">mất nối</span></span>
+        <span id="lipsync-status" hidden>Nhép miệng <span id="lipsync-badge" class="badge bad">mất nối</span>
+          <span id="lipsync-model" class="badge" hidden></span></span>
       </div>
       <div class="session-controls">
         <button id="pause-btn" type="button">Tạm dừng</button>
@@ -33,6 +34,9 @@
         <code id="obs-url">/obs</code>, 720×1248, bật <b>Control audio via OBS</b> (runbook §8).
         Trang <code>/host</code> trên Chrome không thay được OBS ở chế độ này.</span>
     </div>
+
+    <!-- 011 FR-014: the fork runs another model than the config; the show keeps going, the operator restarts the fork. -->
+    <div id="lipsync-mismatch" class="banner danger" hidden></div>
 
     <!-- 005 FR-022: shown while the lip-synced character fell back to the still image; only the operator switches back. -->
     <div id="avatar-warning" class="banner session-controls" hidden>
@@ -70,6 +74,22 @@
         <ul id="show-blocked" class="list"><li class="empty">Chưa có.</li></ul>
         <h3>Lỗi của show (10 lỗi gần nhất)</h3>
         <ul id="show-errors" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <!-- 012 US4: the scripted sentences the host just said, newest first (FR-020, FR-021). -->
+      <section class="panel wide" id="spoken-box">
+        <h2>AI vừa nói <span id="spoken-count" class="badge">0</span></h2>
+        <div class="turn-meta">Từng câu kịch bản host đã nói, câu mới nhất ở trên (tối đa 100 câu). Câu bị guard chặn không
+          vào đây. Bấm tên món để xem nội dung của món trong file.</div>
+        <div class="spoken-scroll">
+          <table class="latency spoken">
+            <thead>
+              <tr><th>Giờ</th><th>Món</th><th>Chủ đề</th><th>Câu</th></tr>
+            </thead>
+            <tbody id="spoken-list"><tr class="empty"><td colspan="4">Chưa có câu nào.</td></tr></tbody>
+          </table>
+        </div>
+        <!-- /spoken-box -->
       </section>
 
       <!-- 007 FR-001, FR-005: read-only check; never speaks or touches the show (FR-004). -->
@@ -130,6 +150,129 @@
           <div id="content-msg" class="form-msg"></div>
           <ul id="content-issues" class="list" hidden></ul>
         </form>
+      </section>
+
+      <!-- 012 US1: swap one product's picture on the live scene; nothing shows until "Áp dụng" (FR-002, FR-006, FR-008). -->
+      <section class="panel wide" id="images-panel">
+        <h2>Ảnh sản phẩm <span id="images-badge" class="badge" hidden></span></h2>
+        <div id="images-scene-off" class="banner" hidden>Ảnh vẫn tải và lưu được, nhưng cảnh đang tắt, ảnh chưa hiện trên live
+          (bật SCENE_ENABLED rồi mở lại app).</div>
+        <ul id="images-list" class="image-list"><li class="empty">Đang tải…</li></ul>
+        <div id="image-editor" class="image-editor" hidden>
+          <h3 id="image-editor-title"></h3>
+          <button id="image-detail-btn" type="button" class="link-btn">Xem nội dung món trong file</button>
+          <!-- 012 US3: the image in use, one-step undo and removal (FR-016–FR-018). -->
+          <div id="image-current" class="image-current">
+            <h4>Ảnh đang dùng</h4>
+            <dl id="image-current-info">
+              <dt>Trạng thái</dt><dd id="image-current-state">—</dd>
+              <dt>Lúc tải lên</dt><dd id="image-current-uploaded">—</dd>
+              <dt>Lúc áp dụng</dt><dd id="image-current-applied">—</dd>
+              <dt>Lúc xác nhận quyền dùng</dt><dd id="image-current-rights">—</dd>
+            </dl>
+            <div class="session-controls">
+              <button id="image-revert-btn" type="button" disabled>Về ảnh trước</button>
+              <button id="image-remove-btn" type="button" disabled>Gỡ ảnh</button>
+            </div>
+            <details id="image-versions-box">
+              <summary>Các ảnh đã tải cho món này (<span id="image-versions-count">0</span>)</summary>
+              <ul id="image-versions" class="image-versions"></ul>
+            </details>
+            <p class="hint">Tổng dung lượng ảnh đã tải (thư mục <code>uploads/</code>): <span id="image-uploads-size">—</span></p>
+          </div><!-- /image-current -->
+          <h4>Đổi sang ảnh mới</h4>
+          <div class="session-controls">
+            <input id="image-file" type="file" accept="image/png,image/webp,image/jpeg">
+            <span id="image-upload-msg" class="form-msg"></span>
+          </div>
+          <div id="image-bg-warning" class="banner" hidden>Ảnh này không có nền trong suốt (ảnh còn nền): trên bàn sẽ hiện nguyên
+            khung chữ nhật. Nên tách nền trước nếu kịp.</div>
+          <label class="rights">
+            <input id="image-rights" type="checkbox">
+            <span>Ảnh do khách cung cấp, là ảnh chụp thật của chính sản phẩm; không chứa logo, ảnh người hay tài sản của bên thứ ba khi chưa được phép; không phải ảnh do AI tạo.</span>
+          </label>
+          <div class="session-controls">
+            <button id="image-preview-btn" type="button" disabled>Xem trước</button>
+            <button id="image-apply-btn" type="button" disabled>Áp dụng</button>
+            <button id="image-cancel-btn" type="button">Hủy</button>
+            <span id="image-msg" class="form-msg"></span>
+          </div>
+          <div class="image-compare">
+            <figure>
+              <figcaption>Đang live</figcaption>
+              <img id="image-live" alt="Khung hình đang live">
+            </figure>
+            <figure>
+              <figcaption>Xem trước (live chưa đổi)</figcaption>
+              <img id="image-preview" alt="Khung hình xem trước" hidden>
+              <div id="image-preview-empty" class="empty">Chọn ảnh rồi bấm “Xem trước”.</div>
+            </figure>
+          </div>
+        </div>
+
+        <div id="staging-box" class="staging">
+          <h3>Chuẩn bị bộ mới</h3>
+          <p class="hint">Nạp file nội dung mới và gán ảnh cho từng món trong khi live vẫn chạy bộ cũ; bấm “Áp dụng bộ mới” thì nội
+            dung và ảnh lên live cùng một lần.</p>
+          <div class="session-controls">
+            <input id="staging-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+            <span id="staging-file-msg" class="form-msg"></span>
+          </div>
+          <ul id="staging-issues" class="list" hidden></ul>
+          <div id="staging-body" hidden>
+            <div id="staging-meta" class="turn-meta"></div>
+            <div id="staging-live-changed" class="banner" hidden>Bộ đang live đã đổi từ lúc bắt đầu chuẩn bị (có người nạp file
+              nội dung khác). Áp dụng bộ mới sẽ thay bộ đó.</div>
+            <ul id="staging-list" class="image-list"></ul>
+            <div id="staging-editor" class="image-editor" hidden>
+              <h3 id="staging-editor-title"></h3>
+              <button id="staging-detail-btn" type="button" class="link-btn">Xem nội dung món trong bộ chuẩn bị</button>
+              <div class="session-controls">
+                <input id="staging-image-file" type="file" accept="image/png,image/webp,image/jpeg">
+                <span id="staging-upload-msg" class="form-msg"></span>
+              </div>
+              <div id="staging-bg-warning" class="banner" hidden>Ảnh này không có nền trong suốt (ảnh còn nền): trên bàn sẽ hiện
+                nguyên khung chữ nhật. Nên tách nền trước nếu kịp.</div>
+              <label class="rights">
+                <input id="staging-rights" type="checkbox">
+                <span>Ảnh do khách cung cấp, là ảnh chụp thật của chính sản phẩm; không chứa logo, ảnh người hay tài sản của bên thứ ba khi chưa được phép; không phải ảnh do AI tạo.</span>
+              </label>
+              <div class="session-controls">
+                <button id="staging-assign-btn" type="button" disabled>Gán ảnh này</button>
+                <button id="staging-unassign-btn" type="button" hidden>Bỏ ảnh đã gán</button>
+                <button id="staging-close-btn" type="button">Đóng</button>
+                <span id="staging-editor-msg" class="form-msg"></span>
+              </div>
+            </div>
+            <div class="session-controls">
+              <button id="staging-preview-btn" type="button">Xem trước bộ mới</button>
+              <button id="staging-apply-btn" type="button">Áp dụng bộ mới</button>
+              <button id="staging-cancel-btn" type="button">Hủy chuẩn bị</button>
+              <span id="staging-msg" class="form-msg"></span>
+            </div>
+            <div class="image-compare">
+              <figure>
+                <figcaption>Đang live</figcaption>
+                <img id="staging-live" alt="Khung hình đang live" hidden>
+              </figure>
+              <figure>
+                <figcaption>Bộ mới (live chưa đổi)</figcaption>
+                <img id="staging-preview" alt="Khung hình xem trước bộ mới" hidden>
+                <div id="staging-preview-empty" class="empty">Bấm “Xem trước bộ mới” để xem cả bộ trên bàn.</div>
+              </figure>
+            </div>
+          </div>
+        </div>
+        <!-- /staging-box -->
+      </section>
+
+      <!-- 012 US4: one product word for word from the content file, live or staged (FR-022, FR-023). -->
+      <section class="panel wide product-detail" id="product-detail" hidden>
+        <h2>Nội dung sản phẩm: <span id="detail-name"></span> <span id="detail-source" class="badge"></span></h2>
+        <div class="turn-meta">Nguyên văn trong file nội dung, là thứ AI được phép nói về món này.</div>
+        <div id="detail-body"></div>
+        <button id="detail-close" type="button">Đóng</button>
+        <!-- /product-detail -->
       </section>
 
       <section class="panel">

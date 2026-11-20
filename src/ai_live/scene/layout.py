@@ -60,7 +60,7 @@ MAX_LINES = 2
 ELLIPSIS = "…"
 PRICE_RANGE_SEP = " – "
 
-# The "AI" label as the fork draws it (vendor/livetalking/ailive_ext/label.py): used until the fork reports the real
+# The AI label as the fork draws it (vendor/livetalking/ailive_ext/label.py): used until the fork reports the real
 # box in `hello.scene`, and in still-image mode so the scene does not move when a session falls back to it.
 LABEL_MARGIN_PX = 12
 LABEL_TEXT_RATIO = 0.036
@@ -71,7 +71,8 @@ LABEL_CHAR_RATIO = 0.75  # generous: Hershey simplex averages ~0.53 of the text 
 def estimate_label_box(width: int, height: int, text: str, position: str) -> Box:
     text_h = max(10.0, height * LABEL_TEXT_RATIO)
     pad = max(4, round(text_h * LABEL_PAD_RATIO))
-    box_w = round(len(text) * text_h * LABEL_CHAR_RATIO) + 2 * pad
+    # The fork shrinks a label that would not fit between the margins (ADR-065), so the box never leaves the frame.
+    box_w = min(round(len(text) * text_h * LABEL_CHAR_RATIO) + 2 * pad, width - 2 * LABEL_MARGIN_PX)
     box_h = round(text_h) + 2 * pad + 1
     x1 = LABEL_MARGIN_PX if position.endswith("left") else width - LABEL_MARGIN_PX - box_w
     y1 = LABEL_MARGIN_PX if position.startswith("top") else height - LABEL_MARGIN_PX - box_h
@@ -217,14 +218,20 @@ def compute_layout(
     geometry: FrameGeometry,
     params: LayoutParams,
     highlight: str | None = None,
+    *,
+    desk_top: float | None = None,
 ) -> SceneLayout:
-    """Boxes for the desk, each product and its card. `art_sizes` is (w, h) of each product's picture."""
+    """Boxes for the desk, each product and its card. `art_sizes` is (w, h) of each product's picture.
+
+    `desk_top` is the character's own desk line (011: a picture with the desk in it); it replaces
+    `params.desk_top`, and the face keep-out still applies to it.
+    """
     W, H = geometry.width, geometry.height
     issues: list[SceneIssue] = []
     face_limit = geometry.face_zone[3]
     bottom = H - BOTTOM_MARGIN_PX
     shift = _bottom_shift(geometry, bottom)
-    desk_y = round(params.desk_top * H) - shift
+    desk_y = round((params.desk_top if desk_top is None else desk_top) * H) - shift
     desk_box: Box = (0, desk_y, W, H)
     subtitle_top = max(round(SUBTITLE_TOP * H), face_limit + 4)
     subtitle_box: Box = (

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 Box = tuple[int, int, int, int]
 IssueLevel = Literal["error", "warning"]
 LayerName = Literal["base", "subtitle"]
+ArtSource = Literal["kit", "upload"]
 
 DEFAULT_WIDTH = 480
 DEFAULT_HEIGHT = 832
@@ -27,6 +28,10 @@ WATERMARK_BOX: Box = (0, 0, 90, 30)
 
 DEFAULT_DESK_COLOR = (0x8B, 0x5E, 0x3C)
 DEFAULT_ACCENT_COLOR = (0xE8, 0x57, 0x3C)
+
+# Limits on any image file the app opens: a scene file (009) or an upload (012).
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_SIDE = 4000
 
 ALLOWED_EDITS = frozenset(
     {
@@ -143,6 +148,9 @@ class ProductArt:
     path: Path
     image: Image  # RGBA, cropped to its alpha > 0 area
     placeholder: bool = False
+    # 012: which file the live desk shows, so the control page can tell the operator (data-model §3).
+    source: ArtSource = "kit"
+    version_id: str | None = None
 
 
 @dataclass(frozen=True, eq=False)

@@ -15,6 +15,8 @@ Test controls (plain attributes, change them at any time):
   `stats` when set.
 - `mouth_method`: the 010 mouth method name in `hello` and `stats`; None = an older fork that sends neither.
 - `record_enabled`: the 007 `/ailive/health` flag saying the test recorder is on (`AILIVE_RECORD_DIR` set).
+- `lipsync`: the 011 block (model, teacher, character, checkpoint) in `hello` and `/ailive/health`; build one with
+  `FakeFork.lipsync_block(...)`. Defaults to Wav2Lip on `demo_host_01`; None = an older fork that sends no block.
 """
 
 from __future__ import annotations
@@ -52,6 +54,10 @@ class ReceivedSentence:
         return len(self.audio) / 2 / SAMPLE_RATE
 
 
+# Marks "argument not given", because None already means "older fork without the block".
+_DEFAULT = object()
+
+
 class FakeFork:
     def __init__(
         self,
@@ -61,12 +67,13 @@ class FakeFork:
         fps: int = 25,
         batch_size: int = 16,
         lip_every_n: int = 1,
-        ai_label: str = "AI",
+        ai_label: str = "AI-GENERATED CONTENT",
         talk_clips: tuple[str, ...] = ("talk_01", "talk_02"),
         infer_fps: float = 30.0,
         vram_used_mb: int = 2100,
         health_interval_s: float = 5.0,
         scene: dict[str, Any] | None = None,
+        lipsync: dict[str, Any] | None | object = _DEFAULT,
     ) -> None:
         self.sessions: set[str] = {session_id}
         self.boot_id = uuid.uuid4().hex
@@ -89,10 +96,14 @@ class FakeFork:
         self.scene_ms: float | None = None
         self.mouth_method: str | None = None
         self.record_enabled = False
+        self.lipsync: dict[str, Any] | None = (
+            self.lipsync_block("wav2lip") if lipsync is _DEFAULT else lipsync  # type: ignore[assignment]
+        )
         self._fail: list[tuple[str, str]] = []
         # What the fork saw, for assertions
         self.received: list[dict[str, Any]] = []
         self.sentences: list[ReceivedSentence] = []
+        self.audio_bytes_received = 0  # every audio frame, including a sentence still being streamed
         self.stopped: list[str] = []
         self.scene_layers: dict[str, dict[str, Any]] = {}  # name -> last accepted `scene_layer`
         self.connections = 0
@@ -168,7 +179,29 @@ class FakeFork:
             "sessions": sorted(self.sessions),
             "vram_used_mb": self.vram_used_mb,
             "record_enabled": self.record_enabled,
+            **self._lipsync_part(),
         }
+
+    @staticmethod
+    def lipsync_block(
+        model: str,
+        *,
+        teacher: str | None = None,
+        character_id: str = "demo_host_01",
+        checkpoint_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        """Same shape and avatar names as the real fork (`ailive_ext.clips`, `ailive_ext.ultralight`)."""
+        avatar_id = f"{character_id}__ultralight_{teacher}" if model == "ultralight" else f"{character_id}__talk_01"
+        return {
+            "model": model,
+            "teacher": teacher,
+            "character_id": character_id,
+            "avatar_id": avatar_id,
+            "checkpoint_sha256": checkpoint_sha256,
+        }
+
+    def _lipsync_part(self) -> dict[str, Any]:
+        return {"lipsync": dict(self.lipsync)} if self.lipsync is not None else {}
 
     # ---------- Server ----------
 
@@ -207,11 +240,13 @@ class FakeFork:
                         "ai_label": self.ai_label,
                         **({"scene": self.scene} if self.scene is not None else {}),
                         **({"mouth_method": self.mouth_method} if self.mouth_method is not None else {}),
+                        **self._lipsync_part(),
                     }
                 )
             )
             async for raw in ws:
                 if isinstance(raw, bytes):
+                    self.audio_bytes_received += len(raw)
                     if current is not None:
                         current.audio += raw
                     continue

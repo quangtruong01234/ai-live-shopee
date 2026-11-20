@@ -1,9 +1,10 @@
-"""Model nội dung sản phẩm (data-model.md §2). Bất biến: thay nội dung là tạo catalog mới rồi đổi tham chiếu."""
+"""Product content model (data-model.md §2). Immutable: new content means a new catalog, then swapping the reference."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -25,7 +26,7 @@ class Product:
     faq: tuple[tuple[str, str], ...] = ()
     promotions: tuple[str, ...] = ()
     forbidden_claims: tuple[str, ...] = ()
-    link: str | None = None  # không bao giờ được đọc lên
+    link: str | None = None  # never read out loud
 
     def __post_init__(self) -> None:
         if (self.price is None) == (not self.variants):
@@ -59,8 +60,29 @@ class ContentIssue:
 
 
 class ContentLoadError(Exception):
-    """Mang toàn bộ lỗi của file nội dung, để người soạn sửa một lần thay vì sửa từng lỗi."""
+    """Carries every issue of the content file, so the writer fixes them in one go instead of one by one."""
 
     def __init__(self, issues: list[ContentIssue]) -> None:
         self.issues = issues
         super().__init__("\n".join(i.message for i in issues))
+
+
+def product_detail(product: Product) -> dict[str, Any]:
+    """The product as the content file has it, for the control page's detail panel (012 FR-022, data-model §8).
+
+    Word for word, nothing rewritten, so the operator checks what the AI reads from. The link is left out: it is never
+    read out loud, and the panel is about what the host may say.
+    """
+    return {
+        "id": product.id,
+        "name": product.name,
+        "is_primary": product.is_primary,
+        "description": product.description,
+        "intro": product.intro,
+        "price": product.price,
+        "variants": [{"name": v.name, "price": v.price} for v in product.variants],
+        "specs": [[k, v] for k, v in product.specs],
+        "faq": [[q, a] for q, a in product.faq],
+        "promotions": list(product.promotions),
+        "forbidden_claims": list(product.forbidden_claims),
+    }

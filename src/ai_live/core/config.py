@@ -188,7 +188,15 @@ class Settings(BaseSettings):
     livetalking_reconnect_max_s: float = Field(10, gt=0)
     # 2.5 s cuts the audible gap between sentences from p95 2.98 s to under 1 s on the laptop (ADR-047).
     livetalking_lead_s: float = Field(2.5, ge=0)
-    ai_label_text: str = "AI"
+    # Seconds of TTS audio held back before the fork gets a sentence: VieNeu on a busy CPU delivers chunks barely ahead
+    # of playback, and every late chunk becomes a silence mid-sentence (ADR-070). 0 streams each chunk at once.
+    livetalking_prebuffer_s: float = Field(0.6, ge=0)
+    # wav2lip = the 005 clip library; ultralight = the character's own trained model (011, ADR-067).
+    livetalking_model: Literal["wav2lip", "ultralight"] = "wav2lip"
+    # Teacher of the Ultralight model: musetalk for dev (ADR-066), infinitetalk for prod (ADR-064).
+    livetalking_ultralight_teacher: Literal["musetalk", "infinitetalk"] = "musetalk"
+    # Shopee's AI content rules give this banner as the example of a clear AI label (ADR-065).
+    ai_label_text: str = "AI-GENERATED CONTENT"
     ai_label_position: str = "top-right"
     renderer_ack_timeout_s: float = Field(3, gt=0)
 

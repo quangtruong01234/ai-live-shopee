@@ -81,17 +81,19 @@ Ngày 2026-11-13, laptop dev, `OUTPUT_MODE=obs`, `AVATAR_MODE=static`, `REPLY_EN
   Ghi nhận: khi nguồn ngừng nhịp, badge vẫn "OBS (đã nối)" (kết nối còn mở) trong khi banner báo ngắt; chấp nhận được.
 - **§4 OBS portable (T029):** OBS 33.0.1 đã giải nén ở `%LOCALAPPDATA%\ai-live\obs`, có sẵn `config/obs-studio` (collection và profile
   `ailive`: một Browser Source `http://127.0.0.1:8766/obs` 720×1248 "Control audio via OBS", ghi Fragmented MP4 ra `out/006_obs/`).
-  Chưa chạy được: bộ phân quyền của Claude Code chặn chạy `obs64.exe` vừa tải. Chưa đo R3 (`framesDecoded`, tiếng vào mixer trong CEF).
+  Lần đầu bộ phân quyền của Claude Code chặn chạy `obs64.exe`. 2026-11-19: người dùng chạy OBS portable (phải đứng ở `bin/64bit`, OBS tìm `config`/`data` theo thư mục hiện tại), app `OUTPUT_MODE=obs` cổng 8766 ảnh tĩnh + `REPLY_ENGINE=fake` + VieNeu; show fake 75 s (27 câu có `avatar_first_frame`). Bản ghi `out/006_obs/2026-11-19_00-36-22.mp4`: H.264 720×1248 30 khung/giây + AAC 48 kHz stereo; tiếng từ giây 23 tới 104 (lúc có show), mức mỗi giây −16…−24 dB, không hụt giữa chừng, đỉnh −1,1 dB; nhãn "AI" có ở mọi giây trừ khung đầu tiên (giây 0, OBS chưa tải trang). Tiếng trang `/obs` vào mixer OBS: đạt. Còn: `framesDecoded` chỉ có khi có luồng WebRTC của fork nên đo cùng T030 [GPU]; R10 giữ TODO.
   R10: `lipsync_check.py` điều khiển fork rồi chấm bản ghi của fork (`<prefix>.mp4/.wav/.jsonl`), không nhận file ngoài; file OBS cần
   chấm bằng mắt hoặc thêm bước tách tiếng (TODO ở research R10).
 - **Chưa làm ([GPU]):** T018, T019, T030 (SC-002, SC-003), T031 (SC-005, SC-006).
 
 ### Gói duyệt cho người dùng
 
-1. Cho phép chạy OBS portable để tôi làm nốt T029, hoặc tự gõ trong Claude Code (app phải đang chạy `OUTPUT_MODE=obs` cổng 8766):
-   `! "$LOCALAPPDATA/ai-live/obs/bin/64bit/obs64.exe" --portable --profile ailive --collection ailive --startrecording --minimize-to-tray --disable-updater`
+1. ~~Chạy OBS portable (T029)~~ xong 2026-11-19. Lệnh (phải `cd` vào `bin/64bit`; app chạy `OUTPUT_MODE=obs` cổng 8766):
+   `! cd "$LOCALAPPDATA/ai-live/obs/bin/64bit" && (./obs64.exe --portable --profile ailive --collection ailive --startrecording --minimize-to-tray --disable-updater > /dev/null 2>&1 &)`
 2. Trong OBS thật của mình: thêm nguồn theo [RUNBOOK](../../docs/RUNBOOK.md) §8, bấm giờ từ lúc mở OBS tới lúc có hình + tiếng (SC-001:
    ≤ 2 phút, không bấm gì trong nguồn).
-3. Xem/nghe một bản ghi OBS: tiếng rõ, nhãn "AI" mọi lúc, không nói đôi.
-4. Xác nhận ADR-058 (bỏ YouTube, đầu ra OBS bằng `/obs`) và ADR-059 (OBS portable làm công cụ kiểm ngoài repo).
+3. Xem/nghe một bản ghi OBS: tiếng rõ, nhãn "AI" mọi lúc, không nói đôi. Lần nghe 2026-11-19 thấy giật lúc đầu và tách tách;
+   đã sửa (xem §5 T029); người dùng nghe lại `Downloads\obs006_check_fixed.mp4` 2026-11-19: **đạt**.
+4. Xác nhận ADR-058 (bỏ YouTube, đầu ra OBS bằng `/obs`) và ADR-059 (OBS portable làm công cụ kiểm ngoài repo): **người dùng
+   xác nhận 2026-11-19**.
 5. Khi tắt cảnh 009, nhãn "AI" nằm ở dải đen phía trên ảnh: có cần đưa vào trong ảnh không?

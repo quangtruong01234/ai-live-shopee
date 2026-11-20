@@ -22,7 +22,8 @@ Fork từ chối lớp và **giữ lớp cũ** nếu:
 1. Không giải mã được, không đủ 4 kênh, hoặc vượt khung → `error {kind: "scene_rejected", layer, message}`.
 2. Có điểm ảnh alpha > 0 trong vùng cấm:
    - mặt: `y < face_bottom + 8`, cả chiều ngang;
-   - hộp nhãn "AI" do `ailive_ext/label.py` tính theo env của fork, nới 4 px;
+   - hộp nhãn "AI" do `ailive_ext/label.py` tính theo env của fork, nới 4 px (ví dụ dưới là nhãn "AI" cũ; nhãn mặc định đổi
+     thành "AI-GENERATED CONTENT" bởi ADR-065, hộp rộng hơn);
    - hộp watermark "LiveTalking" `(0, 0, 90, 30)`.
 
 `error` dạng này không có `utterance_id` và **không** làm hỏng lượt nói nào (app không gọi `_fail_waiters`).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -48,14 +49,14 @@ def test_favicon_is_empty_not_404(client):
 def test_host_page_shows_label(client):
     html = client.get("/host").text
     assert 'id="ai-label"' in html
-    assert ">AI<" in html
+    assert ">AI-GENERATED CONTENT<" in html
 
 
 @pytest.mark.parametrize("query", ["?label=0", "?hide_label=1", "?ai_label=off", "?show_label=false"])
 def test_host_page_has_no_param_to_hide_label(client, query):
     html = client.get("/host" + query).text
     assert 'id="ai-label"' in html
-    assert ">AI<" in html
+    assert ">AI-GENERATED CONTENT<" in html
 
 
 def test_host_label_text_and_position_from_settings(app_settings):
@@ -506,3 +507,185 @@ def test_session_json_records_run_conditions_without_secrets(app_settings):
         "autoskip_s": s.watchdog_autoskip_s,
     }
     assert FAKE_KEY not in text
+
+
+# ---------- 011 T019: the fork's model block on the avatar status (contracts/lipsync-selection.md §5, §7) ----------
+
+
+@pytest.fixture
+def fork():
+    """The fake fork on its own loop thread: the TestClient app runs on another loop."""
+    import asyncio
+    import threading
+
+    from fixtures.fake_fork import FakeFork
+
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    fake = asyncio.run_coroutine_threadsafe(FakeFork().start(), loop).result(5)
+    yield fake
+    asyncio.run_coroutine_threadsafe(fake.stop(), loop).result(5)
+    loop.call_soon_threadsafe(loop.stop)
+    thread.join(5)
+
+
+def _lipsync_after_hello(app_settings, tmp_path, fork) -> dict:
+    """Start the app on a Wav2Lip character, let the host page report its session, return `lipsync` of /api/avatar."""
+    import time
+
+    from fixtures.character_builder import CHARACTER_ID, CUSTOMER_ID, READY_PREPARE, make_character_dir
+
+    settings = app_settings.model_copy(
+        update={
+            "avatar_mode": "livetalking",
+            "customer_id": CUSTOMER_ID,
+            "avatar_id": CHARACTER_ID,
+            "avatar_dir": make_character_dir(tmp_path / "avatars", prepare=READY_PREPARE),
+            "livetalking_url": fork.url,
+        }
+    )
+    with TestClient(create_app(settings)) as c, c.websocket_connect("/ws/host") as host:
+        host.send_json({"type": "ready", "lipsync_session": "sess-1"})
+        deadline = time.monotonic() + 5
+        while True:
+            lipsync = c.get("/api/avatar").json()["lipsync"]
+            if lipsync["connected"] or time.monotonic() > deadline:
+                break
+            time.sleep(0.02)
+        # The app keeps serving with whatever the fork runs (FR-014, SC-008).
+        assert c.get("/api/state").status_code == 200
+    assert lipsync["connected"], lipsync
+    return lipsync
+
+
+def test_avatar_status_carries_a_matching_fork_block(app_settings, tmp_path, fork) -> None:
+    fork.lipsync = fork.lipsync_block("wav2lip", character_id="demo_host_01")
+    lipsync = _lipsync_after_hello(app_settings, tmp_path, fork)
+    assert lipsync["lipsync"] == fork.lipsync
+    assert lipsync["model_mismatch"] is False
+
+
+def test_avatar_status_flags_a_fork_running_another_model(app_settings, tmp_path, fork) -> None:
+    fork.lipsync = fork.lipsync_block(
+        "ultralight", teacher="musetalk", character_id="demo_host_01", checkpoint_sha256="c" * 64
+    )
+    lipsync = _lipsync_after_hello(app_settings, tmp_path, fork)
+    assert lipsync["lipsync"]["model"] == "ultralight" and lipsync["lipsync"]["teacher"] == "musetalk"
+    assert lipsync["model_mismatch"] is True
+
+
+def test_avatar_status_of_an_old_fork_has_no_block(app_settings, tmp_path, fork) -> None:
+    fork.lipsync = None
+    lipsync = _lipsync_after_hello(app_settings, tmp_path, fork)
+    assert lipsync["lipsync"] is None
+    assert lipsync["model_mismatch"] is False
+
+
+def test_control_page_shows_the_model_and_the_mismatch_banner(client) -> None:
+    js = client.get("/static/control.js").text
+    assert "model_mismatch" in js and ".lipsync" in js
+    assert "Model nhép miệng không khớp cấu hình" in js
+    assert "không rõ (fork cũ)" in js
+    assert "thầy " in js
+
+
+# --- 012 US4: "AI vừa nói" and the product detail panel (FR-020–FR-023, contracts/api.md §3–4) ---
+
+
+def _publish(client, event) -> None:
+    # On the app's loop: the bus wakes asyncio subscribers, which is not safe from the test thread.
+    client.portal.call(lambda: client.app.state.ctx.bus.publish(event))
+
+
+def _said(n: int, product_id: str = "kem-chong-nang-x"):
+    from ai_live.core.events import Event, EventType
+
+    return Event(
+        EventType.SENTENCE,
+        {
+            "utterance_id": f"u{n}",
+            "seq": 0,
+            "text": f"Câu {n}.",
+            "segment_id": f"seg-{n}",
+            "product_id": product_id,
+            "topic": "highlights",
+        },
+    )
+
+
+def _spoken(client, count: int) -> list[dict]:
+    for _ in range(50):
+        spoken = client.get("/api/state").json()["spoken"]
+        if len(spoken) >= count:
+            return spoken
+        time.sleep(0.02)
+    return spoken
+
+
+def test_state_has_spoken_newest_first(client):
+    assert client.get("/api/state").json()["spoken"] == []
+    _publish(client, _said(1))
+    _publish(client, _said(2))
+    spoken = _spoken(client, 2)
+    assert [s["utterance_id"] for s in spoken] == ["u2", "u1"]
+    assert spoken[0]["product_name"] == "Kem chống nắng X"
+    assert spoken[0]["topic"] == "highlights"
+    with client.websocket_connect("/ws/control") as ws:
+        first = ws.receive_json()
+        assert [s["utterance_id"] for s in first["spoken"]] == ["u2", "u1"]
+
+
+def test_control_ws_forwards_sentence_with_topic(client):
+    with client.websocket_connect("/ws/control") as ws:
+        assert ws.receive_json()["type"] == "state"
+        _publish(client, _said(7))
+        msg = ws.receive_json()
+        while msg["type"] != "sentence":
+            msg = ws.receive_json()
+        assert (msg["segment_id"], msg["topic"], msg["text"]) == ("seg-7", "highlights", "Câu 7.")
+
+
+def test_live_product_detail_is_the_file_word_for_word(client):
+    r = client.get("/api/content/products/kem-chong-nang-x")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["source"] == "live"
+    assert (body["id"], body["name"], body["is_primary"]) == ("kem-chong-nang-x", "Kem chống nắng X", True)
+    assert set(body) == {
+        "id",
+        "name",
+        "is_primary",
+        "description",
+        "intro",
+        "price",
+        "variants",
+        "specs",
+        "faq",
+        "promotions",
+        "forbidden_claims",
+        "source",
+    }
+    r = client.get("/api/content/products/khong-co")
+    assert (r.status_code, r.json()["error"]) == (404, "unknown_product")
+
+
+def test_staged_product_detail_says_staging(client):
+    from urllib.parse import quote
+
+    from fixtures.content_builder import build_docx, product_blocks
+
+    r = client.get("/api/content/staging/products/kem-chong-nang-x")
+    assert (r.status_code, r.json()["error"]) == (404, "no_staging")
+    r = client.post(
+        "/api/content/staging",
+        content=build_docx(product_blocks("Son môi A", "chính", price="199.000đ")),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("bộ mới.docx")},
+    )
+    assert r.status_code == 200, r.text
+    body = client.get("/api/content/staging/products/son-moi-a").json()
+    assert (body["source"], body["name"], body["price"]) == ("staging", "Son môi A", 199_000)
+    r = client.get("/api/content/staging/products/kem-chong-nang-x")
+    assert (r.status_code, r.json()["error"]) == (404, "unknown_product")
+    # The live set is untouched while a set is staged.
+    assert client.get("/api/content/products/kem-chong-nang-x").json()["source"] == "live"

@@ -1263,3 +1263,39 @@ def test_the_model_area_of_the_control_page_has_no_button_and_every_reason_label
         assert f'{reason}: "{label}"' in js
     assert "Không có model nào sẵn sàng; show sẽ vào chế độ dự phòng" in html
     assert "Đang dùng model dự phòng" in html
+
+
+# --- 012 T046: "AI vừa nói" matches the session log (SC-007, FR-020, FR-021) ---
+
+
+def test_spoken_list_matches_the_session_log(show_settings):
+    blocked = "Anh chị bấm vào giỏ hàng nha."
+    engine = FakeReplyEngine(
+        script={
+            (None, Topic.OPENING): [blocked, "Chào cả nhà, em là host AI nha.", "Hôm nay em có nhiều sản phẩm nha."]
+        }
+    )
+    with TestClient(create_app(show_settings, reply_engine=engine)) as c:
+        with c.websocket_connect("/ws/host") as host:
+            host.send_json({"type": "ready"})
+            _wait_host_ready(c)
+            _start(c)
+            played = [_sentence_start(_host_play_one(host))["utterance_id"] for _ in range(4)]
+            rows = _wait_jsonl(
+                show_settings,
+                "script_sentences.jsonl",
+                lambda lines: {r["utterance_id"] for r in lines if r["status"] == "spoken"} >= set(played),
+            )
+            spoken = c.get("/api/state").json()["spoken"]
+
+    said = [r for r in rows if r["status"] == "spoken"]
+    by_id = {r["utterance_id"]: r for r in rows}
+    oldest_first = list(reversed(spoken))
+    # Every spoken line of the log is listed, in the order it was said; a line still playing may lead the list.
+    logged = [s for s in oldest_first if s["utterance_id"] in by_id]
+    assert [s["utterance_id"] for s in logged] == [r["utterance_id"] for r in said]
+    assert all(s["text"] == by_id[s["utterance_id"]]["text"] for s in logged)
+    assert all(s["segment_id"] == by_id[s["utterance_id"]]["segment_id"] for s in logged)
+    assert blocked not in [s["text"] for s in spoken]
+    assert spoken[-1]["topic"] == "opening"
+    assert all(by_id[s["utterance_id"]]["guard_reason"] is None for s in logged)

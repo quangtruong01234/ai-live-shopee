@@ -334,6 +334,7 @@ AVATAR_DEFAULTS = {
     "livetalking_first_frame_timeout_s": 10,
     "livetalking_reconnect_max_s": 10,
     "livetalking_lead_s": 2.5,
+    "livetalking_prebuffer_s": 0.6,
 }
 
 # Read only by the fork through scripts/livetalking/run.ps1, so they live in `.env.example` but not in Settings.
@@ -435,6 +436,7 @@ def test_static_label_still_accepts_vietnamese():
         ("livetalking_first_frame_timeout_s", -1),
         ("livetalking_reconnect_max_s", 0),
         ("livetalking_lead_s", -0.1),
+        ("livetalking_prebuffer_s", -0.1),
         ("avatar_fallback_after", 0),
     ],
 )
@@ -638,3 +640,36 @@ def test_output_mode_other_values_fail(value):
 
 def test_watchdog_host_stale_default():
     assert Settings(_env_file=None).watchdog_host_stale_s == 10
+
+
+# ---------- 011: lip-sync model selection (data-model §1, contracts/lipsync-selection.md §1) ----------
+
+
+def test_lipsync_model_defaults_to_wav2lip_and_musetalk():
+    # FR-002: an existing `.env` without the two keys keeps running Wav2Lip.
+    settings = Settings(_env_file=None)
+    assert settings.livetalking_model == "wav2lip"
+    assert settings.livetalking_ultralight_teacher == "musetalk"
+
+
+def test_lipsync_model_reads_ultralight_and_infinitetalk(monkeypatch):
+    monkeypatch.setenv("LIVETALKING_MODEL", "ultralight")
+    monkeypatch.setenv("LIVETALKING_ULTRALIGHT_TEACHER", "infinitetalk")
+    settings = Settings(_env_file=None)
+    assert settings.livetalking_model == "ultralight"
+    assert settings.livetalking_ultralight_teacher == "infinitetalk"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("livetalking_model", "musetalk"), ("livetalking_model", ""), ("livetalking_ultralight_teacher", "wav2lip")],
+)
+def test_lipsync_model_other_values_fail(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+def test_lipsync_model_keys_in_env_example_with_defaults():
+    example = parse_env_example()
+    assert example["LIVETALKING_MODEL"] == "wav2lip"
+    assert example["LIVETALKING_ULTRALIGHT_TEACHER"] == "musetalk"

@@ -140,3 +140,45 @@ async def test_restart_changes_boot_id_on_reconnect():
             second = (await _recv(ws))["boot_id"]
     assert first != second
     assert fork.connections == 2
+
+
+# ---------- 011: `lipsync` block in `hello` and `/ailive/health` (contracts/lipsync-selection.md §4) ----------
+async def _health_body(fork: FakeFork) -> dict:
+    return await anyio.to_thread.run_sync(
+        lambda: json.loads(urllib.request.urlopen(f"{fork.url}/ailive/health", timeout=2).read())
+    )
+
+
+async def test_default_lipsync_block_is_wav2lip():
+    async with FakeFork() as fork, connect(_ws_url(fork)) as ws:
+        hello = await _recv(ws)
+        body = await _health_body(fork)
+    expected = {
+        "model": "wav2lip",
+        "teacher": None,
+        "character_id": "demo_host_01",
+        "avatar_id": "demo_host_01__talk_01",
+        "checkpoint_sha256": None,
+    }
+    assert hello["lipsync"] == expected
+    assert body["lipsync"] == expected
+
+
+async def test_ultralight_lipsync_block():
+    block = FakeFork.lipsync_block(
+        "ultralight", teacher="musetalk", character_id="demo_host_02", checkpoint_sha256="a" * 64
+    )
+    assert block["avatar_id"] == "demo_host_02__ultralight_musetalk"
+    async with FakeFork(lipsync=block) as fork, connect(_ws_url(fork)) as ws:
+        hello = await _recv(ws)
+        body = await _health_body(fork)
+    assert hello["lipsync"] == block
+    assert body["lipsync"] == block
+
+
+async def test_old_fork_sends_no_lipsync_block():
+    async with FakeFork(lipsync=None) as fork, connect(_ws_url(fork)) as ws:
+        hello = await _recv(ws)
+        body = await _health_body(fork)
+    assert "lipsync" not in hello
+    assert "lipsync" not in body

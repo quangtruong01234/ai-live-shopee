@@ -88,7 +88,8 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 
 1. **Real-time generation only.** Shopee bans pre-recorded video as live content, including AI video. The pipeline must generate
    picture and sound in real time.
-2. **The "AI" label is always visible on screen**, composited into the frame inside the pipeline (not dependent on OBS).
+2. **The AI label is always visible on screen**, composited into the frame inside the pipeline (not dependent on OBS).
+   Default text "AI-GENERATED CONTENT", the banner in Shopee's AI content rules (ADR-065).
 3. **One AI host per account.** An avatar and voice belong to exactly one customer / one shop.
 4. **Signed consent** from the model for both likeness and voice before use. The signed copy is stored outside git.
 5. **Check licenses before commercialization:** LiveTalking (requires a watermark), Wav2Lip, MuseTalk, S3FD, whisper and the TTS
@@ -96,11 +97,16 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 6. **Secrets live only in `.env`** (never committed). The customer's Shopee session must be **stored encrypted** and only on the
    machine that runs the live.
 7. **Replies are grounded only in product data.** When data is missing, say so or invite the viewer to ask the shop; never guess.
+8. **Shopee AI content rules** (ADR-065, `docs/RISKS.md` P9, P11–P15): label AI content clearly; no third-party logos or personal
+   images without permission; no realistic AI images of people under 18 (the host must look clearly adult); no celebrities or
+   look-alikes; nothing misleading (wrong product info, fake reviews); avoid low quality (poor picture/sound, no viewer
+   interaction, repetitive content, one AI host on several accounts). "No viewer interaction" conflicts with ADR-026: revisit
+   before Shopee.
 
 ## DO NOT
 
 - DO NOT stream pre-recorded video or audio on Shopee Live. The 2–3 minute backup video is **only** for Meet/YouTube demos.
-- DO NOT hide or remove the "AI" label, and do not remove watermarks a license requires.
+- DO NOT hide or remove the AI label, and do not remove watermarks a license requires.
 - DO NOT commit `.env`, API keys, stream keys, Shopee cookies/sessions, model weights, model photos/videos/voices or customer data.
 - DO NOT use the likeness or voice of anyone who has not signed consent. Never clone a celebrity's voice or face.
 - DO NOT reuse one customer's avatar or voice for another customer or another account.

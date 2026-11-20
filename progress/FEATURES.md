@@ -16,6 +16,8 @@
 | [009-live-scene-layout](#009-live-scene-layout) | Bố cục cảnh live quanh AI host (khung dọc): bàn bày sản phẩm thật + thẻ tên/giá trước host, làm nổi sản phẩm đang nói | M1b | Done (2026-11-13) | 38/38 | Code + đo xong (SC-001–005 đạt, SC-004 trên GPU laptop: fps giảm 0%); chờ người dùng: ảnh thật của khách + SC-007, SC-006 (3 người xem), xác nhận ADR-051/052 |
 | [010-natural-mouth-shapes](#010-natural-mouth-shapes) | Khẩu hình miệng host AI giống người thật khi nói tiếng Việt | M1b | In progress (2026-11-13) | 30/32 | Phần máy xong: bộ đo khẩu hình, núm `LIVETALKING_MOUTH_METHOD` (mặc định `w2l`, ADR-055), loại đoạn đầu nghiêng (ADR-056). Chờ người dùng: chấm A/B r4 `w2l` vs `shift=-1` (T018 → T019), ngưỡng góc đầu (T026) |
 | [007-demo-readiness](#007-demo-readiness) | Sẵn sàng cho buổi demo: kiểm tra trước demo, canh show, báo cáo tổng duyệt 30 phút, video dự phòng | M1d | In progress (2026-11-13) | 58/59 | Phần máy xong 2026-11-13; chờ người dùng T058 (xem video dự phòng, thử Meet, xác nhận ADR-057). GPU laptop: T054 show 30 phút 327 câu 0 lỗi, lặng p95 3,0 s (SC-004 đạt so 005), 2 cảnh báo sai đã sửa bằng `WATCHDOG_AUDIO_ACK_LIPSYNC_S` 6 s; T055 video dự phòng 157 s `Đạt`; T056 tắt fork giữa show báo sau 0,6 s; T057 không gọi LLM. Setup + Foundational + US1 xong (kiểm tra trước demo: `GET /api/readiness`, lệnh `python -m ai_live.ops readiness`, nút trên trang điều khiển, kiểm bằng trình duyệt); US2 canh show xong (`ops/watchdog.py`, tự bỏ câu kẹt 15 s, banner trên trang điều khiển, nhịp `host_status` từ tab host, kiểm bằng trình duyệt); US3 báo cáo tổng duyệt xong (`python -m ai_live.ops report`, `gaps.jsonl`); US4 video dự phòng xong phần code (show `verbatim`, lệnh `backup-video`, không có đường phát video); RUNBOOK + tài liệu (T051–T052); làm không gọi LLM free; ADR-057 Đề xuất |
+| [011-ultralight-live-lipsync](#011-ultralight-live-lipsync) | Host AI nhép miệng bằng model riêng của nhân vật (Ultralight) trong show live | M1b | In progress (2026-11-19) | 46/63 (1 `[~]`) | US1 phần code xong (T010–T035); T003 xong 2026-11-19 (Kaggle v3 đủ 200 epoch); T036–T038 xong 2026-11-19 (cài model, miệng khép, `desk_top` 0,78); T039 xong 2026-11-19 (fork + app chạy Ultralight, readiness "Model nhép miệng" Đạt, trang điều khiển đúng dòng model); T040 chạy 2026-11-19 (show 10 phút: render_fps p50 25,13, infer_fps p50 109, VRAM 2120 MB, lặng p95 0,047 s, câu đầu 2,36 s, nhãn 14/14 ảnh), còn người dùng xem chỗ nối vòng khung; T046 xong 2026-11-19 (bộ đo khẩu hình: ultralight **chưa đạt** SC-001, 1/4 chỉ số tốt hơn, LSE-C 2,90 so với 5,91 của w2l; hai lần đo trùng, SC-004 đạt; gói xem mù `out/mouth/runs/011_t046_r1/ab/PHIEU.md`); T042–T045 xong 2026-11-19 (lệnh `python -m ai_live.ops lipsync-compare`, mã thoát 0/1/2/3); T047 xong 2026-11-19 (show A Wav2Lip `demo_host_01` 11 phút, 0 lỗi); T048 xong: **Chưa đạt** (khẩu hình 1/4, LSE-C 2,90 so với 5,91; hiệu năng đều Đạt), báo cáo `out/011_compare/2026-11-19_23-22-39/` → theo ADR-066 giữ Wav2Lip cho demo; bước kế T049 (người dùng chấm gói xem mù), T050 (ghi số vào ADR-066); đánh giá Ultralight ngay khi model Kaggle xong (ADR-066 sửa 2026-11-19) |
+| [012-product-image-upload](#012-product-image-upload) | Đổi ảnh sản phẩm ngay trên trang điều khiển giữa phiên live (chọn món, tải ảnh, xác nhận quyền dùng, xem trước, áp dụng ≤ 2 s; chuẩn bị bộ sản phẩm mới rồi áp một lần; hoàn tác/gỡ) | M1d | In progress (2026-11-20) | 66/70 (+3 `[~]`) | Phần máy không GPU xong; chờ người dùng xem `out/012_review/README.md` (bấm giờ tay SC-002/SC-005), T067/T068 trên GPU laptop |
 | [006-obs-output](#006-obs-output) | Đưa AI host vào OBS thành một nguồn hình có tiếng (bỏ YouTube) | M2 | In progress (2026-11-13) | 30/35 | Phần máy không GPU xong (trang `/obs`, vai obs > host, kiểm tra trước demo + canh show theo chế độ, runbook §8); còn 4 `[GPU]`, T029 chạy OBS portable (bị chặn quyền) và gói duyệt |
 
 ## Thẻ feature
@@ -205,14 +207,73 @@ Mỗi thẻ có cùng các key: `folder`, `status`, `artifacts`, `tasks`, `analy
   [quickstart](../specs/006-obs-output/quickstart.md); [tasks](../specs/006-obs-output/tasks.md)
 - `tasks`: 30/35. Còn: T018, T019, T030, T031 `[GPU]`; T029 `[~]` (chờ cho phép chạy OBS)
 - `analyze`: 2026-11-13 Sẵn sàng implement (0 CRITICAL, 1 HIGH, 1 MEDIUM, 2 LOW, đã sửa hết: luật nhịp ngừng `WATCHDOG_HOST_STALE_S` cho FR-010 vào contracts §8 + T021/T024; T031 ghi rõ show 30 phút; T012 kiểm ảnh chờ trước show; T027 thêm tắt chế độ ngủ)
-- `adrs`: ADR-058 (Đề xuất: bỏ M1c YouTube; OBS Browser Source `/obs`; vai obs > host; `OUTPUT_MODE=meet|obs`), ADR-059 (Chấp nhận, tự
-  chọn theo ủy quyền: OBS portable làm công cụ kiểm ngoài repo); rủi ro Q28–Q32
+- `adrs`: ADR-058 (Chấp nhận 2026-11-19: bỏ M1c YouTube; OBS Browser Source `/obs`; vai obs > host; `OUTPUT_MODE=meet|obs`), ADR-059 (Chấp nhận, người dùng xác nhận 2026-11-19: OBS portable làm công cụ kiểm ngoài repo); rủi ro Q28–Q32
 - `depends_on`: 005 (fork, khung nhép miệng, ảnh tĩnh dự phòng), 007 (kiểm tra trước demo, canh show), 009 (cảnh trong khung)
 - `agents`: ai-orchestrator (vai kết nối, kiểm tra, canh show); ai-media (trang đầu ra OBS); ai-qa
 - `roadmap`: M2 "Output cho OBS" (làm sớm); thay đề xuất `006-youtube-live` (M1c) vì người dùng không live trên YouTube
 - `open`: không còn `[NEEDS CLARIFICATION]`; clarify 2026-11-13 tự chọn khuyến nghị (xem thử trong cửa sổ OBS, đầu ra OBS ưu tiên hơn
   trang host, chế độ phát chọn lúc khởi động mặc định Meet, không phụ đề trong khung OBS); TODO plan: đo thời gian fork nhả phiên WebRTC
   (R5), `framesDecoded` và tiếng vào mixer trong CEF của OBS (R3), bộ tự kiểm đọc được Fragmented MP4 của OBS không (R10)
+
+### 011-ultralight-live-lipsync
+- `folder`: [specs/011-ultralight-live-lipsync/](../specs/011-ultralight-live-lipsync/)
+- `status`: In progress (2026-11-19, Setup + Foundational xong trừ T003, US1 phần code T010–T035 xong; tasks 2026-11-19; plan 2026-11-19, ADR-067–069 Chấp nhận; clarify 2026-11-19, ADR-066). Mở theo ADR-064 mục 4 và ADR-060 mục 5 trong lúc chờ Kaggle huấn luyện model dev
+- `artifacts`: [spec](../specs/011-ultralight-live-lipsync/spec.md): 3 user story (P1 chạy show kịch bản bằng model riêng của
+  `demo_host_02`, mặc định vẫn Wav2Lip; P2 so sánh với Wav2Lip theo ngưỡng ADR-060 mục 5 + gói xem mù; P3 đổi thầy dev/prod bằng thiết
+  lập và kiểm tra trước demo chặn model sai), 16 FR, 8 SC; [plan](../specs/011-ultralight-live-lipsync/plan.md),
+  [research](../specs/011-ultralight-live-lipsync/research.md) (R1–R11, 3 TODO đo khi có model: khung im lặng, fps/VRAM, mép bàn),
+  [data-model](../specs/011-ultralight-live-lipsync/data-model.md), contracts
+  ([lipsync-selection](../specs/011-ultralight-live-lipsync/contracts/lipsync-selection.md),
+  [lipsync-compare](../specs/011-ultralight-live-lipsync/contracts/lipsync-compare.md)),
+  [quickstart](../specs/011-ultralight-live-lipsync/quickstart.md); không phụ thuộc mới;
+  [tasks](../specs/011-ultralight-live-lipsync/tasks.md) (63 task: Setup 3, Foundational 6, US1 32, US2 9, US3 7, Hoàn thiện 6;
+  25 `[P]`, 8 `[GPU]` laptop)
+- `tasks`: 34/63, 0 `[~]` (T001, T002, T004–T035; T003 chờ Kaggle v3 chạy xong; T036–T041 cần model và GPU laptop)
+- `analyze`: 2026-11-19 Sẵn sàng implement (0 CRITICAL, 0 HIGH, 5 MEDIUM, 8 LOW); đã sửa M1–M5, L1–L6 cùng ngày ("ok sửa đi"),
+  L7 (TODO đóng ở T037/T038/T040) và L8 (dựa vào test 005/007) giữ nguyên
+- `adrs`: ADR-060 (Ultralight, ngưỡng mục 5), ADR-062 (demo giữ Wav2Lip tới khi đạt), ADR-064 (hai thầy MuseTalk dev / InfiniteTalk
+  prod), ADR-065 (chữ nhãn AI), ADR-066 (`demo_host_02` cho khách demo; đánh giá ngay khi model Kaggle xong (sửa 2026-11-19), đạt thì demo dùng thầy
+  MuseTalk), ADR-067 (Chấp nhận: chọn model bằng `LIVETALKING_MODEL` + `LIVETALKING_ULTRALIGHT_TEACHER`, fork kiểm bản ghi cài đặt,
+  `lipsync_models`, khối `lipsync`), ADR-068 (Chấp nhận: nhân vật có sẵn bàn), ADR-069 (Chấp nhận: lệnh `lipsync-compare`);
+  ADR-023, ADR-044, ADR-055
+- `depends_on`: 005 (fork, bảng độ trễ, nối lại), 007 (kiểm tra trước demo, canh show), 009 (cảnh live, cần chế độ nhân vật có sẵn bàn),
+  010 (bộ đo khẩu hình, bộ câu v2, gói xem mù); model dev từ Kaggle `ai-host-train-ultralight-demo-host-02`
+- `agents`: ai-media (fork `app.py`/`ailive_ext`, `run.ps1`, `character.json`, cảnh không bàn); ai-orchestrator (cấu hình,
+  `hello`/health `lipsync`, kiểm tra trước demo, trang điều khiển, lệnh `lipsync-compare`); ai-qa (test không GPU, fork giả)
+- `roadmap`: M1b mục "Khẩu hình giống người"
+- `open`: không còn `[NEEDS CLARIFICATION]` (clarify 2026-11-19: FR-015, FR-016 → ADR-066); ADR-067–069 Chấp nhận 2026-11-19; 3 TODO research
+  (R6, R7, R9) chờ model dev từ Kaggle
+
+### 012-product-image-upload
+- `folder`: [specs/012-product-image-upload/](../specs/012-product-image-upload/)
+- `status`: In progress (2026-11-20; Tasked cùng ngày). Mở theo yêu cầu người dùng lúc chạy demo2: đổi ảnh sản phẩm kịp trên trang điều khiển, không tạo video mới
+- `artifacts`: [spec](../specs/012-product-image-upload/spec.md): 4 user story (P1 thay ảnh một sản phẩm giữa phiên, xem trước, lên live
+  ≤ 2 s; P2 chuẩn bị bộ sản phẩm mới: file + ảnh, live không đổi cho tới khi bấm "Áp dụng bộ mới"; P3 về ảnh trước, gỡ ảnh; P2 "AI vừa
+  nói" và xem dữ liệu sản phẩm đã nạp), 24 FR (kể cả FR-015a), 7 SC. Làm rõ 2026-11-20: không ghi nguồn ảnh/ảnh gốc, chỉ một ô xác nhận
+  quyền dùng; đổi bộ sản phẩm chuẩn bị đủ rồi áp một lần. [plan](../specs/012-product-image-upload/plan.md) (cổng hiến pháp 2 lượt Đạt,
+  Điều III có ghi chú), [research](../specs/012-product-image-upload/research.md) R1–R12,
+  [data-model](../specs/012-product-image-upload/data-model.md), contracts
+  [api](../specs/012-product-image-upload/contracts/api.md) (15 endpoint mới) +
+  [scene-set](../specs/012-product-image-upload/contracts/scene-set.md) (phần thêm vào hợp đồng 009: `uploads/`),
+  [quickstart](../specs/012-product-image-upload/quickstart.md). Không thêm thư viện, không thêm biến môi trường. Rủi ro mới Q37–Q39.
+  [tasks](../specs/012-product-image-upload/tasks.md): 70 task (Setup 2, nền 10, US1 15, US2 14, US4 13, US3 7, hoàn thiện 9), 30 `[P]`,
+  2 `[GPU]` (SC-001, SC-006 trên GPU laptop); MVP = T001–T027
+- `tasks`: 66/70 + 3 `[~]` (2026-11-20): US1–US4 xong, hoàn thiện T055–T066 xong (T065 đo bằng máy, số ở [LOG](LOG.md) và
+  `out/012_review/README.md`; T066 2799 passed, ruff sạch). `[~]`: T067 (SC-001), T068 (SC-006) chờ buổi GPU laptop; T069 gói duyệt đã soạn,
+  chờ người dùng xem và bấm giờ tay SC-002/SC-005. Còn T070 `/update-context`
+- `analyze`: 2026-11-20 Sẵn sàng implement (0 CRITICAL, 0 HIGH, 4 MEDIUM, 4 LOW; đã sửa theo đề xuất, người dùng đồng ý: plan bỏ
+  `catalog.products[].image`; T015 thêm ca ảnh tĩnh và hai `apply` sát nhau; T027 hủy xem trước khi món đổi ảnh; T065 đo độ trễ SC-007;
+  plan ghi FR-015a, `test_script_runner.py`; spec Điều II bỏ "ảnh gốc"; TODO Q37 giữ tới trước Shopee)
+- `adrs`: ADR-071 (Chấp nhận 2026-11-20: `SCENE_DIR/uploads/` + `images.json`, xác nhận quyền dùng thay hồ sơ nguồn 009), ADR-072 (Chấp nhận 2026-11-20: áp bộ mới
+  một lần dưới khóa vẽ, bộ chuẩn bị chỉ ở bộ nhớ); ADR-065 (quy định nội dung AI Shopee); ADR của 009 (cảnh ghép lúc phát); mở lại một
+  phần "Ngoài phạm vi" của 009 (tải/thay ảnh, không chỉnh ảnh trong app)
+- `depends_on`: 009 (bộ cảnh, bộ nạp, `SceneController`, vùng cấm, FR-013 thẻ theo file nội dung), 001 (nạp file nội dung trên trang
+  điều khiển), 004 (sự kiện `sentence` thêm `topic`), 007 (kiểm tra trước demo báo `missing_confirmation`, `bad_uploads` là LỖI)
+- `agents`: ai-media (scene/: bộ nạp, `ProductImageStore`, `SceneController.preview/reload/hold`); ai-orchestrator (app/: route, bộ chuẩn
+  bị, "AI vừa nói", trang điều khiển; ops/readiness; `topic` trong script_runner); ai-brain (`product_detail`); ai-qa (test không GPU,
+  bộ file sai SC-004)
+- `roadmap`: M1d (đổi sản phẩm khi tổng duyệt và demo); dùng lại ở M2
+- `open`: – (TODO trong Q37: trước Shopee có cần ghi người gửi ảnh không)
 
 ## Đề xuất chưa tạo
 

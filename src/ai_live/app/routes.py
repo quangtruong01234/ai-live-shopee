@@ -11,7 +11,7 @@ import logging
 import time
 import wave
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
@@ -42,7 +42,7 @@ from ai_live.director.show_director import (
     TopicUnavailable,
 )
 from ai_live.ops.readiness import run_readiness
-from ai_live.products.models import ContentLoadError
+from ai_live.products.models import ContentLoadError, ProductCatalog
 from ai_live.scene.controller import DISABLED_HOST_CONFIG, disabled_status
 
 logger = logging.getLogger("ai_live.app")
@@ -172,6 +172,10 @@ async def _render_host_page(request: Request, *, body_class: str) -> HTMLRespons
         .replace("{{AVATAR_SRC}}", avatar_src)
         .replace('<body class="host">', f'<body class="{body_class}">', 1)
     )
+    # A new URL per file version: OBS's browser kept an old host.js from before `/static` sent `no-cache` (T029).
+    for name in ("host.js", "style.css"):
+        version = int((STATIC_DIR / name).stat().st_mtime)
+        page = page.replace(f'"/static/{name}"', f'"/static/{name}?v={version}"')
     # no-store keeps the page out of the back/forward cache: a cached host page holds its socket open until it is
     # restored, so leaving it for another URL only raised `host_closed` after the ping timeout (007 T035).
     return HTMLResponse(page, headers={"Cache-Control": "no-store"})
@@ -306,6 +310,16 @@ async def put_content(request: Request) -> dict:
     header, so the control page percent-encodes it.
     """
     ctx = _ctx(request)
+    catalog = await parse_content_upload(ctx, request)
+    ctx.store.install(catalog)
+    # A running show follows at once: the segment speaking finishes, the prepared one is redone (contracts/api.md §3).
+    ctx.director.on_catalog_replaced(catalog)
+    log_event(logger, "content_replaced", source=catalog.source_name, version=catalog.version)
+    return catalog_reply(catalog)
+
+
+async def parse_content_upload(ctx: AppContext, request: Request) -> ProductCatalog:
+    """Read and validate an uploaded `.docx` without installing it; shared with "Chuẩn bị bộ mới" (012 US2)."""
     source_name = Path(unquote(request.headers.get("x-filename") or "")).name or "upload.docx"
     max_bytes = ctx.settings.content_max_bytes
     declared = request.headers.get("content-length", "")
@@ -314,7 +328,7 @@ async def put_content(request: Request) -> dict:
         raise ApiError(413, "content_too_large", f"File quá lớn (tối đa {max_bytes} byte)")
     data = await request.body()
     try:
-        catalog = await asyncio.to_thread(ctx.store.parse, data, source_name)
+        return await asyncio.to_thread(ctx.store.parse, data, source_name)
     except ContentLoadError as exc:
         log_event(logger, "content_rejected", logging.WARNING, source=source_name, issue_count=len(exc.issues))
         details = [dataclasses.asdict(issue) for issue in exc.issues]
@@ -322,10 +336,10 @@ async def put_content(request: Request) -> dict:
             status, error = _UPLOAD_STATUS[exc.issues[0].code]
             raise ApiError(status, error, exc.issues[0].message, details) from exc
         raise ApiError(400, "content_invalid", f"File nội dung có {len(exc.issues)} lỗi, chưa nạp", details) from exc
-    ctx.store.install(catalog)
-    # A running show follows at once: the segment speaking finishes, the prepared one is redone (contracts/api.md §3).
-    ctx.director.on_catalog_replaced(catalog)
-    log_event(logger, "content_replaced", source=source_name, version=catalog.version)
+
+
+def catalog_reply(catalog: ProductCatalog) -> dict[str, Any]:
+    """`{version, products}` of `PUT /api/content`; "Áp dụng bộ mới" answers the same so the page reuses its update."""
     return {
         "version": catalog.version,
         "products": [{"id": p.id, "name": p.name, "is_primary": p.is_primary} for p in catalog.products],

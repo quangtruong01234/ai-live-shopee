@@ -207,3 +207,20 @@ def test_show_through_obs_logs_every_latency_milestone(client, json_log_lines):
         assert milestone in events, milestone
     first_frames = [ln for ln in json_log_lines if ln["event"] == "avatar_first_frame"]
     assert all(ln.get("utterance_id") for ln in first_frames)
+
+
+@pytest.mark.parametrize("path", ["/static/host.js", "/static/style.css"])
+def test_static_files_are_revalidated(client, path):
+    # OBS's browser kept a cached host.js after an app update (006 T029, 2026-11-19): with only Last-Modified, a
+    # browser may reuse a file for a long time without asking. `no-cache` makes it check the ETag on every load.
+    resp = client.get(path)
+    assert resp.status_code == 200
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_host_page_versions_its_assets(client):
+    # A cache entry stored before `no-cache` existed is only bypassed by a new URL.
+    page = client.get("/obs").text
+    for name in ("host.js", "style.css"):
+        mtime = int((Path(__file__).resolve().parents[2] / "src" / "ai_live" / "app" / "static" / name).stat().st_mtime)
+        assert f"/static/{name}?v={mtime}" in page

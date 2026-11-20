@@ -1183,6 +1183,8 @@ class ScriptRunner:
                             "text": sentence.text,
                             "segment_id": segment.segment_id,
                             "product_id": segment.product_id,
+                            # 012 FR-020: the control page's "AI vừa nói" list shows each sentence's topic.
+                            "topic": segment.topic.value,
                         },
                     )
                 )

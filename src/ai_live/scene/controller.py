@@ -14,11 +14,11 @@ import contextlib
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image
 
@@ -30,8 +30,11 @@ from ai_live.products.models import ProductCatalog
 from ai_live.scene.fonts import SceneFonts, load_fonts
 from ai_live.scene.layout import compute_layout, estimate_geometry
 from ai_live.scene.loader import load_scene_set
-from ai_live.scene.models import FrameGeometry, SceneLayer, SceneLayout, SceneSet
+from ai_live.scene.models import FrameGeometry, ProductArt, SceneLayer, SceneLayout, SceneSet
 from ai_live.scene.render import compose_still, cover_crop, encode_png, render_base, render_subtitle
+
+if TYPE_CHECKING:
+    from ai_live.avatar.character import AvatarCharacter
 
 logger = logging.getLogger("ai_live.scene")
 
@@ -67,6 +70,7 @@ def disabled_status() -> dict[str, Any]:
         "issues": [],
         "last_error": None,
         "render_ms": None,
+        "images": [],
     }
 
 
@@ -83,6 +87,7 @@ class SceneController:
         avatar_image: Path | None,
         *,
         fonts_loader: Callable[[Path | None], SceneFonts] = load_fonts,
+        character: AvatarCharacter | None = None,
     ) -> None:
         self._settings = settings
         self._store = store
@@ -90,6 +95,10 @@ class SceneController:
         self._bus = bus
         self._avatar_image = avatar_image
         self._fonts_loader = fonts_loader
+        # 011: a picture with its own desk moves the desk line and drops the desk layer. Fixed for the app's life,
+        # so it is not part of the base key.
+        self._desk_in_image = bool(character is not None and character.desk_in_image)
+        self._desk_top = character.desk_top if character is not None else None
         self._fonts: SceneFonts | None = None
         self._face: Image.Image | None = None
         self._scene: SceneSet | None = None
@@ -112,6 +121,12 @@ class SceneController:
         self._sub: Subscription | None = None
         self._tasks: list[asyncio.Task[None]] = []
         self._sends: set[asyncio.Task[Any]] = set()
+        # 012: draws counted from the worker loop, so `reload()` can wait for one that starts after its call.
+        self._draws_started = 0
+        self._draws_done = 0
+        self._draw_finished = asyncio.Condition()
+        # 012 R7: held by `hold()` so "Áp dụng bộ mới" writes catalog and manifest with no draw in between.
+        self._draw_lock = asyncio.Lock()
 
     # ---------- lifecycle ----------
 
@@ -161,6 +176,11 @@ class SceneController:
     def highlight(self) -> str | None:
         return self._highlight
 
+    @property
+    def scene(self) -> SceneSet | None:
+        """The scene set drawn now (None before the first draw or with the scene off)."""
+        return self._scene
+
     def status(self) -> dict[str, Any]:
         if not self.enabled:
             return disabled_status()
@@ -181,6 +201,12 @@ class SceneController:
             "issues": [i.to_json() for i in issues],
             "last_error": self.last_error,
             "render_ms": self.render_ms,
+            # 012: which file each drawn product shows (kit or an uploaded version).
+            "images": []
+            if scene is None or scene.blocked
+            else [
+                {"product_id": a.product_id, "source": a.source, "version_id": a.version_id} for a in scene.art.values()
+            ],
         }
 
     def host_config(self) -> dict[str, Any]:
@@ -248,14 +274,112 @@ class SceneController:
 
     # ---------- drawing ----------
 
+    @contextlib.asynccontextmanager
+    async def hold(self) -> AsyncIterator[None]:
+        """No draw runs inside: wait for the one under way, then keep the next one out until the block ends.
+
+        "Áp dụng bộ mới" swaps the catalog and the image manifest inside, so no frame mixes the old set with the new
+        (research R7). Leaving always asks for a re-read; the caller then awaits `reload()` with no await in between,
+        so that wait is for the draw that reads both new files.
+        """
+        async with self._draw_lock:
+            try:
+                yield
+            finally:
+                self._reload = True
+                if self.enabled and self._tasks:
+                    self._mark()
+
+    async def reload(self) -> int | None:
+        """Re-read the scene folder (an upload changed it) and return the version once that draw is done.
+
+        Calls close together fold into one draw. A draw already running when this is called may have read the old
+        manifest, so the wait is for a draw that *starts* after the call. None with the scene off or not started.
+        """
+        if not self.enabled or not self._tasks:
+            return None
+        target = self._draws_started + 1
+        self._reload = True
+        self._mark()
+        async with self._draw_finished:
+            await self._draw_finished.wait_for(lambda: self._draws_done >= target)
+        return self.version
+
+    async def preview(
+        self,
+        catalog: ProductCatalog,
+        overrides: dict[str, ProductArt | None],
+        highlight: str | None,
+        *,
+        scene: SceneSet | None = None,
+        target: str = "live",
+    ) -> bytes:
+        """A PNG of the frame as it would look with `overrides` (None = no image), leaving the live scene untouched.
+
+        `scene` defaults to the live set; staging (US2) passes the set it builds for the new content file.
+        """
+        if self._fonts is None:
+            self._fonts = await asyncio.to_thread(self._fonts_loader, self._settings.scene_font_path)
+        if scene is None:
+            scene = self._scene
+        if scene is None:
+            scene = await asyncio.to_thread(
+                load_scene_set,
+                self._settings.scene_dir,
+                [p.id for p in catalog.products],
+                customer_id=self._settings.customer_id,
+            )
+        art = dict(scene.art)
+        for pid, item in overrides.items():
+            if item is None:
+                art.pop(pid, None)
+            else:
+                art[pid] = item
+        candidate = replace(scene, art=art)
+        started = time.perf_counter()
+        png = await asyncio.to_thread(self._draw_preview, candidate, catalog, self._geometry, highlight)
+        render_ms = round((time.perf_counter() - started) * 1000, 1)
+        log_event(
+            logger,
+            "scene_preview",
+            target=target,
+            product_id=next(iter(overrides), None),
+            render_ms=render_ms,
+        )
+        return png
+
+    def _draw_preview(
+        self, scene: SceneSet, catalog: ProductCatalog, geometry: FrameGeometry, highlight: str | None
+    ) -> bytes:
+        """Worker thread: one full frame for the preview, sharing no mutable state with the live draw."""
+        assert self._fonts is not None
+        face = self._face
+        if face is None or face.size != (geometry.width, geometry.height):
+            face = self._load_face(geometry)
+        art_sizes = {pid: art.image.size for pid, art in scene.art.items()}
+        layout = compute_layout(catalog.products, art_sizes, geometry, scene.layout, highlight, desk_top=self._desk_top)
+        products = {p.id: p for p in catalog.products}
+        base = (
+            None
+            if scene.blocked
+            else render_base(scene, layout, products, geometry, self._fonts, desk_in_image=self._desk_in_image)
+        )
+        return encode_png(compose_still(face, [base]))
+
     async def _work(self) -> None:
         while True:
             await self._dirty.wait()
-            self._dirty.clear()
-            try:
-                await self._redraw()
-            except Exception as exc:
-                self._fail("draw", exc)
+            async with self._draw_lock:
+                self._dirty.clear()
+                self._draws_started += 1
+                try:
+                    await self._redraw()
+                except Exception as exc:
+                    self._fail("draw", exc)
+                finally:
+                    self._draws_done = self._draws_started
+                    async with self._draw_finished:
+                        self._draw_finished.notify_all()
             if not self._dirty.is_set():
                 self._idle.set()
 
@@ -284,6 +408,7 @@ class SceneController:
                 "scene_loaded",
                 scene_id=scene.scene_id,
                 images=len(scene.art),
+                uploads=sum(a.source == "upload" for a in scene.art.values()),
                 issues=len(scene.issues),
                 errors=errors,
             )
@@ -340,9 +465,20 @@ class SceneController:
         if base_key != self._base_key:
             self._base_key = base_key
             art_sizes = {pid: art.image.size for pid, art in snap.scene.art.items()}
-            layout = compute_layout(snap.catalog.products, art_sizes, geometry, snap.scene.layout, snap.highlight)
+            layout = compute_layout(
+                snap.catalog.products,
+                art_sizes,
+                geometry,
+                snap.scene.layout,
+                snap.highlight,
+                desk_top=self._desk_top,
+            )
             self._layout = layout
-            self._base = None if blocked else render_base(snap.scene, layout, products, geometry, self._fonts)
+            self._base = (
+                None
+                if blocked
+                else render_base(snap.scene, layout, products, geometry, self._fonts, desk_in_image=self._desk_in_image)
+            )
             changed.append("base")
         subtitle_key = (snap.subtitle, geometry, id(self._layout))
         if subtitle_key != self._subtitle_key:

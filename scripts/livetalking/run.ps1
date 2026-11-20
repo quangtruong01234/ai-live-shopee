@@ -1,4 +1,5 @@
 ﻿# Starts the LiveTalking fork for feature 005 in the current terminal (fork-protocol §5, data-model §1).
+# LIVETALKING_MODEL picks the lip-sync model: wav2lip, or the character's trained ultralight (011 lipsync-selection §2).
 # Reads .env.example for defaults, then the repo .env on top, so the four fork-only variables always have a value.
 # The app never spawns this process (research R2): the operator runs it before opening the app.
 #
@@ -20,8 +21,9 @@ function Read-DotEnv {
     }
 }
 
-$cfg = @{}
-Read-DotEnv (Join-Path $RepoRoot '.env.example') $cfg
+$defaults = @{}
+Read-DotEnv (Join-Path $RepoRoot '.env.example') $defaults
+$cfg = $defaults.Clone()
 if (-not (Test-Path (Join-Path $RepoRoot '.env'))) {
     throw 'Chưa có .env ở thư mục repo. Copy .env.example thành .env rồi điền giá trị.'
 }
@@ -43,9 +45,23 @@ if (-not (Test-Path (Join-Path $avatarDir 'character.json'))) {
 
 $port = ([System.Uri]$cfg['LIVETALKING_URL']).Port
 
+$model = $cfg['LIVETALKING_MODEL']
+if ($model -notin 'wav2lip', 'ultralight') { throw 'LIVETALKING_MODEL phải là wav2lip hoặc ultralight' }
+
 # ailive_ext reads these from the environment; the label is drawn inside the fork's frames (constitution: AI label always visible).
-foreach ($name in 'AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE', 'LIVETALKING_LIP_EVERY_N',
-                  'LIVETALKING_MOUTH_METHOD', 'LIVETALKING_TRANSITION_S', 'LIVETALKING_HOLD_S') {
+$forkEnv = @('AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE')
+# Clip rotation and the 010 mouth methods belong to the Wav2Lip clip path; Ultralight has one avatar and its own model
+# (research R8), so they are not passed and a non-default value is reported instead of silently ignored.
+$wav2lipOnly = @('LIVETALKING_LIP_EVERY_N', 'LIVETALKING_MOUTH_METHOD', 'LIVETALKING_TRANSITION_S', 'LIVETALKING_HOLD_S')
+if ($model -eq 'wav2lip') {
+    $forkEnv += $wav2lipOnly
+} else {
+    foreach ($name in $wav2lipOnly) {
+        Remove-Item -Path "Env:$name" -ErrorAction SilentlyContinue
+        if ($cfg[$name] -ne $defaults[$name]) { Write-Host "bỏ qua cho ultralight: $name" }
+    }
+}
+foreach ($name in $forkEnv) {
     Set-Item -Path "Env:$name" -Value $cfg[$name]
 }
 
@@ -59,18 +75,25 @@ if ($recordDir) {
     Write-Host "Ghi luồng tự kiểm: bật, thư mục $recordDir (POST /ailive/record/start|stop)"
 }
 
-# Flags checked against config.py of the pinned commit; --ailive_character is ours (an `# ailive:` hook in config.py).
+# Flags checked against config.py of the pinned commit; --ailive_character and --ailive_teacher are ours (`# ailive:`
+# hooks in config.py).
 $forkArgs = @(
     'app.py',
-    '--model', 'wav2lip',
+    '--model', $model,
     '--transport', 'webrtc',
     '--max_session', '1',
     '--listenport', "$port",
     '--batch_size', $cfg['LIVETALKING_BATCH_SIZE'],
     '--ailive_character', $avatarDir
 )
+$modelNote = 'Wav2Lip'
+if ($model -eq 'ultralight') {
+    $teacher = $cfg['LIVETALKING_ULTRALIGHT_TEACHER']
+    $forkArgs += @('--ailive_teacher', $teacher)
+    $modelNote = "Ultralight, thầy $teacher"
+}
 
-Write-Host "Bật fork LiveTalking ở 127.0.0.1:$port, nhân vật $avatarDir (Ctrl+C để dừng)"
+Write-Host "Bật fork LiveTalking ở 127.0.0.1:$port, nhân vật $avatarDir, model $modelNote (Ctrl+C để dừng)"
 Push-Location $ForkDir
 try {
     & $python @forkArgs

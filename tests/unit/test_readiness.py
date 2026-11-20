@@ -47,6 +47,7 @@ def demo_day_items() -> list[r.ReadinessItem]:
         r.check_recording("livetalking", FORK_UP),
         r.check_fork("livetalking", FORK_UP, active_mode="livetalking", lipsync_connected=True),
         r.check_character("shop", "host_a", "host_a"),
+        r.check_lipsync_model("livetalking", "wav2lip", "musetalk", "host_a", ["wav2lip"], fork=FORK_UP),
         r.check_host(True, host(), "livetalking"),
         r.check_content(catalog(product("p1", primary=True))),
         r.check_scene(True, []),
@@ -274,6 +275,25 @@ def test_scene():
     )
 
 
+def test_scene_uploaded_images_without_confirmation_or_broken_manifest_fail():
+    """012 FR-019: an uploaded image without confirmed rights, or a broken manifest, blocks the session."""
+    unconfirmed = r.check_scene(
+        True,
+        [
+            {"code": "missing_file", "level": "error", "product_id": "p2", "message": "thiếu ảnh"},
+            {"code": "missing_confirmation", "level": "error", "product_id": "p1", "message": "chưa xác nhận quyền"},
+        ],
+    )
+    assert unconfirmed.status is FAIL
+    assert "chưa xác nhận quyền" in unconfirmed.message
+    assert unconfirmed.action
+    broken = r.check_scene(
+        True, [{"code": "bad_uploads", "level": "error", "product_id": None, "message": "uploads/images.json hỏng"}]
+    )
+    assert broken.status is FAIL
+    assert "images.json" in broken.message
+
+
 def test_backup_video(tmp_path):
     common = {"customer_id": "shop", "avatar_id": "host_a", "catalog_version": "v1"}
     assert r.check_backup_video(None, None, **common).status is FAIL
@@ -384,6 +404,7 @@ def test_every_problem_says_what_to_do_in_vietnamese():
         r.check_recording("livetalking", ForkHealth(reachable=True, record_enabled=True)),
         r.check_fork("livetalking", None),
         r.check_character("", ""),
+        r.check_lipsync_model("livetalking", "ultralight", "musetalk", "host_a", ["wav2lip"]),
         r.check_host(False, None, "static"),
         r.check_content(None),
         r.check_scene(True, [{"code": "placeholder", "product_id": "p1"}]),
@@ -453,3 +474,163 @@ def test_character_prepared_with_another_fork_warns(prepared, running, status):
 def test_fork_health_reads_the_running_commit():
     assert ForkHealth.from_body({"ok": True, "fork_commit": "477d4e40"}).fork_commit == "477d4e40"
     assert ForkHealth.from_body({"ok": True}).fork_commit is None
+
+
+# ---------- 011 T015: "Model nhép miệng" (contracts/lipsync-selection.md §6, data-model §5) ----------
+
+SHA = "c" * 64
+
+
+def _install(character_id="demo_host_02", teacher="musetalk"):
+    from ai_live.avatar.character import UltralightInstall
+
+    record = {"character_id": character_id, "teacher": teacher, "checkpoint": {"file": "m.pth", "sha256": SHA}}
+    return UltralightInstall(character_id, teacher, SHA, SHA, "fakecommit0", record)
+
+
+def _fork(block):
+    return ForkHealth(reachable=True, sessions=("s1",), record_enabled=False, lipsync=block)
+
+
+WAV2LIP_BLOCK = {
+    "model": "wav2lip",
+    "teacher": None,
+    "character_id": "demo_host_01",
+    "avatar_id": "x",
+    "checkpoint_sha256": None,
+}
+ULTRA_BLOCK = {
+    "model": "ultralight",
+    "teacher": "musetalk",
+    "character_id": "demo_host_02",
+    "avatar_id": "demo_host_02__ultralight_musetalk",
+    "checkpoint_sha256": SHA,
+}
+
+
+def test_lipsync_model_item_sits_right_after_character():
+    ids = list(r.ITEM_IDS)
+    assert ids[ids.index("character") + 1] == "lipsync_model"
+    assert r.LABELS["lipsync_model"] == "Model nhép miệng"
+
+
+def test_default_wav2lip_with_matching_fork_is_ok():
+    item = r.check_lipsync_model(
+        "livetalking", "wav2lip", "musetalk", "demo_host_01", ["wav2lip"], fork=_fork(WAV2LIP_BLOCK)
+    )
+    assert item.status is OK
+    assert item.message == "Model: Wav2Lip · demo_host_01"
+
+
+def test_ultralight_with_install_and_matching_fork_is_ok():
+    item = r.check_lipsync_model(
+        "livetalking",
+        "ultralight",
+        "musetalk",
+        "demo_host_02",
+        ["ultralight"],
+        install=_install(),
+        fork=_fork(ULTRA_BLOCK),
+    )
+    assert item.status is OK
+    assert item.message == "Model: Ultralight · thầy MuseTalk · demo_host_02"
+
+
+def test_static_mode_does_not_check_the_model():
+    assert r.check_lipsync_model("static", "ultralight", "musetalk", None, None).status is OK
+
+
+def test_model_not_supported_by_the_character_fails():
+    item = r.check_lipsync_model("livetalking", "ultralight", "musetalk", "demo_host_01", ["wav2lip"])
+    assert item.status is FAIL
+    assert item.message == "Nhân vật demo_host_01 không có model ultralight"
+    assert "LIVETALKING_MODEL" in item.action
+
+
+def test_missing_install_fails_and_says_how_to_install():
+    item = r.check_lipsync_model(
+        "livetalking",
+        "ultralight",
+        "infinitetalk",
+        "demo_host_02",
+        ["ultralight"],
+        install_problem="thiếu ultralight_install.json của thầy infinitetalk",
+        fork=_fork(ULTRA_BLOCK),
+    )
+    assert item.status is FAIL
+    assert item.message.startswith("Chưa cài model Ultralight thầy infinitetalk cho demo_host_02")
+    assert "install" in item.action
+
+
+@pytest.mark.parametrize(
+    ("model", "block"), [("ultralight", WAV2LIP_BLOCK), ("wav2lip", ULTRA_BLOCK), ("ultralight", None)]
+)
+def test_fork_running_another_model_fails(model, block):
+    character = "demo_host_02"
+    install = _install() if model == "ultralight" else None
+    item = r.check_lipsync_model(
+        "livetalking", model, "musetalk", character, ["wav2lip", "ultralight"], install=install, fork=_fork(block)
+    )
+    assert item.status is FAIL
+    running = block["model"] if block else "wav2lip"
+    assert item.message == f"Phần nhép miệng đang chạy {running}, cấu hình là {model}: bật lại fork"
+
+
+def test_old_fork_without_block_is_fine_for_wav2lip():
+    item = r.check_lipsync_model("livetalking", "wav2lip", "musetalk", "demo_host_01", ["wav2lip"], fork=_fork(None))
+    assert item.status is OK
+
+
+@pytest.mark.parametrize("fork", [None, ForkHealth(reachable=False, error="ConnectError")])
+def test_without_fork_only_the_first_two_steps_run(fork):
+    ok = r.check_lipsync_model(
+        "livetalking", "ultralight", "musetalk", "demo_host_02", ["ultralight"], install=_install(), fork=fork
+    )
+    assert ok.status is OK and "chưa kiểm fork" in ok.message
+    missing = r.check_lipsync_model(
+        "livetalking", "ultralight", "musetalk", "demo_host_02", ["ultralight"], install_problem="thiếu", fork=fork
+    )
+    assert missing.status is FAIL
+
+
+def test_fork_health_reads_the_lipsync_block():
+    assert ForkHealth.from_body({"ok": True, "lipsync": ULTRA_BLOCK}).lipsync == ULTRA_BLOCK
+    assert ForkHealth.from_body({"ok": True}).lipsync is None
+    assert ForkHealth.from_body({"ok": True, "lipsync": "x"}).lipsync is None
+
+
+@pytest.mark.anyio
+async def test_offline_ultralight_character_without_clips(tmp_path):
+    """Offline (fork down): the model item checks the install record; "Nhân vật" does not ask for clips."""
+    import hashlib
+
+    from fixtures.character_builder import CHARACTER_ID, CUSTOMER_ID, make_character_dir
+
+    avatar_dir = make_character_dir(tmp_path, character={"clips": [], "lipsync_models": ["ultralight"]})
+    evidence = avatar_dir / "ultralight" / "musetalk"
+    evidence.mkdir(parents=True)
+    (evidence / "best_trainloss.pth").write_bytes(b"w")
+    record = {
+        "character_id": CHARACTER_ID,
+        "teacher": "musetalk",
+        "checkpoint": {"file": "best_trainloss.pth", "sha256": hashlib.sha256(b"w").hexdigest()},
+    }
+    (evidence / "ultralight_install.json").write_text(json.dumps(record), encoding="utf-8")
+    settings = _settings(
+        avatar_mode="livetalking",
+        avatar_dir=avatar_dir,
+        avatar_id=CHARACTER_ID,
+        customer_id=CUSTOMER_ID,
+        livetalking_model="ultralight",
+        livetalking_url="http://127.0.0.1:9",
+        session_data_dir=tmp_path / "sessions",
+        backup_video_dir=tmp_path / "backup",
+        product_data_path=tmp_path / "none.docx",
+        scene_enabled=False,
+    )
+    result = await r.run_offline(settings)
+    items = {item.id: item for item in result.items}
+    assert items["lipsync_model"].status is OK, items["lipsync_model"]
+    assert "chưa kiểm fork" in items["lipsync_model"].message
+    assert items["character"].status is OK
+    assert "clip" not in items["character"].message

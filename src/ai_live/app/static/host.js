@@ -12,9 +12,15 @@
   // picture and the AI label, and reloads itself after the app comes back (research R6).
   const OBS = document.body.classList.contains("obs");
   const RECONNECT_MS = 1000;
-  // Small lead before the first sentence: schedule once the first chunk is here so a slow local hop does not stutter.
-  const LEAD_S = 0.05;
+  // Lead added whenever playback has run dry (show start, a slow chunk): the buffered audio absorbs the uneven chunk
+  // pace of CPU TTS. 0.05 s left ~14 ms holes during the first 20 s of a VieNeu show in OBS (006 T029, 2026-11-19).
+  const LEAD_S = 0.2;
+  // Rate of the PCM the server sends (ADR-025). The context runs at this rate because Chrome resamples each buffer
+  // on its own when the rates differ, with silence assumed past its ends, so every chunk seam clicked at 48 kHz.
+  const PCM_RATE = 16000;
   const REOFFER_DELAY_MS = 2000;
+  // Peer states after which only a fresh offer brings the lip-sync picture back.
+  const PEER_DEAD = ["failed", "disconnected", "closed"];
   const HEARTBEAT_MS = 1000; // 007 `host_status`: what the viewer's screen really does, for the show watchdog
 
   const subtitle = document.getElementById("subtitle");
@@ -38,6 +44,7 @@
   let lipsyncSession = null;
   let subtitleKey = null; // `${utterance_id}:${seq}` of the subtitle shown in livetalking mode
   let reofferTimer = null;
+  let offering = null; // the in-flight startLipsync() promise, so offers never overlap
   let sceneVersion = 0; // newest scene still asked for (009 contracts/api.md §5)
   let heartbeat = null;
   let released = false; // lost playback for good (4000/4001): nothing may reconnect or re-offer
@@ -180,8 +187,10 @@
     video.muted = active !== "livetalking";
     subtitleKey = null;
     subtitle.textContent = "";
-    if (active === "livetalking" && (lipsyncSession === null || !pc || pc.connectionState !== "connected")) {
+    if (active === "livetalking" && (lipsyncSession === null || !pc || PEER_DEAD.includes(pc.connectionState))) {
       // The WebRTC link may have died with the fork; a fresh /offer also reports the new session to the server.
+      // A peer still "new"/"connecting" is left alone: closing it would strand its session on the fork, which allows
+      // one session, so every later offer would be refused.
       startLipsync();
       return;
     }
@@ -236,7 +245,13 @@
     return typeof answer.sessionid === "string" && answer.sessionid ? answer.sessionid : null;
   }
 
-  async function startLipsync() {
+  function startLipsync() {
+    // One offer at a time: a second one would close the first peer mid-handshake (see onMode).
+    if (offering === null) offering = runLipsyncOffer().finally(() => (offering = null));
+    return offering;
+  }
+
+  async function runLipsyncOffer() {
     if (released) return;
     try {
       lipsyncSession = await offer();
@@ -395,7 +410,12 @@
   ["playing", "pause", "emptied", "waiting"].forEach((name) => video.addEventListener(name, updateLabel));
 
   async function start() {
-    ctx = new AudioContext();
+    try {
+      ctx = new AudioContext({ sampleRate: PCM_RATE });
+    } catch (_) {
+      // A browser that refuses the rate still plays, only with clicks at chunk seams.
+      ctx = new AudioContext();
+    }
     if (OBS) {
       // No click in OBS: OBS's browser lets sound play on its own. A plain Chrome tab leaves the context suspended
       // without a click, and that resume() would never settle, so it is not awaited (the heartbeat reports it, Q32).

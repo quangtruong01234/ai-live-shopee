@@ -91,22 +91,27 @@ class LiveTalkingRenderer:
         ack_timeout_s: float = 3.0,
         reconnect_max_s: float = 10.0,
         lead_s: float = 0.0,
+        prebuffer_s: float = 0.0,
         connect: ForkConnector = ws_connect,
         bus: EventBus | None = None,
         clock: Callable[[], float] = time.monotonic,
         expected_fork_commit: str | None = None,
+        expected_lipsync: dict[str, Any] | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.first_frame_timeout_s = first_frame_timeout_s
         self.ack_timeout_s = ack_timeout_s
         self.reconnect_max_s = reconnect_max_s
         self.lead_s = lead_s
+        self.prebuffer_s = prebuffer_s
         self._host = host
         self._connect = connect
         self._bus = bus
         self._clock = clock
         # The commit `prepare` ran with; a different running fork is only a warning (data-model §2).
         self._expected_fork_commit = expected_fork_commit
+        # What the config asks the fork to run (011 contract §5): keys whose value is None are not compared.
+        self._expected_lipsync = expected_lipsync
         self._ws: ClientConnection | None = None
         self._ready = False
         self._boot_id: str | None = None
@@ -220,13 +225,26 @@ class LiveTalkingRenderer:
         try:
             await ws.send(json.dumps({"type": "sentence_start", **ids, "text": text, "sample_rate": sample_rate}))
             audio_bytes = 0
+            # The fork plays a chunk as soon as it lands and fills any gap with silence, so a head start absorbs TTS
+            # chunks that arrive late (ADR-070). Chunks keep their own framing; only their sending is delayed.
+            held: list[bytes] | None = [] if self.prebuffer_s > 0 else None
+            prebuffer_bytes = round(self.prebuffer_s * sample_rate) * 2
             async for chunk in audio:
                 if self._interrupted:
                     return
-                await ws.send(chunk)
                 audio_bytes += len(chunk)
+                if held is None:
+                    await ws.send(chunk)
+                    continue
+                held.append(chunk)
+                if audio_bytes >= prebuffer_bytes:
+                    for part in held:
+                        await ws.send(part)
+                    held = None
             if self._interrupted:
                 return
+            for part in held or ():
+                await ws.send(part)
             await ws.send(json.dumps({"type": "sentence_end", **ids}))
             await self._wait(started, self.first_frame_timeout_s, "Phần nhép miệng không phát câu này kịp")
             if self._interrupted:
@@ -482,6 +500,19 @@ class LiveTalkingRenderer:
                 prepared_commit=self._expected_fork_commit,
                 running_commit=fork_commit,
             )
+        raw_lipsync = message.get("lipsync")
+        lipsync = dict(raw_lipsync) if isinstance(raw_lipsync, dict) else None
+        mismatch = self._lipsync_mismatch(lipsync)
+        if mismatch:
+            # FR-014: a warning and a flag only; cutting a running show would be worse than a wrong model.
+            log_event(
+                logger,
+                "lipsync_model_mismatch",
+                logging.WARNING,
+                keys=mismatch,
+                expected=self._expected_lipsync,
+                running=lipsync,
+            )
         self._ready = True
         self._health = replace(
             self._health,
@@ -490,12 +521,29 @@ class LiveTalkingRenderer:
             fork_commit=fork_commit,
             session_id=message.get("sessionid", session),
             updated_at=datetime.now(UTC),
+            lipsync=lipsync,
+            model_mismatch=bool(mismatch),
         )
         log_event(
-            logger, "lipsync_connected", boot_id=boot_id, fork_commit=fork_commit, session_id=self._health.session_id
+            logger,
+            "lipsync_connected",
+            boot_id=boot_id,
+            fork_commit=fork_commit,
+            session_id=self._health.session_id,
+            lipsync=lipsync,
         )
         self._publish_health()
         self._on_hello_scene(message.get("scene"))
+
+    def _lipsync_mismatch(self, running: dict[str, Any] | None) -> list[str]:
+        """Keys where the fork's block differs from the config; empty when it matches or nothing is expected."""
+        expected = self._expected_lipsync
+        if not expected:
+            return []
+        if running is None:
+            # An older fork sends no block; it can only run Wav2Lip, so that is a mismatch only for Ultralight.
+            return [] if expected.get("model") in (None, "wav2lip") else ["model"]
+        return [key for key, value in expected.items() if value is not None and running.get(key) != value]
 
     def _on_hello_scene(self, raw: Any) -> None:
         geometry = _scene_geometry(raw)

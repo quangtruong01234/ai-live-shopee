@@ -1,4 +1,4 @@
-"""Character folder `AVATAR_DIR` (005 data-model §2–§3): load, session checks and the `prepare` step.
+"""Character folder `AVATAR_DIR` (005 data-model §2–§3, 011 data-model §2): load, session checks and `prepare`.
 
 The app only checks that files exist and the records are complete; decoding clips and finding faces is the fork's job
 (`ailive_ext.prepare`, run in the fork's own venv because it needs torch).
@@ -7,6 +7,7 @@ The app only checks that files exist and the records are complete; decoding clip
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ClipKind = Literal["idle", "talk"]
+LipsyncModel = Literal["wav2lip", "ultralight"]
 PrepareStatus = Literal["preparing", "ready", "failed"]
 ForkRun = Callable[[list[str], Path], Awaitable[tuple[int, str, str]]]
 
@@ -33,13 +35,25 @@ PROVENANCE_KIND = "ai_generated_fictional_face"
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 _FACE_SUFFIXES = {".png", ".jpg", ".jpeg"}
 _CLIP_KINDS: tuple[ClipKind, ...] = ("idle", "talk")
+_LIPSYNC_MODELS: tuple[LipsyncModel, ...] = ("wav2lip", "ultralight")
+# Same bounds as `layout.desk_top` in the scene loader (009), so a desk drawn in the image fits the layout maths.
+DESK_TOP_RANGE = (0.55, 0.92)
 _PROVENANCE_TEXT_FIELDS = ("character_id", "created_by", "created_at", "platform")
+# Written by the fork's `ailive_ext.ultralight install` next to the trained model (011 data-model §3); read only here.
+INSTALL_RECORD = "ultralight_install.json"
 # `vendor/livetalking` next to `src/`: where `ailive_ext.prepare` must run so the fork finds its own files.
 DEFAULT_FORK_DIR = Path(__file__).resolve().parents[3] / "vendor" / "livetalking"
 
 
 class AvatarModeError(ValueError):
-    """The configured avatar mode cannot start; the app refuses to boot instead of showing the wrong face."""
+    """The configured avatar mode cannot start; the app refuses to boot instead of showing the wrong face.
+
+    `code` names the failed check when callers must tell checks apart (e.g. `model_not_supported`, 011).
+    """
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -114,6 +128,10 @@ class AvatarCharacter:
     clips: list[BaseClip]
     prepare: PrepareResult | None = None
     warnings: list[str] = field(default_factory=list)
+    lipsync_models: list[LipsyncModel] = field(default_factory=lambda: ["wav2lip"])
+    # True: the desk is part of the character image, so the scene draws no desk layer (011 FR-011).
+    desk_in_image: bool = False
+    desk_top: float | None = None
 
     def clips_of(self, kind: ClipKind) -> list[BaseClip]:
         return [c for c in self.clips if c.kind == kind]
@@ -185,7 +203,10 @@ def load_character(avatar_dir: Path) -> AvatarCharacter:
     elif not face.is_file():
         errors.append(PrepareError("missing_file", f"Không thấy ảnh mặt {face.name}"))
 
-    clips = _load_clips(avatar_dir, data.get("clips"), errors, warnings)
+    lipsync_models = _load_lipsync_models(data.get("lipsync_models", ["wav2lip"]), errors)
+    # Clips are the Wav2Lip library; a character with only its own model has none (011 data-model §2).
+    clips = _load_clips(avatar_dir, data.get("clips"), errors, warnings, require_kinds="wav2lip" in lipsync_models)
+    desk_in_image, desk_top = _load_scene(data.get("scene", {}), errors)
 
     provenance = _inside(avatar_dir, data.get("provenance"))
     if provenance is None or not provenance.is_file():
@@ -211,10 +232,53 @@ def load_character(avatar_dir: Path) -> AvatarCharacter:
         clips=clips,
         prepare=prepare,
         warnings=warnings,
+        lipsync_models=lipsync_models,
+        desk_in_image=desk_in_image,
+        desk_top=desk_top,
     )
 
 
-def _load_clips(avatar_dir: Path, raw: Any, errors: list[PrepareError], warnings: list[str]) -> list[BaseClip]:
+def _load_lipsync_models(raw: Any, errors: list[PrepareError]) -> list[LipsyncModel]:
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or not all(isinstance(m, str) and m in _LIPSYNC_MODELS for m in raw)
+        or len(set(raw)) != len(raw)
+    ):
+        errors.append(
+            PrepareError(
+                "bad_character", "lipsync_models phải là danh sách không rỗng, không lặp, gồm wav2lip/ultralight"
+            )
+        )
+        return ["wav2lip"]
+    return list(raw)
+
+
+def _load_scene(raw: Any, errors: list[PrepareError]) -> tuple[bool, float | None]:
+    if not isinstance(raw, dict):
+        errors.append(PrepareError("bad_character", "scene phải là một object"))
+        return False, None
+    desk_in_image = raw.get("desk_in_image", False)
+    if not isinstance(desk_in_image, bool):
+        errors.append(PrepareError("bad_character", "scene.desk_in_image phải là true hoặc false"))
+        return False, None
+    desk_top = raw.get("desk_top")
+    low, high = DESK_TOP_RANGE
+    if desk_top is None:
+        if desk_in_image:
+            errors.append(
+                PrepareError("bad_character", "scene.desk_top bắt buộc khi bàn nằm trong ảnh (desk_in_image)")
+            )
+        return desk_in_image, None
+    if isinstance(desk_top, bool) or not isinstance(desk_top, int | float) or not low <= desk_top <= high:
+        errors.append(PrepareError("bad_character", f"scene.desk_top phải là số trong [{low}; {high}]"))
+        return desk_in_image, None
+    return desk_in_image, float(desk_top)
+
+
+def _load_clips(
+    avatar_dir: Path, raw: Any, errors: list[PrepareError], warnings: list[str], *, require_kinds: bool = True
+) -> list[BaseClip]:
     clips: list[BaseClip] = []
     seen: set[str] = set()
     if not isinstance(raw, list):
@@ -249,7 +313,7 @@ def _load_clips(avatar_dir: Path, raw: Any, errors: list[PrepareError], warnings
             # R7: the fork plays clips back and forth itself; a pre-made ping-pong copy only doubles memory.
             warnings.append(f"{clip_id}: dùng bản _pingpong làm tốn gấp đôi bộ nhớ, nên dùng clip gốc")
         clips.append(BaseClip(clip_id=clip_id, file=path, kind=kind))
-    for kind in _CLIP_KINDS:
+    for kind in _CLIP_KINDS if require_kinds else ():
         if not any(c.kind == kind for c in clips):
             errors.append(PrepareError("kind_missing", f"Cần ít nhất một clip loại {kind}"))
     return clips
@@ -304,8 +368,69 @@ def _record_matches(record: Any, clip: BaseClip) -> bool:
     return any(isinstance(f, str) and Path(f).name == clip.file.name for f in files)
 
 
+@dataclass(frozen=True)
+class UltralightInstall:
+    """What the app knows of an installed Ultralight model: the record's claims and the hash of the file itself."""
+
+    character_id: str | None
+    teacher: str | None
+    sha256: str  # of the model file on disk now
+    recorded_sha256: str | None  # what `install` wrote; differs from `sha256` when the file changed since
+    fork_commit: str | None
+    record: dict[str, Any]
+
+
+def ultralight_dir(avatar_dir: Path, teacher: str) -> Path:
+    return avatar_dir / "ultralight" / teacher
+
+
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def read_ultralight_install(avatar_dir: Path, teacher: str) -> tuple[UltralightInstall | None, str | None]:
+    """Read `<AVATAR_DIR>/ultralight/<teacher>/ultralight_install.json` and hash the model it names.
+
+    Returns (install, None), or (None, a Vietnamese reason). Hashing reads ~49 MB, so async callers run this through
+    `asyncio.to_thread`. Comparing against the character and the config is the caller's job.
+    """
+    folder = ultralight_dir(avatar_dir, teacher)
+    path = folder / INSTALL_RECORD
+    if not path.is_file():
+        return None, f"thiếu {INSTALL_RECORD} của thầy {teacher} trong {folder}"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        checkpoint = record.get("checkpoint") or {}
+        name, recorded = checkpoint.get("file"), checkpoint.get("sha256")
+    except (OSError, ValueError, AttributeError) as exc:
+        return None, f"{INSTALL_RECORD} của thầy {teacher} hỏng ({exc.__class__.__name__})"
+    if not isinstance(name, str) or not name or Path(name).name != name:
+        return None, f"{INSTALL_RECORD} của thầy {teacher} không ghi tên file model"
+    model = folder / name
+    if not model.is_file():
+        return None, f"thiếu file model {name} của thầy {teacher} trong {folder}"
+    return (
+        UltralightInstall(
+            character_id=record.get("character_id"),
+            teacher=record.get("teacher"),
+            sha256=_file_sha256(model),
+            recorded_sha256=recorded if isinstance(recorded, str) else None,
+            fork_commit=record.get("fork_commit"),
+            record=record,
+        ),
+        None,
+    )
+
+
 def validate_for_session(character: AvatarCharacter, settings: Settings) -> None:
-    """Refuse a `livetalking` session with someone else's or an unprepared character (FR-004, constitution II)."""
+    """Refuse a `livetalking` session with someone else's character, a model it lacks, or unprepared clips.
+
+    005 FR-004, constitution II; 011 FR-008: `prepare` covers only the Wav2Lip clip library.
+    """
     if settings.customer_id != character.customer_id:
         raise AvatarModeError(
             f"Nhân vật {character.character_id} thuộc khách '{character.customer_id}', "
@@ -315,6 +440,15 @@ def validate_for_session(character: AvatarCharacter, settings: Settings) -> None
         raise AvatarModeError(
             f"AVATAR_ID='{settings.avatar_id}' khác character_id '{character.character_id}' của thư mục"
         )
+    model = settings.livetalking_model
+    if model not in character.lipsync_models:
+        raise AvatarModeError(
+            f"Nhân vật {character.character_id} không có model {model} "
+            f"(lipsync_models: {', '.join(character.lipsync_models)}); đổi LIVETALKING_MODEL hoặc AVATAR_DIR",
+            code="model_not_supported",
+        )
+    if model != "wav2lip":
+        return
     if character.prepare is None or character.prepare.status != "ready":
         status = character.prepare.status if character.prepare else "chưa chạy"
         command = f"uv run python -m ai_live.avatar prepare {character.avatar_dir}"

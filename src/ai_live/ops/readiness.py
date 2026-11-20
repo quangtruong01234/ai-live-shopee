@@ -19,12 +19,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
-from ai_live.core.models import HostStatus
+from ai_live.core.models import HostStatus, lipsync_label
 from ai_live.ops.system import free_disk_gb, power_status
 
 if TYPE_CHECKING:
     from ai_live.app.context import AppContext
-    from ai_live.avatar.character import AvatarCharacter
+    from ai_live.avatar.character import AvatarCharacter, UltralightInstall
     from ai_live.core.config import Settings
     from ai_live.products.models import ProductCatalog
 
@@ -105,6 +105,7 @@ ITEM_IDS = (
     "recording",
     "fork",
     "character",
+    "lipsync_model",
     "host",
     "content",
     "scene",
@@ -122,6 +123,7 @@ LABELS = {
     "recording": "Ghi luồng thử",
     "fork": "Máy nhép miệng (fork)",
     "character": "Nhân vật và khách",
+    "lipsync_model": "Model nhép miệng",
     "host": "Màn hình host",
     "content": "Nội dung sản phẩm",
     "scene": "Cảnh live",
@@ -223,6 +225,7 @@ class ForkHealth:
     record_enabled: bool | None = None  # None: a fork older than 007 that does not report it
     error: str | None = None
     fork_commit: str | None = None
+    lipsync: dict[str, Any] | None = None  # 011: the model block; None from a fork older than 011
 
     @classmethod
     def from_body(cls, body: Mapping[str, Any]) -> ForkHealth:
@@ -233,6 +236,7 @@ class ForkHealth:
             record_enabled=record if isinstance(record, bool) else None,
             error=None if body.get("ok") is True else "fork không báo ok",
             fork_commit=str(body["fork_commit"]) if body.get("fork_commit") else None,
+            lipsync=dict(body["lipsync"]) if isinstance(body.get("lipsync"), dict) else None,
         )
 
 
@@ -324,6 +328,65 @@ def check_character(
             f"hoặc bật đúng bản fork {prepared_commit[:8]}",
         )
     return _ok("character", f"Khách {customer_id}, nhân vật {avatar_id}{loaded}")
+
+
+def check_lipsync_model(
+    avatar_mode: str,
+    model: str,
+    teacher: str,
+    character_id: str | None,
+    lipsync_models: Iterable[str] | None,
+    *,
+    install: UltralightInstall | None = None,
+    install_problem: str | None = None,
+    fork: ForkHealth | None = None,
+) -> ReadinessItem:
+    """011 contract §6: the configured model fits the character, is installed (Ultralight) and is what the fork runs.
+
+    `install`/`install_problem` are `read_ultralight_install`'s result (hashed in a thread by the caller). The fork
+    step compares `model` only; teacher, character and checkpoint are compared by US3 (T054).
+    """
+    if avatar_mode != "livetalking":
+        return _ok("lipsync_model", "Không dùng nhép miệng (ảnh tĩnh)")
+    if lipsync_models is None:
+        # The character item already says why it could not be read.
+        return _item(
+            "lipsync_model",
+            CheckStatus.UNKNOWN,
+            "Chưa đọc được nhân vật nên chưa biết model nhép miệng",
+            "Sửa mục Nhân vật trước",
+        )
+    who = character_id or "đang dùng"
+    if model not in lipsync_models:
+        return _item(
+            "lipsync_model",
+            CheckStatus.FAIL,
+            f"Nhân vật {who} không có model {model}",
+            "Đặt LIVETALKING_MODEL bằng một model trong lipsync_models của character.json rồi bật lại fork và app",
+        )
+    ultralight = model == "ultralight"
+    if ultralight and install is None:
+        detail = f" ({install_problem})" if install_problem else ""
+        return _item(
+            "lipsync_model",
+            CheckStatus.FAIL,
+            f"Chưa cài model Ultralight thầy {teacher} cho {who}{detail}",
+            "Cài model đã huấn luyện: cd vendor/livetalking; .venv/Scripts/python -m ailive_ext.ultralight install "
+            f"<thư mục tải>/ultralight_out/{who}/{teacher} --video <video thầy> (quickstart 011)",
+        )
+    label = "Model: " + lipsync_label(model, teacher if ultralight else None, character_id)
+    if fork is None or not fork.reachable:
+        return _ok("lipsync_model", f"{label} (chưa kiểm fork)")
+    # A fork older than 011 sends no block and can only run Wav2Lip.
+    running = fork.lipsync.get("model") if fork.lipsync is not None else "wav2lip"
+    if running != model:
+        return _item(
+            "lipsync_model",
+            CheckStatus.FAIL,
+            f"Phần nhép miệng đang chạy {running}, cấu hình là {model}: bật lại fork",
+            "Tắt fork rồi bật lại: powershell scripts/livetalking/run.ps1 (đọc LIVETALKING_MODEL trong .env)",
+        )
+    return _ok("lipsync_model", label)
 
 
 def check_host(
@@ -454,6 +517,17 @@ def check_scene(enabled: bool, issues: Iterable[Mapping[str, Any]] = ()) -> Read
             f"Bộ cảnh còn ảnh mẫu: {', '.join(placeholders)}",
             "Thay bằng ảnh thật của khách (009 quickstart) rồi kiểm lại bộ cảnh",
         )
+    # 012 FR-019: an uploaded image without confirmed rights, or a manifest nobody can read, must stop the session;
+    # other scene errors only leave a part undrawn and stay a warning as in 009/007.
+    blocking = [i for i in issues if i.get("code") in ("missing_confirmation", "bad_uploads")]
+    if blocking:
+        return _item(
+            "scene",
+            CheckStatus.FAIL,
+            f"Ảnh tải lên chưa dùng được ({len(blocking)} lỗi): {blocking[0].get('message')}",
+            "Mở mục Ảnh sản phẩm trên trang điều khiển: xác nhận quyền dùng ảnh hoặc gỡ ảnh, "
+            "rồi chạy uv run python -m ai_live.scene check",
+        )
     errors = [i for i in issues if i.get("level") == "error"]
     if errors:
         return _item(
@@ -471,7 +545,7 @@ def check_ai_label(text: str) -> ReadinessItem:
             "ai_label",
             CheckStatus.FAIL,
             "Nhãn AI đang rỗng: người xem không biết host là AI",
-            'Đặt AI_LABEL_TEXT (mặc định "AI") trong .env rồi bật lại app và fork',
+            'Đặt AI_LABEL_TEXT (mặc định "AI-GENERATED CONTENT") trong .env rồi bật lại app và fork',
         )
     return _ok("ai_label", f'Nhãn "{text}" được ghép vào hình')
 
@@ -683,6 +757,7 @@ async def run_readiness(ctx: AppContext, *, fork_transport: httpx.AsyncBaseTrans
     catalog = ctx.store.catalog
     scene_issues = ctx.scene.status().get("issues", []) if ctx.scene is not None else []
     character = ctx.character
+    install, install_problem = await _ultralight_install(settings, character)
 
     def blocking() -> list[ReadinessItem]:
         return [
@@ -707,6 +782,7 @@ async def run_readiness(ctx: AppContext, *, fork_transport: httpx.AsyncBaseTrans
             prepared_commit=_prepared_commit(character),
             running_commit=fork.fork_commit if fork is not None else None,
         ),
+        _lipsync_model_item(settings, character, install, install_problem, fork),
         check_host(
             ctx.renderer.host_ready,
             getattr(ctx.renderer, "host_status", None),
@@ -720,6 +796,38 @@ async def run_readiness(ctx: AppContext, *, fork_transport: httpx.AsyncBaseTrans
         *await asyncio.to_thread(blocking),
     ]
     return build_result(items, "app", started, output_mode=settings.output_mode)
+
+
+async def _ultralight_install(
+    settings: Settings, character: AvatarCharacter | None
+) -> tuple[UltralightInstall | None, str | None]:
+    """The install record of the configured teacher, read only when it matters; hashing ~49 MB runs in a thread."""
+    if settings.avatar_mode != "livetalking" or settings.livetalking_model != "ultralight" or character is None:
+        return None, None
+    from ai_live.avatar.character import read_ultralight_install
+
+    return await asyncio.to_thread(
+        read_ultralight_install, character.avatar_dir, settings.livetalking_ultralight_teacher
+    )
+
+
+def _lipsync_model_item(
+    settings: Settings,
+    character: AvatarCharacter | None,
+    install: UltralightInstall | None,
+    install_problem: str | None,
+    fork: ForkHealth | None,
+) -> ReadinessItem:
+    return check_lipsync_model(
+        settings.avatar_mode,
+        settings.livetalking_model,
+        settings.livetalking_ultralight_teacher,
+        character.character_id if character is not None else None,
+        character.lipsync_models if character is not None else None,
+        install=install,
+        install_problem=install_problem,
+        fork=fork,
+    )
 
 
 def _prepared_commit(character: AvatarCharacter | None) -> str | None:
@@ -773,6 +881,7 @@ async def run_offline(settings: Settings, *, fork_transport: httpx.AsyncBaseTran
         ]
 
     character = await asyncio.to_thread(_offline_character, settings) if livetalking else None
+    install, install_problem = await _ultralight_install(settings, character)
     items = [
         *_config_items(settings),
         check_recording(settings.avatar_mode, fork),
@@ -783,6 +892,7 @@ async def run_offline(settings: Settings, *, fork_transport: httpx.AsyncBaseTran
             prepared_commit=_prepared_commit(character),
             running_commit=fork.fork_commit if fork is not None else None,
         ),
+        _lipsync_model_item(settings, character, install, install_problem, fork),
         check_host(None, None, None),
         check_llm_chain(settings.reply_engine, None, app_running=False),
         *await asyncio.to_thread(blocking),

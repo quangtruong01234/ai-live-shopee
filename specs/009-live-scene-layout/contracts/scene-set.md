@@ -1,5 +1,9 @@
 # Hợp đồng: bộ cảnh (`SCENE_DIR`) và lệnh kiểm
 
+> **Bổ sung bởi 012, ADR-071:** bộ cảnh có thêm thư mục `uploads/` (ảnh tải lên từ trang điều khiển và sổ `images.json`), luật nạp
+> ảnh tải lên, mã issue `missing_confirmation` / `bad_uploads` và một dòng tóm tắt ở lệnh `check`. Chi tiết ở
+> [012 contracts/scene-set.md](../../012-product-image-upload/contracts/scene-set.md). Nội dung dưới đây giữ nguyên.
+
 > Bộ cảnh là dữ liệu của khách, nằm **ngoài git** (`assets/scenes/` trong `.gitignore`). Một bộ cảnh thuộc đúng một khách.
 
 ## 1. Cấu trúc thư mục

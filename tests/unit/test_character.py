@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -13,6 +14,7 @@ from ai_live.avatar.character import (
     CharacterError,
     load_character,
     prepare_character,
+    read_ultralight_install,
     validate_for_session,
 )
 from ai_live.core.config import Settings
@@ -365,3 +367,157 @@ async def test_prepare_with_other_fork_commit_logs_warning(tmp_path: Path, caplo
     )
     [record] = [r for r in caplog.records if r.getMessage() == "avatar_prepared_with_other_fork"]
     assert record.fields == {"prepared_commit": "fakecommit0", "running_commit": "newcommit9"}
+
+
+# ---------- 011: lip-sync models and scene block (data-model §2, FR-002, FR-008, FR-011, FR-016, SC-008) ----------
+_ULTRALIGHT_ONLY = {"clips": [], "lipsync_models": ["ultralight"]}
+
+
+def test_missing_lipsync_models_defaults_to_wav2lip_and_loads_as_before(tmp_path: Path) -> None:
+    character = load_character(make_character_dir(tmp_path, prepare=READY_PREPARE))
+    assert character.lipsync_models == ["wav2lip"]
+    assert character.desk_in_image is False
+    assert character.desk_top is None
+    assert [c.clip_id for c in character.clips] == [c["clip_id"] for c in DEFAULT_CLIPS]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [[], ["wav2lip", "wav2lip"], ["musetalk"], "ultralight", ["ultralight", 3]],
+    ids=["empty", "duplicate", "unknown", "not_list", "not_str"],
+)
+def test_bad_lipsync_models_is_rejected(tmp_path: Path, value: object) -> None:
+    with pytest.raises(CharacterError) as info:
+        load_character(make_character_dir(tmp_path, character={"lipsync_models": value}))
+    assert "bad_character" in _codes(info.value)
+
+
+def test_ultralight_only_character_needs_no_clips_or_prepare(tmp_path: Path) -> None:
+    character = load_character(make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY))
+    assert character.lipsync_models == ["ultralight"]
+    assert character.clips == []
+    assert character.prepare is None
+
+
+def test_wav2lip_in_list_still_needs_both_clip_kinds(tmp_path: Path) -> None:
+    clips = [c for c in DEFAULT_CLIPS if c["kind"] == "idle"]
+    avatar_dir = make_character_dir(tmp_path, character={"clips": clips, "lipsync_models": ["ultralight", "wav2lip"]})
+    with pytest.raises(CharacterError) as info:
+        load_character(avatar_dir)
+    assert _codes(info.value) == ["kind_missing"]
+
+
+def test_desk_in_image_with_desk_top_loads(tmp_path: Path) -> None:
+    scene = {"desk_in_image": True, "desk_top": 0.71}
+    character = load_character(make_character_dir(tmp_path, character={**_ULTRALIGHT_ONLY, "scene": scene}))
+    assert character.desk_in_image is True
+    assert character.desk_top == pytest.approx(0.71)
+
+
+@pytest.mark.parametrize(
+    "scene",
+    [
+        {"desk_in_image": True, "desk_top": None},
+        {"desk_in_image": True},
+        {"desk_in_image": True, "desk_top": 0.5},
+        {"desk_in_image": True, "desk_top": 0.95},
+        {"desk_in_image": True, "desk_top": "0.7"},
+        {"desk_in_image": "yes"},
+        "desk",
+    ],
+    ids=["null", "missing", "too_high_on_screen", "too_low_on_screen", "string", "flag_not_bool", "not_object"],
+)
+def test_bad_scene_block_is_rejected(tmp_path: Path, scene: object) -> None:
+    with pytest.raises(CharacterError) as info:
+        load_character(make_character_dir(tmp_path, character={**_ULTRALIGHT_ONLY, "scene": scene}))
+    assert "bad_character" in _codes(info.value)
+
+
+def test_session_rejects_model_the_character_lacks(tmp_path: Path, session_settings: Settings) -> None:
+    character = load_character(make_character_dir(tmp_path, prepare=READY_PREPARE))
+    with pytest.raises(AvatarModeError) as info:
+        validate_for_session(character, session_settings.model_copy(update={"livetalking_model": "ultralight"}))
+    assert info.value.code == "model_not_supported"
+    assert "ultralight" in str(info.value)
+
+
+def test_session_accepts_ultralight_character_without_prepare(tmp_path: Path, session_settings: Settings) -> None:
+    character = load_character(make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY))
+    validate_for_session(character, session_settings.model_copy(update={"livetalking_model": "ultralight"}))
+    with pytest.raises(AvatarModeError) as info:
+        validate_for_session(character, session_settings)
+    assert info.value.code == "model_not_supported"
+
+
+def test_ultralight_character_belongs_to_one_customer(tmp_path: Path, session_settings: Settings) -> None:
+    character = load_character(make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY))
+    other = session_settings.model_copy(update={"customer_id": "other_customer", "livetalking_model": "ultralight"})
+    with pytest.raises(AvatarModeError, match="other_customer"):
+        validate_for_session(character, other)
+
+
+# ---------- 011 T013: Ultralight install record in <AVATAR_DIR>/ultralight/<teacher>/ ----------
+
+_MODEL_BYTES = b"fake ultralight weights"
+
+
+def _install(avatar_dir: Path, teacher: str = "musetalk", **overrides: object) -> Path:
+    evidence = avatar_dir / "ultralight" / teacher
+    evidence.mkdir(parents=True)
+    (evidence / "best_trainloss.pth").write_bytes(_MODEL_BYTES)
+    record = {
+        "character_id": CHARACTER_ID,
+        "teacher": teacher,
+        "fork_commit": "fakecommit0",
+        "checkpoint": {"file": "best_trainloss.pth", "sha256": hashlib.sha256(_MODEL_BYTES).hexdigest()},
+        "frames": 250,
+    }
+    record.update(overrides)
+    (evidence / "ultralight_install.json").write_text(json.dumps(record), encoding="utf-8")
+    return evidence
+
+
+def test_install_record_gives_character_teacher_and_model_hash(tmp_path: Path) -> None:
+    avatar_dir = make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY)
+    _install(avatar_dir)
+    install, reason = read_ultralight_install(avatar_dir, "musetalk")
+    assert reason is None and install is not None
+    sha = hashlib.sha256(_MODEL_BYTES).hexdigest()
+    assert (install.character_id, install.teacher) == (CHARACTER_ID, "musetalk")
+    # The hash of the file on disk, and the one the record holds: US3 compares them (checkpoint_mismatch).
+    assert install.sha256 == sha and install.recorded_sha256 == sha
+    assert install.fork_commit == "fakecommit0"
+
+
+def test_install_hash_is_of_the_file_not_copied_from_the_record(tmp_path: Path) -> None:
+    avatar_dir = make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY)
+    _install(avatar_dir, checkpoint={"file": "best_trainloss.pth", "sha256": "0" * 64})
+    install, _ = read_ultralight_install(avatar_dir, "musetalk")
+    assert install is not None and install.recorded_sha256 == "0" * 64 and install.sha256 != "0" * 64
+
+
+@pytest.mark.parametrize("missing", ["record", "model", "folder"])
+def test_missing_install_gives_none_and_a_reason(tmp_path: Path, missing: str) -> None:
+    avatar_dir = make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY)
+    if missing != "folder":
+        evidence = _install(avatar_dir)
+        (evidence / ("ultralight_install.json" if missing == "record" else "best_trainloss.pth")).unlink()
+    install, reason = read_ultralight_install(avatar_dir, "musetalk")
+    assert install is None
+    assert reason is not None and "musetalk" in reason
+
+
+def test_install_of_another_teacher_is_not_read(tmp_path: Path) -> None:
+    avatar_dir = make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY)
+    _install(avatar_dir, teacher="infinitetalk")
+    install, reason = read_ultralight_install(avatar_dir, "musetalk")
+    assert install is None and reason is not None
+
+
+@pytest.mark.parametrize("raw", ["{not json", "[]", '{"checkpoint": "x"}'])
+def test_broken_install_record_gives_a_reason(tmp_path: Path, raw: str) -> None:
+    avatar_dir = make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY)
+    evidence = _install(avatar_dir)
+    (evidence / "ultralight_install.json").write_text(raw, encoding="utf-8")
+    install, reason = read_ultralight_install(avatar_dir, "musetalk")
+    assert install is None and reason is not None

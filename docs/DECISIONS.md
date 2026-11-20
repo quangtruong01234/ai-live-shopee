@@ -782,7 +782,8 @@
   - App tự nhận khung hình rồi encode: thêm việc nặng vào process app.
 
 ## ADR-044: Nhãn "AI" vẽ trong khung hình của fork; giữ watermark "LiveTalking"
-- **Ngày:** 2026-11-06 · **Trạng thái:** Đã chốt (người dùng duyệt 2026-11-06; plan 005, research R5)
+- **Ngày:** 2026-11-06 · **Trạng thái:** Đã chốt (người dùng duyệt 2026-11-06; plan 005, research R5). Chữ mặc định đổi từ
+  "AI" thành "AI-GENERATED CONTENT" bởi ADR-065
 - **Quyết định:**
   - Fork vẽ nhãn trong `process_frames` trên mọi khung (chờ, nói, câm), trước khi đẩy ra output. Chữ và vị trí lấy từ `AI_LABEL_TEXT`,
     `AI_LABEL_POSITION`.
@@ -1078,7 +1079,7 @@
     `WATCHDOG_AUDIO_ACK_LIPSYNC_S` 6 s khi đang nhép miệng, vì fork vốn bắt đầu câu sau ~3 s (2 cảnh báo sai trong show 30 phút).
 
 ## ADR-058: Bỏ YouTube (M1c); 006 là đầu ra OBS qua Browser Source trang `/obs`
-- **Ngày:** 2026-11-13 · **Trạng thái:** Đề xuất (006), chờ người dùng xác nhận trong gói duyệt
+- **Ngày:** 2026-11-13 · **Trạng thái:** Chấp nhận (người dùng xác nhận 2026-11-19 trong gói duyệt 006)
 - **Quyết định:**
   - (a) Bỏ mốc M1c "YouTube Unlisted" và feature `006-youtube-live` đã đề xuất: người dùng không live trên YouTube (2026-11-13). Demo vẫn
     qua Google Meet; giai đoạn sau là Shopee Live qua OBS.
@@ -1099,7 +1100,7 @@
   tiềm ẩn: trang host bị thay trước đây vẫn phát `<video>` của fork (nói đôi) và giữ phiên fork.
 
 ## ADR-059: OBS Studio portable là công cụ kiểm trên máy dev, ngoài repo
-- **Ngày:** 2026-11-13 · **Trạng thái:** Chấp nhận (Tự chọn khuyến nghị theo ủy quyền làm liên tục; người dùng xem lại ở gói duyệt)
+- **Ngày:** 2026-11-13 · **Trạng thái:** Chấp nhận (Tự chọn khuyến nghị theo ủy quyền làm liên tục; người dùng xác nhận 2026-11-19 trong gói duyệt 006)
 - **Quyết định:** để kiểm 006 không cần người, tải bản zip chính thức của OBS Studio (GitHub `obsproject/obs-studio` releases), giải nén
   ở `%LOCALAPPDATA%\ai-live\obs`, chạy `obs64.exe --portable --collection ailive --startrecording` với cấu hình cảnh và profile ghi
   dựng sẵn trong thư mục portable đó. Không cài vào hệ thống, không vào git, app không gọi hay phụ thuộc OBS. Máy demo dùng bản OBS
@@ -1127,13 +1128,22 @@
   - Fork LiveTalking của mình **đã có sẵn đường suy luận** `--model ultralight` (`avatars/ultralight_avatar.py`, `avatars/ultralight/`).
     Code huấn luyện thì không có trong fork.
 - **Quyết định (thử nghiệm, chưa đổi mặc định):**
-  1. **Video huấn luyện tạo offline từ nhân vật AI** (người dùng xác nhận 2026-11-17):
+  1. **Video huấn luyện tạo offline từ nhân vật AI** (người dùng xác nhận 2026-11-17). *Sửa bởi ADR-063 (2026-11-18): InfiniteTalk
+     trên T4 quá chậm cho 3–5 phút; đang thử MuseTalk 1.5 làm thầy lồng miệng trên nền chuyển động InfiniteTalk ngắn.*
      - Dùng **InfiniteTalk** (MeiGen-AI, Apache-2.0, dựa trên Wan2.1) trên Kaggle miễn phí, theo cách ADR-036 đã làm với ComfyUI.
      - Đầu vào là clip nói hoặc ảnh của nhân vật hiện tại, cộng 3–5 phút tiếng VieNeu đọc nội dung sản phẩm. Chế độ video-to-video giữ
        chuyển động đầu của clip và chỉ tạo lại miệng, mặt, cử động theo tiếng.
      - Notebook `scripts/avatar_clips/make_infinitetalk_video.ipynb`: ComfyUI headless + kijai ComfyUI-WanVideoWrapper (ghim commit
        `a7439db`), model chính Wan2.1 I2V 480p GGUF Q6_K, InfiniteTalk Single Q8, LoRA lightx2v 6 bước, fp16, block swap để vừa T4.
        Đầu vào là dataset Kaggle riêng tư (`start.png` + `*.wav`) do người dùng tải lên, vì MCP Kaggle không tạo được dataset.
+     - **Ghim `transformers==4.57.6` trong notebook** (2026-11-18, chỉ trong phiên Kaggle, không đổi `pyproject.toml` của repo):
+       - Kaggle cài sẵn transformers 5.x. Wrapper tự viết lớp `Wav2Vec2Model` riêng (`multitalk/wav2vec2.py`) gọi encoder với
+         `output_hidden_states`; transformers 5 không trả `hidden_states` theo cách đó, nên nút `MultiTalkWav2VecEmbeds` lỗi
+         `TypeError: 'NoneType' object is not subscriptable` (version 4, khoảng 4,5 phút GPU).
+       - Nhánh `main` của wrapper chưa sửa file này từ 2025-07-01, nên đổi commit wrapper không giúp được.
+       - 4.57.6 là bản 4.x cuối; ComfyUI chỉ cần `transformers>=4.50.3`. Notebook in và ghi phiên bản vào `run.json`.
+     - Dataset phải gắn trên giao diện Kaggle (Add Input → Save Version): `save_notebook` của MCP bỏ qua trường dataset, và mỗi lần
+       đẩy code bằng API có thể làm mất dataset đã gắn.
      - Nhân vật (người dùng đổi 2026-11-17): không dùng lại `demo_host_01`. Tạo nhân vật AI mới `demo_host_02` theo kiểu một buổi live
        bán hàng: ngồi sau bàn, sau lưng là kệ shop mỹ phẩm, áo polo trơn. Ảnh tạo bằng FLUX.1-schnell (Apache-2.0, đã cho phép ở ADR-036)
        qua notebook `scripts/avatar_clips/make_host_scene.ipynb`. Ảnh chụp màn hình live mẫu người dùng gửi chỉ dùng để tham khảo bố
@@ -1180,17 +1190,28 @@
      - **Notebook Kaggle `scripts/avatar_clips/train_ultralight.ipynb`** (2026-11-18, chưa chạy; đã đẩy lên Kaggle dạng
        riêng tư, T4, chỉ lưu chưa chạy: `jintran0501/ai-host-train-ultralight-demo-host-02`, version 1):
        - Đầu vào: đầu ra của notebook InfiniteTalk (video `<CHARACTER_ID>_train_v1.mp4`), gắn trong giao diện Kaggle.
+         *Đổi bởi ADR-064:* chọn thầy bằng biến `TEACHER` (`musetalk` cho dev, `infinitetalk` cho prod).
        - Đổi video sang 25 khung/giây nếu cần, chạy `process.py --asr hubert`, kiểm số khung/điểm mặt/đặc trưng tiếng
          (vì `process.py` gọi lệnh qua `os.system`, lỗi không làm dừng), lưu ảnh kiểm vùng cắt miệng.
        - HuBERT ghim revision `ece5fabbf034c1073acae96d5401b25be96709d8` (Apache-2.0), chỉ tải `*.json` và `pytorch_model.bin`.
        - Đo fp32 và AMP trên 40 bước, chọn AMP nếu nhanh hơn ≥ 1,1 lần; huấn luyện trong ngân sách 690 phút của phiên; tự chạy tiếp
          nếu gắn đầu ra của chính notebook này; kiểm nạp strict + chạy thử model; ghi `provenance_train.json`.
        - Đầu ra (ngoài git): `ultralight.pth`, `last.pt`, `loss.png`, ảnh xem trước, log. Lưu về
-         `assets/avatars/<CHARACTER_ID>/ultralight/`.
+         `assets/avatars/<CHARACTER_ID>/ultralight/` (*đổi bởi ADR-064:* `ultralight/<TEACHER>/`).
        - TODO: đo tốc độ thật trên T4.
        - TODO: batch 16 khác mặc định 1 của tác giả; so chất lượng với batch nhỏ hơn nếu kết quả miệng mờ.
        - TODO: kiểm license mã Ultralight-Digital-Human trước M2.
-     - `genavatar.py` của fork gọi `os.system("cp ...")`, không chạy trên Windows. Cần sửa khi dựng avatar Ultralight trên laptop.
+     - `genavatar.py` của fork gọi `os.system("cp ...")`, không chạy trên Windows. **Đã sửa 2026-11-18** (fork, chưa commit):
+       - Thêm hàm `generate_avatar(video_path, avatar_id, checkpoint, save_path, img_size=168)` giống kiểu của wav2lip; chép bằng
+         `shutil.copy`; `argparse` chuyển vào `__main__`. Chạy từ gốc fork: `python -m avatars.ultralight.genavatar ...`.
+       - Bỏ `from os import wait3` (chỉ có trên Unix, không dùng) ở `face_detect_utils/get_landmark.py`.
+       - Bản gốc truyền `cv2.INTER_AREA` vào chỗ tham số `dst` nên thực ra cắt mặt bằng nội suy mặc định; giờ dùng `INTER_AREA`
+         đúng như `ultralight_train.py`.
+       - `Landmark` cần `models/scrfd_2.5g_kps.onnx` (3,3 MB) và `models/checkpoint_epoch_335.pth.tar` (5 MB) trong fork, cùng
+         file trong `data_utils/` của repo Ultralight lúc huấn luyện. `train_ultralight.ipynb` chép 2 file này vào
+         `landmark_models/` của đầu ra (kèm sha256 trong `provenance_train.json`); tải về thì chép vào `vendor/livetalking/models/`
+         (ngoài git). `Landmark` gọi `.cuda()` nên dựng avatar cần GPU laptop.
+       - Notebook trên Kaggle (`ai-host-train-ultralight-demo-host-02`) phải đẩy lại bản này trước khi chạy.
   3. **Suy luận trên laptop:**
      - Đã tải `facebook/hubert-large-ls960-ft` (1,26 GB) vào `vendor/livetalking/models/hubert-large-ls960-ft/`, ngoài git, ngày
        2026-11-17. Không tải `tf_model.h5`.
@@ -1293,9 +1314,23 @@
 - **TODO:**
   - Đọc lại license LoRA Lightning (thẻ model ghi Apache-2.0) và bản GGUF của unsloth (thẻ ghi Apache-2.0) trước khi khách trả tiền,
     cùng lúc với TODO điều khoản Kaggle của ADR-036.
+- **Kết quả lần chạy đầu** (Kaggle `jintran0501/ai-host-edit-demo-host-02`, xong 2026-11-18; ảnh tải về
+  `assets/avatars/demo_host_02/run3/`, ngoài git):
+  - Ảnh gốc đúng `scene_real_chest_up_seed606.png` (768×1344, sha256 `3c8002881857`). Tesla T4, torch 2.11.0+cu130, ComfyUI
+    `5071348042`. Không có ảnh đen, không phải bật `--bf16-unet`; độ sáng trung bình 155,1–159,0 so với ảnh gốc 158,9.
+  - Thời gian: tải model 71 s (12,84 GB) + LoRA 8 s + bộ mã hoá chữ 46 s (9,38 GB) + VAE 2 s; ComfyUI sẵn sàng ở giây 242.
+    12 lần sửa mất 555,8–615,8 s mỗi lần (khoảng 9,5 phút); cả notebook 7124 s (khoảng 1 giờ 59 phút).
+  - Nhận xét bằng mắt (người dùng chưa duyệt):
+    - Lần sửa ánh sáng và nền (`3_light_bg`) làm tường phía trên kệ có vết lem ở cả 3 seed.
+    - Seed 22 và 33 thêm chấm đen giả lỗ chân lông và vệt trên trán, mặt lệch khỏi ảnh gốc nhiều hơn (cười ít hơn, mặt rộng hơn).
+    - Seed 11 giữ mặt gần ảnh gốc nhất. Bản gộp `seed11_combined.png` sạch nhất: tường không lem, tay rõ ngón, môi khép.
+  - Người dùng duyệt `seed11_combined.png` ngày 2026-11-18 ("ok ổn tiếp tục đi"). Đã làm lại `training/kaggle_input/start.png` theo
+    cách cũ: thu về 480×840 (Lanczos, khớp từng điểm ảnh với `start.png` trước), cắt 8 px phía trên, ra 480×832. Bản chưa sửa giữ
+    ở `training/start_seed606_raw.png`; ghi vào `provenance.json` mục `edited`.
 
 ## ADR-062: Giữ nguyên cấu hình demo ở Wav2Lip `w2l`; Ultralight và `demo_host_02` làm song song
 - **Ngày:** 2026-11-18 · **Trạng thái:** Chấp nhận (người dùng: "1 đồng ý", trả lời đề xuất ngày 2026-11-17 ở `progress/OPEN.md` §4).
+  Bổ sung bởi ADR-066: `demo_host_02` là host của khách demo khi 011 đạt; đánh giá làm sau khi project xong (sửa 2026-11-19: đánh giá ngay khi model Kaggle xong, không chờ cả project xong).
 - **Bối cảnh:**
   - Cấu hình demo hiện tại đã qua kiểm luồng ngày 2026-11-17: fork LiveTalking với wav2lip256, `LIVETALKING_MOUTH_METHOD=w2l`
     (ADR-055), nhân vật `demo_host_01`, cảnh 009.
@@ -1308,3 +1343,267 @@
     30 phút trước ngày demo. Ngày demo chưa chốt nên chưa có hạn cụ thể.
 - **Lý do:** cấu hình hiện tại đã chạy được và đã kiểm; đổi model sát ngày demo có thể làm hỏng buổi demo mà khách chỉ trả tiền nếu demo tốt.
 - **Phương án đã loại:** chờ Ultralight xong mới demo (lùi ngày demo mà chưa chắc tốt hơn).
+
+## ADR-063: Thử MuseTalk 1.5 làm "thầy" thay InfiniteTalk cho video huấn luyện Ultralight; so sánh trước trên Kaggle
+- **Ngày:** 2026-11-18 · **Trạng thái:** Chấp nhận để thử (người dùng: "tôi đồng ý", trả lời đề xuất đổi sang model nhanh hơn chạy
+  trên Kaggle free). Sửa ADR-060 mục 1: InfiniteTalk không còn là đường duy nhất để tạo video huấn luyện.
+- **Bối cảnh:**
+  - InfiniteTalk trên T4 (notebook `ai-host-infinitetalk-demo-host-02`, version 6) mất khoảng **26,5 phút cho một cửa sổ 81 khung**,
+    chậm hơn nhiều so với ước tính 0,5–1 khung/giây ở ADR-060 mục 1. Video 4 phút sẽ mất khoảng 37 giờ, quá hạn mức GPU Kaggle.
+    ComfyUI còn chết sau cửa sổ 1 (có thể hết RAM, máy Kaggle khoảng 30 GB).
+  - Người dùng xem 81 khung đầu và thấy hình đạt ("ảnh tôi thấy ổn rồi đấy").
+  - MuseTalk 1.5 chỉ đổi vùng miệng trên khung có sẵn, chạy một bước (không khuếch tán nhiều bước), nên nhanh hơn InfiniteTalk rất
+    nhiều. Trên laptop chỉ khoảng 0,7 khung/giây (010 research R4) nên đã loại cho live, nhưng **chưa ai xem chất lượng miệng** của nó.
+- **Quyết định:**
+  1. **Chạy so sánh trước** (khoảng 1 giờ GPU Kaggle, miễn phí): MuseTalk 1.5 lồng tiếng lại đúng 81 khung InfiniteTalk với cùng
+     đoạn tiếng 0–3,24 giây của `preview.wav`, ra video đặt cạnh nhau (InfiniteTalk | MuseTalk) và cận cảnh miệng. Người dùng xem và
+     chấm: môi khép ở m/b/p, môi tròn ở ô/u/o, răng, độ mờ, rung, đường nối quanh cằm. Thêm một bản MuseTalk dài 13,5 giây (khung chạy
+     tới rồi lùi) để xem nói lâu hơn.
+  2. Notebook `scripts/avatar_clips/musetalk_compare.ipynb`, chỉ chạy trên Kaggle (`jintran0501/ai-host-musetalk-compare-demo-host-02`,
+     riêng tư, T4, Internet; đầu vào: dataset `ai-live-infinitetalk-input`, bản thêm thư mục `infinitetalk_v6_frames/` gồm 81 khung version 6 của
+     notebook InfiniteTalk, vì Kaggle không cho gắn đầu ra của lần chạy lỗi):
+     - Mã MuseTalk chính thức (TMElyralab/MuseTalk, MIT), ghim commit `0a89dec45a0192b824e3cf4daf96c239440c5ed8`, clone trong phiên
+       Kaggle, **không** thêm vào `pyproject.toml` của repo.
+     - Trọng số tải trong phiên, ghim revision Hugging Face:
+       - `TMElyralab/MuseTalk` @ `2bcb936e2fddb4d86db4c62fd45b387d0c061571`: `musetalkV15/musetalk.json`, `musetalkV15/unet.pth` (MIT).
+       - `stabilityai/sd-vae-ft-mse` @ `31f26fdeee1355a5c34592e401dd41e45d25a493` (MIT), bản `.safetensors`.
+       - `openai/whisper-tiny` @ `169d4a4341b33bc18d8881c4b69c2e104e1cc0af` (Apache-2.0), bản `.safetensors`.
+       - BiSeNet face-parse `79999_iter.pth` (zllrunning/face-parsing.PyTorch) qua gdown như script chính thức; dự phòng là bản sao
+         `ManyOtherFunctions/face-parse-bisent` @ `0073b233a5a3c4b1377d4dbf49245017938a72b5`. Nạp bằng `torch.load` chế độ
+         `weights_only`, ghi sha256 vào `run.json`. `resnet18-5c106cde.pth` tải từ download.pytorch.org, kiểm tiền tố sha256
+         `5c106cde` khi tải; file này ở định dạng tar cũ mà torch ≥ 2.6 không mở được ở chế độ `weights_only` (FaceParsing của
+         MuseTalk nạp bằng mặc định đó), nên notebook nạp một lần rồi lưu lại dạng zip (state dict), ghi cả sha256 sau chuyển đổi.
+     - **Thay DWPose bằng gói `face-alignment`** (BSD-3) để lấy 68 điểm mặt: bước tiền xử lý chính thức cần mmcv/mmpose, rất khó cài
+       trên Kaggle. 68 điểm của face-alignment cùng thứ tự iBUG với điểm mặt 23:91 của DWPose, nên công thức khung cắt giữ nguyên.
+     - Ghim `transformers==4.57.6` (giống notebook InfiniteTalk) và `diffusers==0.30.2` (bản MuseTalk chính thức dùng), chỉ trong phiên.
+     - Tham số v15 mặc định của script chính thức: `bbox_shift=0`, `extra_margin=10`, má 90/90, ghép kiểu `jaw`, đệm tiếng 2/2,
+       batch 8, fp16.
+     - Đầu ra (ngoài git): video so sánh, cận cảnh miệng, ảnh ghép khung, `run.json` (phiên bản, sha256, tốc độ khung/giây trên T4).
+  3. **Nếu MuseTalk đạt** (người dùng thấy miệng bằng hoặc tốt hơn InfiniteTalk): đi đường lai.
+     - InfiniteTalk chỉ tạo 15–20 giây chuyển động nền (đầu, mắt, vai), phát tới rồi lùi cho đủ 3–5 phút.
+     - MuseTalk lồng miệng theo 3–5 phút tiếng VieNeu đọc kịch bản phủ đủ âm tiếng Việt.
+     - Ultralight huấn luyện trên video đó (ADR-060 mục 2 giữ nguyên).
+     - Vẫn là dữ liệu huấn luyện offline, không phát live (ràng buộc 1).
+  4. **Nếu không đạt:** quay lại InfiniteTalk đủ dài trên GPU thuê (Modal có khoảng 30 USD credit/tháng, hoặc RunPod). Phải hỏi người
+     dùng về chi phí trước khi bật.
+  - *Đổi bởi ADR-064:* không chọn một trong mục 3 và 4 nữa mà dùng cả hai: MuseTalk làm thầy dev ngay, InfiniteTalk làm thầy prod
+    trước buổi demo.
+- **Kết quả lần chạy so sánh** (Kaggle version 5, xong 2026-11-18, khoảng 5 phút; đầu ra tải về ngoài git):
+  - Tốc độ trên T4: 81 khung 5,43 khung/giây tính cả bước ghép mặt (riêng UNet+VAE 8,34); bản dài 337 khung 7,18 khung/giây.
+    VRAM đỉnh 6,86 GB. Video 4 phút (6.000 khung) ước khoảng 15–20 phút, so với khoảng 37 giờ của InfiniteTalk.
+  - Khung cắt từ face-alignment khớp mặt (ảnh kiểm khung cắt); mặt chỉ rộng 122–132 px trong khung 480×832.
+  - Chấm sơ bộ của Claude qua ảnh ghép khung (chưa nghe tiếng): miệng MuseTalk **mở ít hơn rõ rệt** so với InfiniteTalk (chỗ
+    InfiniteTalk há rộng thấy răng thì MuseTalk chỉ hé), ít thấy răng, môi chưa tròn ở khung 52, vùng miệng mờ hơn phần mặt còn
+    lại, màu môi tối hơn. Môi khép ở các khung im lặng thì ổn. Nghiêng về **không đạt** mục 3, chờ người dùng xem có tiếng và chấm.
+  - TODO: người dùng chấm `side_by_side.mp4` và `mouth_closeup.mp4` theo bảng cuối notebook; nếu trượt, chọn giữa chỉnh tham số
+    MuseTalk thêm một lần (miễn phí) và GPU thuê cho InfiniteTalk (hỏi giá trước).
+- **Lý do:**
+  - Rẻ nhất để biết sớm: test dùng lại 81 khung đã có, không phải chạy lại InfiniteTalk.
+  - MuseTalk một bước nên tạo 3–5 phút trên T4 là khả thi; InfiniteTalk thì không.
+  - Ultralight học khẩu hình từ video thầy, nên chất lượng miệng của thầy là trần chất lượng (ADR-060 mục 1).
+- **Phương án đã loại:**
+  - Chạy InfiniteTalk đủ 3–5 phút trên Kaggle: khoảng 37 giờ GPU, vượt hạn mức tuần và dễ chết giữa chừng.
+  - Cài mmpose/DWPose trên Kaggle cho đúng y bản gốc: mmcv phải build theo phiên bản torch/CUDA, tốn thời gian và dễ vỡ.
+  - LatentSync 1.5: nặng hơn MuseTalk (khuếch tán nhiều bước), để dự phòng nếu MuseTalk trượt.
+- **Rủi ro:**
+  - whisper-tiny và MuseTalk học chủ yếu trên tiếng Anh/Trung; khẩu hình tiếng Việt chưa kiểm. Test này sẽ cho biết.
+  - MuseTalk tạo miệng ở 256×256 rồi thu lại, vùng miệng có thể mờ hơn phần mặt còn lại.
+  - Khung cắt từ face-alignment có thể lệch nhẹ so với DWPose; notebook lưu ảnh kiểm khung cắt để xem.
+- **TODO:**
+  - Kiểm license trước M2: trọng số BiSeNet face-parse (repo zllrunning MIT, bản sao HF ghi WTFPL), trọng số S3FD/2DFAN4 của
+    face-alignment, whisper-tiny (Apache-2.0), sd-vae-ft-mse (MIT). Ghi vào `docs/RISKS.md` khi chọn đường lai.
+  - Đo tốc độ thật của MuseTalk trên T4 (notebook ghi vào `run.json`).
+
+## ADR-064: Hai "thầy" cho Ultralight: MuseTalk cho dev, InfiniteTalk cho prod, đổi bằng một biến
+- **Ngày:** 2026-11-18 · **Trạng thái:** Chấp nhận. Người dùng: "bản InfiniteTalk tốt hơn nhỉ nhưng hiện tại tôi thấy bên MuseTalk
+  cũng ổn … hiện giờ triển khai theo MuseTalk trước => đến khi chuẩn bị demo thì đổi sang InfiniteTalk => … dễ chuyển đổi như 1 bên
+  dev bên còn lại là prod". Sửa ADR-063 mục 3 và 4, ADR-060 mục 2 (đầu vào và thư mục kết quả). Đổi bởi ADR-066: thầy
+  prod không bắt buộc cho buổi demo; model thầy MuseTalk đạt ngưỡng thì demo dùng nó.
+- **Bối cảnh:**
+  - Lần so sánh ADR-063: InfiniteTalk cho miệng tốt hơn, MuseTalk tạm chấp nhận được. MuseTalk làm video 3–5 phút trong khoảng
+    20–30 phút trên T4 miễn phí; InfiniteTalk cần khoảng 37 giờ GPU, không làm được trên Kaggle free.
+  - Người dùng muốn làm tiếp cả đường Ultralight ngay với MuseTalk, rồi đổi sang InfiniteTalk trước buổi demo mà không phải sửa lại.
+- **Quyết định:**
+  1. **Notebook mới `scripts/avatar_clips/make_musetalk_video.ipynb`** (chỉ chạy trên Kaggle,
+     `jintran0501/ai-host-musetalk-video-demo-host-02`, riêng tư, T4, Internet): MuseTalk 1.5 lồng miệng theo cả `train_v1.wav`
+     (khoảng 4,9 phút tiếng VieNeu, 20 giây im lặng đầu) lên 81 khung InfiniteTalk version 6, khung chạy tới rồi lùi.
+     - Dùng lại nguyên các ô môi trường, trọng số và điểm mặt của `musetalk_compare.ipynb` (cùng commit, revision, phiên bản gói đã
+       ghim ở ADR-063), nên không thêm gì vào `pyproject.toml`.
+     - Khung ghép xong ghi thẳng vào ffmpeg qua pipe (không giữ khoảng 7.300 khung trong RAM).
+     - Đầu ra ở `musetalk_out/train_v1/` (ngoài git): `<CHARACTER_ID>_musetalk_train_v1.mp4`, `preview.mp4` (15 giây sau đoạn im lặng),
+       `mouth_sheet.png`, `crop_check.png`, `run.json`.
+  2. **Hợp đồng chung của video thầy:** một file mp4 có tiếng, 25 khung/giây, nằm cùng thư mục với `run.json`. `run.json` của
+     MuseTalk có trường `"teacher": "musetalk"`; `run.json` của InfiniteTalk chưa có trường này và được chấp nhận như hiện tại.
+  3. **Công tắc `TEACHER` trong `train_ultralight.ipynb`:**
+     - `"musetalk"` (dev, mặc định bây giờ): video `<CHARACTER_ID>_musetalk_train_v1.mp4`, notebook nguồn
+       `jintran0501/ai-host-musetalk-video-demo-host-02`.
+     - `"infinitetalk"` (prod): video `<CHARACTER_ID>_train_v1.mp4`, notebook nguồn `jintran0501/ai-host-infinitetalk-demo-host-02`.
+     - Kết quả ở `ultralight_out/<CHARACTER_ID>/<TEACHER>/`, trên laptop ở `assets/avatars/<CHARACTER_ID>/ultralight/<TEACHER>/`:
+       model dev không ghi đè model prod.
+     - `run.json` cạnh video được chép thành `teacher_run.json`; `provenance_train.json` ghi `teacher` và tóm tắt lần chạy thầy.
+       Notebook dừng nếu `run.json` hoặc `last.pt` để học tiếp ghi thầy khác `TEACHER`.
+  4. **Chọn model khi live** (biến môi trường kiểu `ULTRALIGHT_TEACHER` hoặc đường dẫn model) thuộc feature tích hợp Ultralight sau
+     này, làm qua `/sdd.specify` (ADR-060 mục 5). Chưa thêm vào `.env.example`.
+  5. **Tốc độ nói:** không làm chậm riêng file tiếng huấn luyện, vì Ultralight sẽ học khẩu hình ở tốc độ khác tiếng TTS khi live.
+     MuseTalk tạo từng khung theo đúng khung tiếng nên miệng không bị trễ; cái thấy "không theo kịp" chủ yếu là miệng mở ít và mờ.
+     Nút thử trước là `EXTRA_MARGIN` (thêm chỗ cho cằm). Nếu vẫn muốn nói chậm hơn, phải đổi tốc độ VieNeu ở cả tiếng huấn luyện và
+     khi live cho đồng nhất.
+- **Lý do:**
+  - Làm và thử được cả đường Ultralight → fork → live ngay bằng GPU miễn phí, không chờ InfiniteTalk.
+  - Ultralight chép khẩu hình của thầy (ADR-060 mục 1), nên đổi thầy chỉ cần tạo video mới và huấn luyện lại, không đổi mã.
+  - Mỗi thầy một thư mục giúp so model dev với model prod trên cùng kịch bản.
+- **Phương án đã loại:**
+  - Chỉ dùng MuseTalk: miệng mở ít và mờ hơn, người dùng muốn bản tốt hơn cho buổi demo.
+  - Chờ InfiniteTalk rồi mới làm Ultralight: chặn mọi việc phía sau bằng một bước cần GPU thuê.
+  - Hai notebook huấn luyện riêng: hai bản mã dễ lệch nhau.
+- **Rủi ro:**
+  - Model dev học từ miệng MuseTalk nên cũng mở ít; không dùng model dev để chấm chất lượng cuối.
+  - Kiểu chuyển động của hai thầy khác nhau, nên các tham số chỉnh trên model dev (epoch, batch) có thể phải chỉnh lại cho prod.
+- **TODO:**
+  - Video InfiniteTalk đủ dài cho prod cần GPU thuê (RunPod hoặc Modal): hỏi người dùng về chi phí trước khi bật.
+  - Thử `EXTRA_MARGIN` 15–20 nếu `preview.mp4` của MuseTalk mở miệng quá ít.
+  - Người dùng xem `preview.mp4` có tiếng sau lần chạy đầu.
+
+## ADR-065: Theo quy định nội dung AI của Shopee: nhãn mặc định "AI-GENERATED CONTENT", ghi các quy định vào ràng buộc
+- **Ngày:** 2026-11-19 · **Trạng thái:** Chấp nhận (người dùng gửi ảnh chụp quy định và chọn "Đổi chữ nhãn" 2026-11-19). Đổi chữ
+  mặc định của nhãn trong khung của fork (ADR-044) và nhãn trên trang host.
+- **Bối cảnh:**
+  - Người dùng gửi ảnh chụp quy định nội dung AI của Shopee và nhờ "thêm vào qui định". Sáu mục trong ảnh:
+  1. Mọi nội dung do AI tạo (chữ, ảnh, video) phải gắn nhãn rõ ràng, ví dụ watermark "AI-generated"; banner mẫu trong ảnh ghi
+     "AI-GENERATED CONTENT".
+  2. Không dùng tài sản của bên thứ ba (logo, ảnh cá nhân) khi chưa được phép.
+  3. Không dùng ảnh AI giống thật của người dưới 18 tuổi.
+  4. Không dùng người nổi tiếng hoặc nhân vật giống họ khi chưa được phép.
+  5. Không tạo nội dung gây hiểu nhầm (sai thông tin sản phẩm, đánh giá giả).
+  6. Tránh nội dung chất lượng thấp: hình hoặc tiếng kém, không tương tác với người xem, nội dung lặp lại, cùng một host AI trên
+     nhiều tài khoản.
+  - Nguồn: chỉ có ảnh chụp. TODO: URL trang gốc, bản của Shopee nước nào, ngày hiệu lực; có áp cho Shopee Live Việt Nam không?
+  - Trước đây nhãn mặc định chỉ là "AI": ngắn, người xem có thể không hiểu cả hình và tiếng đều do AI tạo.
+- **Quyết định:**
+  1. `AI_LABEL_TEXT` mặc định **"AI-GENERATED CONTENT"** (đúng chữ banner mẫu) ở app (`core/config.py`, `.env.example`) và fork
+     (`ailive_ext/label.py`). Vẫn đổi được bằng biến môi trường; vẫn không có cách tắt nhãn.
+  2. Fork thu nhỏ chữ khi nhãn rộng hơn khung trừ lề, để nhãn không bị cắt ở mép. Hộp nhãn ước lượng của app (`scene/layout.py`)
+     cũng không vượt khung. Trên khung 480×832 nhãn mặc định nằm ở x 51–468, y 12–70 (cao 58 px như nhãn "AI" cũ), không phải thu nhỏ.
+  3. Trang host: nhãn luôn một dòng (`white-space: nowrap`); khi bật cảnh 009 cỡ chữ 2,8vh thay 3,6vh để vừa khung 9:16.
+  4. Ghi sáu mục vào `docs/RISKS.md` §1 (P9 cập nhật, P11–P15 mới) và CLAUDE.md (ràng buộc 8).
+  5. Mục 6 "không tương tác với người xem" ngược với ADR-026 (tạm không trả lời chat). Demo ngoài Shopee không bị ảnh hưởng. Chưa đổi
+     ADR-026; phải xem lại trước giai đoạn Shopee (RISKS P11, `progress/OPEN.md` §4).
+  6. Đề xuất sửa hiến pháp (chưa làm, cần `/sdd.constitution`): Điều I ghi "nhãn AI rõ ràng theo quy định nền tảng"; Điều II thêm
+     không dùng hình người dưới 18 tuổi, người nổi tiếng, logo hay ảnh của bên thứ ba khi chưa được phép.
+- **Lý do:**
+  - Chữ trùng banner mẫu của Shopee giảm rủi ro bị coi là gắn nhãn không rõ.
+  - Tiếng Anh vì fork vẽ nhãn bằng font Hershey của OpenCV, chỉ vẽ được ASCII (ADR-044).
+- **Phương án đã loại:**
+  - "AI-generated" (rộng 233 px): gọn hơn, cũng là chữ ví dụ trong quy định, nhưng không giống banner mẫu.
+  - Nhãn tiếng Việt như "Nội dung do AI tạo": phải đổi cách vẽ chữ có dấu trong fork (Pillow). Làm sau nếu Shopee Việt Nam yêu cầu.
+  - Bỏ nhãn: trái ràng buộc 2 và mục 1 của quy định.
+- **Rủi ro:**
+  - Nhãn chiếm gần hết chiều ngang phần trên khung; khung cắt sát đầu thì nhãn có thể che tóc. Kiểm khi xem bản ghi tiếp theo.
+  - `.env` đang đặt `AI_LABEL_TEXT` thì vẫn dùng giá trị trong `.env`; người dùng tự sửa (không sửa `.env` thay người dùng).
+- **TODO:** URL nguồn của ảnh quy định. Shopee Việt Nam có bắt nhãn tiếng Việt không?
+
+## ADR-066: `demo_host_02` là host của khách demo; đánh giá Ultralight khi project xong, đạt thì demo dùng model thầy MuseTalk
+- **Ngày:** 2026-11-19 · **Trạng thái:** Chấp nhận. Người dùng trả lời hai câu làm rõ của spec 011: "FR-015 sẽ đánh giá sau khi project
+  làm xong hết nếu ok thì cứ lấy MuseTalk làm demo thôi. FR-016: dùng cho 1 khách nên lấy 02 mới nhất". Bổ sung ADR-062, sửa ADR-064
+  mục "InfiniteTalk cho prod trước buổi demo".
+- **Bối cảnh:**
+  - Spec 011 (Ultralight trong show live) còn hai câu: model dev (thầy MuseTalk) có được dùng cho buổi demo không; `demo_host_02` thuộc
+    khách nào.
+  - ADR-064 định đổi sang thầy prod InfiniteTalk trước buổi demo; video thầy prod 3–5 phút cần GPU thuê (tốn tiền).
+  - Ràng buộc 3 của CLAUDE.md và RISKS P15: một host AI cho một tài khoản.
+- **Quyết định:**
+  1. `demo_host_02` là host của khách demo hiện tại (khách duy nhất). Khi 011 đạt, `demo_host_02` thay `demo_host_01`; trên một tài khoản
+     chỉ một trong hai nhân vật lên live.
+  2. So sánh Ultralight với Wav2Lip theo ngưỡng ADR-060 mục 5 (US2 của 011) làm sau khi các phần khác của project xong. Đạt thì buổi demo
+     dùng model thầy MuseTalk; model thầy InfiniteTalk không bắt buộc cho buổi demo, không thuê GPU cho nó lúc này.
+     **Sửa 2026-11-19** (người dùng: "hiện tại tôi chỉ muốn hoàn thành sớm và chất lượng tốt để share bằng cách call meeting share
+     màn hình => luôn luôn chạy trên máy này", duyệt bằng "ok run đi"): so sánh làm **ngay khi model Kaggle xong**, không chờ cả
+     project xong. Demo luôn chạy trên laptop, miễn phí, share qua Meet.
+  3. Đến lúc đánh giá, cấu hình demo vẫn như ADR-062 (Wav2Lip `w2l`, `demo_host_01`) và là phương án dự phòng nếu chưa đạt.
+  4. Đường đổi sang thầy prod vẫn làm trong 011 (US3) để dùng sau mà không phải sửa code.
+- **Lý do:** model dev đã có (Kaggle, miễn phí); không tốn tiền GPU thuê trước khi khách đồng ý trả; chọn nhân vật mới nhất vì ảnh đã được
+  duyệt và có bàn trong cảnh shop.
+- **Phương án đã loại:** bắt buộc model prod cho buổi demo (tốn tiền GPU thuê, chưa chắc tốt hơn đủ để đáng); để `demo_host_02` cho khách
+  khác (chỉ có một khách).
+
+## ADR-067: Chọn model nhép miệng khi live bằng `LIVETALKING_MODEL` + `LIVETALKING_ULTRALIGHT_TEACHER`; fork kiểm bản ghi cài đặt
+- **Ngày:** 2026-11-19 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-19: "ok run đi") (plan 011, research R1–R5, R8)
+- **Bối cảnh:** ADR-064 mục 4 để việc "chọn model khi live" cho feature tích hợp. Fork đã có đường `--model ultralight` và công cụ
+  `ailive_ext.ultralight install` (avatar `<nhân vật>__ultralight_<thầy>`, bản ghi `ultralight_install.json`), nhưng `app.py` từ chối
+  `--ailive_character` với model khác `wav2lip`, app không biết fork đang chạy model nào, và `character.json` đòi clip idle/talk.
+- **Quyết định:**
+  1. Hai biến môi trường, app và `scripts/livetalking/run.ps1` cùng đọc: `LIVETALKING_MODEL=wav2lip|ultralight` (mặc định `wav2lip`),
+     `LIVETALKING_ULTRALIGHT_TEACHER=musetalk|infinitetalk` (mặc định `musetalk`, ADR-066). Nhân vật vẫn chọn bằng `AVATAR_ID`/`AVATAR_DIR`.
+  2. Fork nhận `--ailive_teacher`; với `ultralight` + `--ailive_character` tự suy tên avatar, kiểm bản ghi cài đặt (nhân vật, thầy, sha256
+     `ultralight.pth`) trước khi nạp HuBERT, sai thì thoát với thông báo tiếng Việt. Không dùng thư viện clip cho Ultralight.
+  3. `hello` và `/ailive/health` thêm khối tùy chọn `lipsync` (model, thầy, nhân vật, avatar, sha256); `mouth_method` = `ultralight`.
+  4. `character.json` thêm `lipsync_models` (mặc định `["wav2lip"]`); clip idle/talk và `prepare` chỉ bắt buộc khi có `wav2lip`.
+  5. Kiểm tra trước demo thêm mục "Model nhép miệng": thiếu cài đặt, sai nhân vật, sai thầy, sai sha256, fork chạy model khác cấu hình → LỖI.
+  6. Với `ultralight`, `run.ps1` không truyền các biến chỉ có tác dụng với wav2lip/thư viện clip (`LIVETALKING_MOUTH_METHOD`,
+     `LIVETALKING_LIP_EVERY_N`, `LIVETALKING_TRANSITION_S`, `LIVETALKING_HOLD_S`) và báo bỏ qua.
+- **Lý do:** một nguồn cấu hình cho app và fork; đổi thầy dev/prod không phải sửa code (FR-006); sha256 là bằng chứng không nhầm model
+  (FR-007); mặc định giữ đúng cấu hình demo ADR-062.
+- **Phương án đã loại:** một biến gộp `ultralight_musetalk`; ghi model vào `character.json`; truyền thẳng `--avatar_id`; tự đổi model
+  giữa show (FR-014; đổi cả mặt host).
+
+## ADR-068: Nhân vật có sẵn bàn trong ảnh: `character.json` `scene.desk_in_image` + `scene.desk_top`, cảnh 009 bỏ lớp bàn
+- **Ngày:** 2026-11-19 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-19: "ok run đi") (plan 011, research R9)
+- **Bối cảnh:** ảnh `demo_host_02` có bàn (provenance), cảnh 009 luôn vẽ lớp bàn ở `layout.desk_top` của `scene.json` → hai bàn chồng nhau.
+- **Quyết định:** `character.json` thêm khối tùy chọn `scene: {desk_in_image, desk_top}`; khi `desk_in_image` là true, cảnh 009 không vẽ
+  bàn và đặt thẻ sản phẩm trên `desk_top` của nhân vật (0,55–0,92); kiểm "bàn không chạm mặt" giữ nguyên. Đo khung của fork dùng nhánh
+  `frame_list_cycle`/`coord_list_cycle` sẵn có (chạy được với `LightReal`).
+- **Lý do:** bàn thuộc ảnh nhân vật, không thuộc cảnh dùng chung; khai một số đo tay rẻ hơn tự dò mép bàn.
+- **Phương án đã loại:** tự dò mép bàn bằng xử lý ảnh; sửa `scene.json` dùng chung.
+
+## ADR-069: Lệnh `ai_live.ops lipsync-compare`: gộp bộ đo 010 với hai show 10 phút, kết luận theo ADR-060 mục 5
+- **Ngày:** 2026-11-19 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-19: "ok run đi") (plan 011, research R10)
+- **Bối cảnh:** US2 của 011 cần một báo cáo so Ultralight với Wav2Lip đủ để quyết cấu hình demo (ADR-066). Số khẩu hình ở bộ đo 010 (venv
+  fork), số show (câu đầu, lặng p95, fps, VRAM, lỗi) ở bản ghi phiên của app.
+- **Quyết định:** lệnh mới ở app đọc `report.json` của `mouth_eval --methods w2l,ultralight` (khối `sc001`) và bản ghi hai phiên (dùng lại
+  phần đọc của báo cáo tổng duyệt 007), viết `out/011_compare/<ngày-giờ>/report.md` + `verdict.json`; mỗi ngưỡng ADR-060 mục 5 (và SC-002:
+  lặng p95 không quá +10% so với Wav2Lip) một dòng Đạt / Chưa đạt / Thiếu số, kết luận Đạt chỉ khi mọi dòng Đạt. Không hạ ngưỡng, không
+  đoán số thiếu. Gói xem mù 010 chỉ được trỏ tới, không mở khóa.
+- **Lý do:** không làm lại bộ đo; không trộn hai venv; báo cáo chạy lại được khi đánh giá (ngay khi có model Kaggle, ADR-066 mục 2 sửa 2026-11-19).
+- **Phương án đã loại:** mở rộng `mouth_eval` đọc bản ghi phiên của app; so `demo_host_02` Wav2Lip trong show (không có thư viện clip).
+
+## ADR-070: Giữ trước `LIVETALKING_PREBUFFER_S` (0,6 s) tiếng TTS trước khi gửi câu cho fork
+- **Ngày:** 2026-11-20 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-20: "cái 1 đề xuất của bạn ok") (sửa lỗi, WORKFLOW §2)
+- **Bối cảnh:** demo2 (2026-11-20) nghe tiếng hơi giật, đều từ đầu show. Log fork cho thấy mỗi câu chuyển "nói → lặng" khoảng 5–6 lần
+  giữa câu: hàng đợi tiếng của fork cạn nên fork chèn khoảng lặng. WebRTC 0 mất gói, GPU không nóng; CPU ~85% (Chrome, fork, app). Đo
+  VieNeu lúc máy rảnh: 0,63 s tạo 1 s tiếng, nhưng đoạn đầu (0,32 s) tới lúc 0,33 s, nên tiếng chỉ đi trước lúc phát ~0,1 s; CPU bận một
+  chút là đoạn sau tới trễ.
+- **Quyết định:** `LiveTalkingRenderer.speak` gom tiếng của câu tới khi đủ `LIVETALKING_PREBUFFER_S` giây (mặc định 0,6) hoặc hết câu, rồi mới
+  gửi; sau đó gửi từng đoạn ngay như cũ. 0 = tắt. Mỗi câu đều gom (câu giữa đoạn không mất gì vì `LIVETALKING_LEAD_S` đã cho TTS chạy song song
+  với câu đang phát).
+- **Đánh đổi:** câu đầu mỗi đoạn trễ thêm ~0,2 s lúc máy rảnh (đoạn thứ hai 0,64 s tới lúc ~0,53 s), có thể hơn khi CPU bận. Câu đầu show
+  demo2 đo 4,6 s, gần ngân sách 5 s (Hiến pháp VI). Với câu ~4 s, 0,6 s đỡ được TTS chậm tới ~1,15 lần thời gian thực; chậm hơn thì vẫn giật.
+- **Phương án đã loại:** gom cả câu (câu đầu trễ cả câu); sửa fork để chờ đủ tiếng (đụng vendor, khó thử).
+- **TODO:** đo lại ở show demo2 tiếp theo: số lần "nói → lặng" giữa câu và câu đầu show; còn giật thì thử 1,0 và giảm tải CPU (đóng tab Chrome
+  thừa, tắt FxSound).
+
+## ADR-071: Ảnh tải từ trang điều khiển nằm ở `SCENE_DIR/uploads/`, xác nhận quyền dùng thay hồ sơ nguồn 009
+- **Ngày:** 2026-11-20 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-20)
+- **Bối cảnh:** 012 cho người vận hành tải và thay ảnh sản phẩm giữa live trên trang điều khiển. Hợp đồng bộ cảnh 009 đòi mỗi ảnh có mục
+  `provenance.json` và ảnh gốc trong `originals/`, làm bằng tay trước demo. Làm rõ 012 (2026-11-20): bỏ hồ sơ nguồn chi tiết cho ảnh tải
+  lên, chỉ cần người vận hành tích ô xác nhận; nhận cả ảnh còn nền.
+- **Quyết định:** mỗi lần tải lưu một phiên bản PNG RGBA đã chuẩn hóa (cạnh dài ≤ 1280 px) ở `uploads/<product_id>/<version_id>.png`;
+  `uploads/images.json` (ghi qua file tạm + `os.replace`) chọn ảnh đang dùng (`vid` | `null` = đã gỡ | `"kit"` = ảnh 009) và giữ lịch sử.
+  Bộ nạp cảnh ưu tiên sổ này hơn `products/`. Với ảnh tải lên, `rights_confirmed_at` thay cho `provenance.json` + ảnh gốc; thiếu là lỗi
+  `missing_confirmation` (ảnh không vẽ, kiểm trước demo báo LỖI); sổ hỏng là `bad_uploads`. Ảnh không nền được nhận, chuyển sang RGBA đặc,
+  trang báo "ảnh còn nền". Không xóa phiên bản tự động. Không thêm thư viện (Pillow đã có). Chi tiết: `specs/012-product-image-upload/`
+  research R1, R2, R6, R9, contracts/scene-set.md.
+- **Đánh đổi:** bằng chứng nguồn gốc mỏng hơn 009 (RISKS Q37); `uploads/` lớn dần tới khi dọn tay.
+- **Phương án đã loại:** ghi thẳng đè `products/<id>.png` (mất ảnh cũ, không hoàn tác được, phải sửa `provenance.json` bằng code); bắt
+  điền hồ sơ nguồn trên trang (chậm giữa live, người dùng đã bỏ ở làm rõ); chỉ nhận PNG trong suốt (khách thường gửi JPEG).
+
+## ADR-072: "Áp dụng bộ mới" đổi catalog và ảnh trong một lần, bộ chuẩn bị chỉ ở bộ nhớ
+- **Ngày:** 2026-11-20 · **Trạng thái:** Chấp nhận (người dùng duyệt 2026-11-20)
+- **Bối cảnh:** US2 của 012: chuẩn bị file nội dung mới và gán ảnh cho món mới mà live không đổi, rồi áp một lần. `store.install` phát
+  `CONTENT_REPLACED` bất đồng bộ, nên một lần vẽ lại (vì phụ đề) có thể vẽ thẻ mới với ảnh cũ.
+- **Quyết định:** `StagedSet` (catalog đã đọc bằng `store.parse` + ảnh gán) chỉ ở bộ nhớ, một bộ mỗi lúc. Áp dụng: `SceneController`
+  giữ khóa vẽ (`scene.hold()`), ghi `images.json` một lần, `store.install`, `director.on_catalog_replaced`, nhả khóa rồi nạp lại cảnh. Lỗi
+  ở bước nào thì live giữ bộ cũ và sổ ảnh được trả lại. Còn món thiếu ảnh thì hỏi lại (409 `missing_images`). Chi tiết: research R7,
+  contracts/api.md §2.
+- **Đánh đổi:** tắt app thì mất bộ chuẩn bị (ảnh đã tải vẫn còn trong `uploads/`); khung hình đứng thêm tối đa một lần vẽ trong lúc giữ khóa.
+- **Phương án đã loại:** lưu bộ chuẩn bị xuống đĩa (thêm trạng thái phải dọn, ít lợi cho demo); áp catalog trước rồi ảnh sau (có khung ghép
+  thẻ mới với ảnh cũ, trái SC-006).

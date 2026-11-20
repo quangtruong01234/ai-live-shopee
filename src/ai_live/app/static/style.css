@@ -30,7 +30,8 @@ body.host { background: #000; overflow: hidden; }
   padding: .35em .8em; border-radius: .4em;
   background: rgba(0, 0, 0, .65); color: #fff;
   font-weight: 700; font-size: clamp(16px, 2.4vw, 32px); letter-spacing: .04em;
-  pointer-events: none;
+  /* One line, like the fork's banner: "AI-GENERATED CONTENT" (ADR-065) must not wrap into a block over the face. */
+  white-space: nowrap; pointer-events: none;
 }
 .label-top-right { top: 3vh; right: 3vw; }
 .label-top-left { top: 3vh; left: 3vw; }
@@ -50,7 +51,7 @@ body.host { background: #000; overflow: hidden; }
   position: absolute; inset: 0; margin: auto;
   width: min(100vw, 57.69vh); height: min(100vh, 173.33vw);
 }
-.scene-on .ai-label { font-size: clamp(14px, 3.6vh, 32px); }
+.scene-on .ai-label { font-size: clamp(12px, 2.8vh, 30px); }
 .scene-on .label-top-right { top: 1.5%; right: 2.5%; }
 .scene-on .label-top-left { top: 1.5%; left: 2.5%; }
 .scene-on .label-bottom-right { bottom: 1.5%; right: 2.5%; }
@@ -149,3 +150,55 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .check-mark.warn { background: var(--warn-ink); color: #fff; }
 .check-mark.fail { background: var(--err-ink); color: #fff; }
 #readiness-manual label { cursor: pointer; }
+
+/* 012: product images. Thumbnails sit on a checkerboard so a transparent background reads as transparent. */
+.image-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.image-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: pointer; background: var(--panel); text-align: left; font: inherit; color: inherit; width: 100%; }
+.image-item.selected { border-color: var(--brand); box-shadow: 0 0 0 2px rgba(238, 77, 45, .25); }
+.image-item .thumb { display: flex; align-items: center; justify-content: center; height: 110px; border-radius: 6px; margin-bottom: 6px;
+  background: repeating-conic-gradient(#eee 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.image-item .thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-item .thumb .empty { padding: 0 6px; text-align: center; }
+.image-item .name { font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
+.image-item .state { font-size: .8rem; color: var(--muted); }
+.image-item .state.err { color: var(--err-ink); }
+.image-editor { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.image-editor .session-controls { margin: 8px 0; }
+.rights { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; font-size: .9rem; cursor: pointer; }
+.rights input { margin-top: 3px; }
+.image-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.image-compare figure { margin: 0; }
+.image-compare figcaption { font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+.image-compare img { display: block; width: 100%; max-width: 300px; border: 1px solid var(--line); border-radius: 6px; background: #000; }
+#image-apply-btn:not(:disabled) { border-color: var(--brand); background: var(--brand); color: #fff; }
+/* 012 US3: the image in use; "Gỡ ảnh" looks dangerous because it takes the picture off live. */
+.image-editor h4 { margin: 12px 0 4px; font-size: .95rem; }
+.image-current dl { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 2px 12px; margin: 0; font-size: .9rem; }
+.image-current dt { color: var(--muted); }
+.image-current dd { margin: 0; }
+.image-current .hint { font-size: .85rem; color: var(--muted); margin: 4px 0 0; }
+.image-current summary { cursor: pointer; font-size: .9rem; }
+.image-versions { margin: 4px 0 0; padding-left: 20px; font-size: .85rem; }
+.image-versions li.active { font-weight: 600; }
+#image-remove-btn:not(:disabled) { border-color: var(--err-ink); color: var(--err-ink); }
+/* 012 US2: "Chuẩn bị bộ mới" sits under the live image list, set apart so nobody mistakes it for live. */
+.staging { margin-top: 16px; border-top: 2px dashed var(--line); padding-top: 8px; }
+.staging .hint { font-size: .85rem; color: var(--muted); margin: 4px 0 8px; }
+.image-item .state.new { color: var(--ink); font-weight: 600; }
+.image-item .state.warn { color: var(--warn-ink); font-weight: 600; }
+#staging-apply-btn:not(:disabled), #staging-assign-btn:not(:disabled) { border-color: var(--brand); background: var(--brand); color: #fff; }
+
+/* 012 US4: "AI vừa nói" and the product detail panel. */
+.spoken-scroll { max-height: 320px; overflow-y: auto; }
+.latency.spoken th, .latency.spoken td { text-align: left; vertical-align: top; }
+.latency.spoken td:first-child { white-space: nowrap; color: var(--muted); }
+.latency.spoken td:last-child { overflow-wrap: anywhere; }
+.latency.spoken tr.empty td { color: var(--muted); }
+.link-btn { background: none; border: 0; padding: 0; color: var(--brand); cursor: pointer; font: inherit; text-align: left; text-decoration: underline; }
+.product-detail dl { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 4px 12px; margin: 0 0 8px; }
+.product-detail dt { color: var(--muted); }
+.product-detail dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.product-detail h3 { margin: 12px 0 4px; }
+.product-detail ul { margin: 0; padding-left: 20px; }
+.product-detail #detail-close { margin-top: 12px; }
+.badge.staging { background: #fff4d6; color: #7a5200; }

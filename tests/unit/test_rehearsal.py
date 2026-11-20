@@ -266,3 +266,54 @@ def test_a_half_written_last_line_is_skipped_with_a_note(tmp_path: Path):
     report = rh.build_report(rh.load_show_logs(show.directory, show.show_id))
     assert report.gaps["counted"] == 40
     assert any("dòng log hỏng" in note for note in report.notes)
+
+
+# --- 011 T020: the lip-sync model of the session (FR-009) ---
+# The fork's `hello` reaches `avatar.jsonl` as a `health` line with `connected: true` (the `lipsync_connected` line of
+# contracts/lipsync-selection.md §5); since 011 it carries the `lipsync` block.
+
+_ULTRALIGHT_BLOCK = {
+    "model": "ultralight",
+    "teacher": "musetalk",
+    "character_id": "demo_host_02",
+    "avatar_id": "demo_host_02__ultralight_musetalk",
+    "checkpoint_sha256": "ab" * 32,
+}
+
+
+def _add_health(directory: Path, **fields) -> None:
+    row = {"ts": "2026-11-19T10:00:00+07:00", "kind": "health", "connected": True, **fields}
+    with (directory / "avatar.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+def test_report_names_the_lipsync_model_teacher_and_character(tmp_path: Path):
+    show = write_show_logs(tmp_path)
+    _add_health(show.directory, lipsync=_ULTRALIGHT_BLOCK)
+    report = rh.build_report(rh.load_show_logs(show.directory, show.show_id))
+    assert report.conditions["lipsync"] == _ULTRALIGHT_BLOCK
+    assert "- Model nhép miệng: Ultralight · thầy MuseTalk · demo_host_02" in rh.render_markdown(report)
+
+
+def test_the_last_hello_of_the_session_wins(tmp_path: Path):
+    show = write_show_logs(tmp_path)
+    _add_health(show.directory, lipsync={"model": "wav2lip", "teacher": None, "character_id": "demo_host_02"})
+    _add_health(show.directory, lipsync=_ULTRALIGHT_BLOCK)
+    # A lost connection is not a hello: its line does not change the model.
+    _add_health(show.directory, connected=False, lipsync=None)
+    report = rh.build_report(rh.load_show_logs(show.directory, show.show_id))
+    assert report.conditions["lipsync"]["model"] == "ultralight"
+
+
+def test_report_of_an_older_session_says_the_model_is_unknown(tmp_path: Path):
+    show = write_show_logs(tmp_path)
+    _add_health(show.directory)  # a fork older than 011 sends no block
+    report = rh.build_report(rh.load_show_logs(show.directory, show.show_id))
+    assert report.conditions["lipsync"] is None
+    assert "- Model nhép miệng: không rõ" in rh.render_markdown(report)
+
+
+def test_static_session_has_no_lipsync_model(tmp_path: Path):
+    report = report_of(tmp_path, avatar_mode="static")
+    assert report.conditions["lipsync"] is None
+    assert "- Model nhép miệng: không dùng (ảnh tĩnh)" in rh.render_markdown(report)

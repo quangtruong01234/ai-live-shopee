@@ -11,6 +11,7 @@ from ai_live.scene.layout import (
     card_text,
     compute_layout,
     estimate_geometry,
+    estimate_label_box,
     price_text,
     slot_order,
 )
@@ -178,3 +179,40 @@ def test_single_product_catalog() -> None:
     products = catalog(product("only", primary=True)).products
     layout = compute_layout(products, _sizes(products), estimate_geometry("AI", "top-right"), LayoutParams())
     assert [s.product_id for s in layout.slots] == ["only"]
+
+
+@pytest.mark.parametrize("position", ["top-left", "top-right", "bottom-left", "bottom-right"])
+@pytest.mark.parametrize("text", ["AI-GENERATED CONTENT", "THIS LIVE HOST IS AN AI-GENERATED AVATAR AND VOICE"])
+def test_a_long_label_estimate_stays_inside_the_frame(text, position):
+    # The fork shrinks a label wider than the frame (ADR-065); the estimate must not reach past the edges either.
+    x1, y1, x2, y2 = estimate_label_box(480, 832, text, position)
+    assert 12 <= x1 < x2 <= 480 - 12
+    assert 0 <= y1 < y2 <= 832
+
+
+# ---------- 011 T016: the desk is part of the character image ----------
+
+
+def test_character_desk_top_replaces_the_scene_json_one() -> None:
+    geometry = estimate_geometry("AI", "top-right")
+    products = demo_catalog().products
+    from_json = compute_layout(products, _sizes(products), geometry, LayoutParams(desk_top=0.76))
+    layout = compute_layout(products, _sizes(products), geometry, LayoutParams(desk_top=0.76), desk_top=0.84)
+    same = compute_layout(products, _sizes(products), geometry, LayoutParams(desk_top=0.84))
+    assert layout.drawable and not layout.issues
+    assert layout.desk_box == same.desk_box and layout.desk_box[1] > from_json.desk_box[1]
+    desk_y = layout.desk_box[1]
+    # Products stand on that edge and their cards sit on the desk below it.
+    for slot in layout.slots:
+        if slot.art_box is not None:
+            assert slot.art_box[3] >= desk_y, slot
+        assert slot.card_box[1] >= desk_y, slot
+
+
+def test_character_desk_top_touching_the_face_still_blocks() -> None:
+    geometry = estimate_geometry("AI", "top-right")
+    products = demo_catalog().products
+    touching = (geometry.face_zone[3] - 10) / geometry.height
+    layout = compute_layout(products, _sizes(products), geometry, LayoutParams(desk_top=0.76), desk_top=touching)
+    assert not layout.drawable
+    assert [i.code for i in layout.issues] == ["layout_keep_out"]

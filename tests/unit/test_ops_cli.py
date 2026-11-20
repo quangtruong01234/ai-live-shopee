@@ -183,3 +183,58 @@ def test_main_dispatches_report(monkeypatch):
     )
     assert ops_main.main(["report", "20261113-155721", "--show", "abc", "--json"]) == 0
     assert calls == [("20261113-155721", "abc", True)]
+
+
+# --- `lipsync-compare` (011 US2 T043, contracts/lipsync-compare.md §1) ---
+
+
+def test_main_dispatches_lipsync_compare_with_the_default_out(monkeypatch):
+    from ai_live.ops import lipsync_compare as lc
+
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        lc, "cli_lipsync_compare", lambda mouth, show_a, show_b, *, out: calls.append((mouth, show_a, show_b, out)) or 2
+    )
+    code = ops_main.main(
+        ["lipsync-compare", "--mouth", "out/mouth/runs/r1", "--show-a", "20261120-100000", "--show-b", "s-b:show-1"]
+    )
+    assert code == 2
+    assert calls == [("out/mouth/runs/r1", "20261120-100000", "s-b:show-1", Path("out/011_compare"))]
+
+
+def test_main_lipsync_compare_takes_out(monkeypatch, tmp_path: Path):
+    from ai_live.ops import lipsync_compare as lc
+
+    calls: list[Path] = []
+    monkeypatch.setattr(lc, "cli_lipsync_compare", lambda mouth, show_a, show_b, *, out: calls.append(out) or 0)
+    argv = ["lipsync-compare", "--mouth", "m", "--show-a", "a", "--show-b", "b", "--out", str(tmp_path / "x")]
+    assert ops_main.main(argv) == 0
+    assert calls == [tmp_path / "x"]
+
+
+@pytest.mark.parametrize("missing", ["--mouth", "--show-a", "--show-b"])
+def test_main_lipsync_compare_requires_its_three_inputs(missing):
+    argv = ["lipsync-compare", "--mouth", "m", "--show-a", "a", "--show-b", "b"]
+    i = argv.index(missing)
+    del argv[i : i + 2]
+    with pytest.raises(SystemExit) as stopped:
+        ops_main.main(argv)
+    assert stopped.value.code == 2
+
+
+def test_lipsync_compare_end_to_end_by_session_dir(capsys, tmp_path: Path):
+    from unit.test_lipsync_compare import write_a, write_b, write_mouth
+
+    mouth, a, b = write_mouth(tmp_path), write_a(tmp_path), write_b(tmp_path)
+    out = tmp_path / "compare"
+    argv = ["lipsync-compare", "--mouth", str(mouth), "--show-a", str(a.directory), "--show-b", str(b.directory)]
+    assert ops_main.main([*argv, "--out", str(out)]) == 0
+    (folder,) = out.iterdir()
+    assert (folder / "report.md").read_text(encoding="utf-8").startswith("**Kết luận: Đạt**")
+    assert "Kết luận: Đạt" in capsys.readouterr().out
+
+
+def test_lipsync_compare_exits_3_on_a_wrong_dir(capsys, tmp_path: Path):
+    argv = ["lipsync-compare", "--mouth", str(tmp_path / "no"), "--show-a", "x", "--show-b", "y"]
+    assert ops_main.main([*argv, "--out", str(tmp_path / "compare")]) == 3
+    assert "LỖI" in capsys.readouterr().out

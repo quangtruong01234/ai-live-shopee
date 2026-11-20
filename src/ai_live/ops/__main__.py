@@ -1,4 +1,7 @@
-"""`uv run python -m ai_live.ops readiness|report|backup-video` (specs/007-demo-readiness/contracts/cli.md).
+"""`uv run python -m ai_live.ops readiness|report|backup-video|lipsync-compare`.
+
+Contracts: specs/007-demo-readiness/contracts/cli.md;
+`lipsync-compare`: specs/011-ultralight-live-lipsync/contracts/lipsync-compare.md.
 
 Output is for the operator, in Vietnamese.
 """
@@ -8,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -33,6 +37,13 @@ def _parser() -> argparse.ArgumentParser:
     backup.add_argument("--seconds", type=float, default=150.0)
     backup.add_argument("--content", choices=("verbatim", "script"), default="verbatim")
     backup.add_argument("--url", default=DEFAULT_URL)
+    compare = sub.add_parser(
+        "lipsync-compare", help="So Ultralight với Wav2Lip theo ngưỡng cố định (011): Đạt / Chưa đạt / Thiếu số"
+    )
+    compare.add_argument("--mouth", required=True, help="Thư mục một lần chạy bộ đo khẩu hình (out/mouth/runs/<...>)")
+    compare.add_argument("--show-a", required=True, help="Phiên Wav2Lip: thư mục phiên hoặc session_id[:show_id]")
+    compare.add_argument("--show-b", required=True, help="Phiên Ultralight: thư mục phiên hoặc session_id[:show_id]")
+    compare.add_argument("--out", type=Path, default=Path("out/011_compare"), help="Thư mục ghi báo cáo")
     return parser
 
 
@@ -48,6 +59,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ai_live.ops.rehearsal import cli_report
 
         return cli_report(args.session, show_id=args.show, as_json=args.json)
+    if args.command == "lipsync-compare":
+        from ai_live.ops import lipsync_compare
+
+        return lipsync_compare.cli_lipsync_compare(args.mouth, args.show_a, args.show_b, out=args.out)
     from ai_live.ops.backup_video import cli_backup_video
 
     return cli_backup_video(args.url, seconds=args.seconds, content=args.content)

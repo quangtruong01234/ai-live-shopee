@@ -207,12 +207,18 @@ def render_base(
     products: Mapping[str, Product],
     geometry: FrameGeometry,
     fonts: SceneFonts,
+    *,
+    desk_in_image: bool = False,
 ) -> SceneLayer:
-    """The desk, every placed product and its card, cropped to what was drawn."""
+    """The desk, every placed product and its card, cropped to what was drawn.
+
+    `desk_in_image` (011): the character's picture already shows a desk, so drawing another would cover it.
+    """
     layer = Image.new("RGBA", (geometry.width, geometry.height), (0, 0, 0, 0))
     if not layout.drawable:
         return SceneLayer("base", 0, 0, None)
-    _draw_desk(layer, scene, layout.desk_box)
+    if not desk_in_image:
+        _draw_desk(layer, scene, layout.desk_box)
     any_highlight = any(s.highlighted for s in layout.slots)
     # The highlighted product is drawn last so its glow lies over its neighbours, never under them.
     for slot in sorted(layout.slots, key=lambda s: s.highlighted):

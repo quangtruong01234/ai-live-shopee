@@ -175,3 +175,29 @@ def test_scene_without_desk_or_art_still_draws_cards(tmp_path: Path, fonts) -> N
     _, layer = _render(bare, fonts, geometry)
     assert layer.image is not None
     assert _clear(_frame(layer, geometry), geometry.face_zone)
+
+
+# ---------- 011 T017: a desk drawn in the character image ----------
+
+
+def _desk_strip(layout, geometry: FrameGeometry) -> tuple[int, int, int, int]:
+    # The left margin of the desk area: only the desk layer ever draws there.
+    x1, y1, _, y2 = layout.desk_box
+    return x1, y1, x1 + 4, min(y2, geometry.height - 40)
+
+
+def test_desk_in_image_draws_no_desk_but_keeps_cards_and_highlight(scene, fonts) -> None:
+    geometry = estimate_geometry("AI", "top-right")
+    sizes = {pid: art.image.size for pid, art in scene.art.items()}
+    layout = compute_layout(list(PRODUCTS.values()), sizes, geometry, scene.layout, "toner")
+    with_desk = _frame(render_base(scene, layout, PRODUCTS, geometry, fonts), geometry)
+    assert not _clear(with_desk, _desk_strip(layout, geometry))
+    layer = render_base(scene, layout, PRODUCTS, geometry, fonts, desk_in_image=True)
+    frame = _frame(layer, geometry)
+    assert _clear(frame, _desk_strip(layout, geometry))
+    for slot in layout.slots:
+        assert not _clear(frame, slot.card_box), slot.product_id
+    highlighted = layout.slot("toner")
+    assert highlighted is not None and highlighted.highlighted and highlighted.art_box is not None
+    assert not _clear(frame, highlighted.art_box)
+    assert _clear(frame, geometry.face_zone)

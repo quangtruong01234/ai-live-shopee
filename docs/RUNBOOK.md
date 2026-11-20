@@ -57,7 +57,7 @@ Lần chạy thử 2 phút cùng ngày (nhép miệng + VieNeu, `REPLY_ENGINE=fa
    banner đỏ "Không có model nào sẵn sàng". Bấm **Kiểm tra trước demo** (hoặc chạy `uv run python -m ai_live.ops readiness` ở terminal
    3): bảng phải ghi "SẴN SÀNG"; còn dòng `LỖI` thì làm theo cột "Việc cần làm" (dòng `→` ở terminal) rồi kiểm lại. Ba mục máy không kiểm được (văn bản
    đồng ý, thử chia sẻ Meet, không có RunPod) phải tự tích tay. Lệnh kiểm **không gọi LLM** (mục chuỗi model chỉ đọc trạng thái có sẵn).
-6. Nhìn `/host`: nhân vật chạy clip chờ, miệng khép, nhãn "AI" trong khung (không được che hay tắt), watermark LiveTalking ở góc
+6. Nhìn `/host`: nhân vật chạy clip chờ, miệng khép, nhãn "AI-GENERATED CONTENT" (ADR-065) trong khung (không được che hay tắt), watermark LiveTalking ở góc
    (license yêu cầu, ràng buộc 5); có cảnh thì thấy bàn và sản phẩm.
 7. Bấm **Bắt đầu show**, nghe 2–3 câu: câu đầu ≤ 5 s, tiếng khớp miệng. Bấm **Kết thúc**. Mỗi lần bấm Bắt đầu là một `show_id` mới.
    Show thử này cũng làm ấm fork: show đầu tiên sau khi bật fork thỉnh thoảng nói câu đầu chậm tới ~5 s và hiện banner "Host im lặng"
@@ -100,6 +100,7 @@ Các dấu hiệu khác (không có banner riêng hoặc có từ trước 007):
 | Banner "Nhân vật nhép miệng lỗi 2 lượt liền, đang dùng ảnh tĩnh" | Fork lỗi nhiều lần liên tiếp, app tự chuyển về `static` (FR-022) | Xem terminal 1; fork còn sống thì bấm **Bật lại nhân vật nhép miệng**; fork chết thì bật lại `run.ps1` rồi bấm nút đó |
 | Hình giật, miệng chậm | GPU/CPU quá tải (VieNeu và Wav2Lip cùng chạy; lượt bình luận đo được `render_fps` ~18) | Đóng ứng dụng khác, kiểm sạc; không đổi cấu hình giữa buổi |
 | Host nói sai thông tin | Không nên xảy ra (guard), nhưng nếu có | Bấm **Bỏ qua câu đang nói**, người dẫn đính chính; sau buổi ghi lại câu và `show_id` để sửa guard |
+| Bấm "Áp dụng" ảnh mới mà live không đổi | Cảnh đang tắt (trang báo "cảnh đang tắt, ảnh chưa hiện trên live"), ảnh chưa xác nhận quyền dùng, hoặc sổ `uploads/images.json` hỏng | Đọc dòng chữ cạnh nút "Áp dụng"; xem log `scene_image_changed` (`result`, `to_frame_ms`) trong phiên; kiểm trước demo báo `missing_confirmation` / `bad_uploads` thì xác nhận lại hoặc "Gỡ ảnh" (§9) |
 | Mọi cách trên không cứu được trong khoảng 1 phút | — | Người dẫn báo khách, phát video dự phòng (§5) |
 
 TODO: ngưỡng "1 phút" trước khi chuyển sang video dự phòng là đề xuất, người dùng chốt.
@@ -138,7 +139,7 @@ Cách làm (làm ở T-1 ngày, khi nội dung sản phẩm đã chốt; đổi 
 | `AVATAR_MODE` | `livetalking` | |
 | `CUSTOMER_ID`, `AVATAR_ID` | của khách demo | một nhân vật cho một khách (ràng buộc 3) |
 | `SCENE_ENABLED`, `SCENE_DIR` | theo bộ cảnh đã duyệt | |
-| `LIVETALKING_LEAD_S`, `LIVETALKING_BATCH_SIZE`, `LIVETALKING_MOUTH_METHOD`, `LIVETALKING_HOLD_S` | `2.5`, `16`, theo chấm A/B 010, `2.5` | `LEAD_S` và batch chốt 2026-11-16; TODO: `MOUTH_METHOD` chờ chấm A/B 010 |
+| `LIVETALKING_LEAD_S`, `LIVETALKING_PREBUFFER_S`, `LIVETALKING_BATCH_SIZE`, `LIVETALKING_MOUTH_METHOD`, `LIVETALKING_HOLD_S` | `2.5`, `0.6`, `16`, theo chấm A/B 010, `2.5` | `LEAD_S` và batch chốt 2026-11-16; TODO: `MOUTH_METHOD` chờ chấm A/B 010 |
 | `AILIVE_RECORD_DIR` | trống | chỉ đặt khi làm video dự phòng (§5); bật ghi luồng tốn đĩa và có mặt, giọng người mẫu |
 | `WATCHDOG_ENABLED` | `true` | bộ canh show và banner §4 |
 | `WATCHDOG_SILENCE_S`, `WATCHDOG_FROZEN_S`, `WATCHDOG_AUTOSKIP_S`, `WATCHDOG_AUDIO_ACK_S`, `WATCHDOG_AUDIO_ACK_LIPSYNC_S` | 5, 3, 15, 3, 6 (mặc định) | ngưỡng giây của banner im lặng, hình đứng, tự bỏ câu, mất tiếng (ảnh tĩnh / nhép miệng) |
@@ -201,3 +202,20 @@ phí, cài trên máy chạy live. Spec: `specs/006-obs-output/`.
 | Có thể mất tiếng ở nguồn OBS | Kiểm **Control audio via OBS** và thanh âm lượng nguồn trong mixer OBS (không bị tắt tiếng, không kéo về 0) |
 
 Video dự phòng (§5) **không bao giờ** phát qua OBS: OBS là đường lên live, mà Shopee cấm phát video quay sẵn.
+
+## 9. Đổi ảnh và bộ sản phẩm giữa live (feature 012)
+
+Mọi thao tác ở khối **Ảnh sản phẩm** trên trang điều khiển; show không phải dừng. Chi tiết: `specs/012-product-image-upload/quickstart.md`.
+
+1. **Thay ảnh một món:** chọn món → chọn file (PNG/WebP/JPEG; nên dùng PNG nền trong suốt, ảnh còn nền vẫn áp được nhưng trang cảnh báo)
+   → **Xem trước** (khung tĩnh cạnh ảnh live, live chưa đổi) → tích ô xác nhận quyền dùng → **Áp dụng**. Chỉ tích ô khi ảnh đúng là ảnh
+   khách cung cấp, chụp thật sản phẩm, không logo/người của bên thứ ba, không do AI tạo (ràng buộc 8).
+2. **Đổi cả bộ sản phẩm:** **Chuẩn bị bộ mới** → tải file nội dung mới (live vẫn chạy bộ cũ) → gán ảnh từng món (món đã từng có ảnh
+   tự dùng lại) → **Xem trước bộ mới** → **Áp dụng bộ mới**. Còn món thiếu ảnh thì trang hỏi lại; đồng ý thì món đó chỉ hiện thẻ tên/giá.
+   Trang báo "bộ đang live đã đổi" nghĩa là ai đó vừa sửa nội dung live: xem lại trước khi áp. **Hủy chuẩn bị** không đổi gì trên live.
+3. **Hoàn tác / gỡ:** **Về ảnh trước** lùi một bước (ảnh trước đó, rồi ảnh bộ cảnh), nút khóa khi hết bước. **Gỡ ảnh** hỏi lại rồi để món
+   chỉ còn thẻ tên/giá; **Về ảnh trước** lấy lại ảnh vừa gỡ. Phần chi tiết ghi lúc tải, lúc áp, lúc xác nhận và mọi ảnh đã tải của món.
+4. **Xem AI vừa nói:** khối **AI vừa nói** liệt kê câu kịch bản gần nhất (giờ, món, chủ đề); bấm tên món để xem đủ dữ liệu món đó và so.
+5. **Dọn tay `uploads/`:** app không tự xóa ảnh đã tải (dung lượng hiện ở phần chi tiết). Muốn bỏ hẳn ảnh của một món: **tắt app**, xóa
+   `SCENE_DIR/uploads/<product_id>/` và mục `<product_id>` trong `uploads/images.json` (hoặc xóa cả `uploads/` để về bộ cảnh gốc), rồi
+   chạy `uv run python -m ai_live.scene check` (012 contracts/scene-set.md §6). Không sửa tay khi app đang chạy.

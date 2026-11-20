@@ -18,7 +18,7 @@
 | `LIVETALKING_RECONNECT_MAX_S` | `float`, `10.0` | `> 0` | Mới (R10) |
 | `LIVETALKING_LEAD_S` | `float`, `0.0` | `≥ 0`; `0` = tắt | Mới (R15). `speak` trả về sớm khi phần tiếng còn lại của câu ≤ giá trị này |
 | `AVATAR_FALLBACK_AFTER` | `int`, `2` | `≥ 1` | Mới. Số lượt lỗi render liền nhau trước khi về ảnh tĩnh (FR-022: 2) |
-| `AI_LABEL_TEXT` | `str`, `AI` | không rỗng; ở `livetalking` chỉ ASCII in được | Đã có (R5) |
+| `AI_LABEL_TEXT` | `str`, `AI-GENERATED CONTENT` (trước là `AI`, đổi bởi ADR-065) | không rỗng; ở `livetalking` chỉ ASCII in được | Đã có (R5) |
 | `AI_LABEL_POSITION` | `top-left \| top-right \| bottom-left \| bottom-right`, `top-right` | | Đã có |
 | `RENDERER_ACK_TIMEOUT_S` | `float`, `3` | | Đã có; dùng cho phần sau `playback_started` |
 

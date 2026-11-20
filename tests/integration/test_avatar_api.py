@@ -267,7 +267,11 @@ def test_avatar_state_livetalking(lipsync_settings) -> None:
         "infer_fps",
         "last_error",
         "updated_at",
+        "lipsync",  # 011: the fork's model block (None until hello)
+        "model_mismatch",
     }
+    assert lipsync["lipsync"] is None
+    assert lipsync["model_mismatch"] is False
     assert lipsync["connected"] is False  # nothing listens on the configured fork URL
 
 

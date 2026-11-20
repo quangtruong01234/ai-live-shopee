@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PIL import Image
 
@@ -105,3 +106,91 @@ def make_scene_dir(
     (root / "scene.json").write_text(json.dumps(scene_json, ensure_ascii=False), encoding="utf-8")
     (root / "provenance.json").write_text(json.dumps(provenance, ensure_ascii=False), encoding="utf-8")
     return root
+
+
+ImageKind = Literal[
+    "png",
+    "webp",
+    "jpeg",
+    "png_rgb",
+    "jpeg_exif_rotated",
+    "mpo",
+    "gif_animated",
+    "webp_animated",
+    "png_transparent",
+    "png_sparse",
+    "png_truncated",
+    "text",
+    "png_too_wide",
+    "too_large",
+]
+
+
+def _encode(image: Image.Image, fmt: str, **params: Any) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, fmt, **params)
+    return buffer.getvalue()
+
+
+def _bottle(size: tuple[int, int], color: tuple[int, int, int], alpha: bool) -> Image.Image:
+    """An opaque block centred on a transparent (or white) canvas 20 px larger."""
+    canvas = Image.new("RGBA" if alpha else "RGB", (size[0] + 20, size[1] + 20), (0, 0, 0, 0) if alpha else (255,) * 3)
+    canvas.paste((*color, 255) if alpha else color, (10, 10, 10 + size[0], 10 + size[1]))
+    return canvas
+
+
+def image_bytes(
+    kind: ImageKind = "png",
+    size: tuple[int, int] = (120, 240),
+    color: tuple[int, int, int] = (200, 120, 90),
+) -> bytes:
+    """Upload bodies for 012 tests, drawn with Pillow so no picture is committed (SC-004)."""
+    if kind == "png":
+        return _encode(_bottle(size, color, True), "PNG")
+    if kind == "webp":
+        return _encode(_bottle(size, color, True), "WEBP", lossless=True)
+    if kind == "jpeg":
+        return _encode(_bottle(size, color, False), "JPEG", quality=90)
+    if kind == "png_rgb":
+        return _encode(_bottle(size, color, False), "PNG")
+    if kind == "jpeg_exif_rotated":
+        # Stored landscape; orientation 6 means "rotate 90° clockwise to display", so it shows portrait.
+        exif = Image.Exif()
+        exif[0x0112] = 6
+        return _encode(Image.new("RGB", (size[1], size[0]), color), "JPEG", exif=exif.tobytes())
+    if kind == "mpo":
+        first = Image.new("RGB", size, color)
+        second = Image.new("RGB", size, (10, 10, 10))
+        return _encode(first, "MPO", save_all=True, append_images=[second])
+    if kind == "gif_animated":
+        frames = [Image.new("RGB", size, c) for c in (color, (10, 200, 10))]
+        return _encode(frames[0], "GIF", save_all=True, append_images=frames[1:], duration=100, loop=0)
+    if kind == "webp_animated":
+        frames = [Image.new("RGBA", size, (*color, 255)), Image.new("RGBA", size, (10, 10, 10, 255))]
+        return _encode(frames[0], "WEBP", save_all=True, append_images=frames[1:], duration=100, loop=0)
+    if kind == "png_transparent":
+        return _encode(Image.new("RGBA", size, (0, 0, 0, 0)), "PNG")
+    if kind == "png_sparse":
+        # One visible 2×2 dot on 200×200: 0.01 % of the pixels, well under the 1 % "empty" threshold.
+        image = Image.new("RGBA", (200, 200), (0, 0, 0, 0))
+        image.paste((*color, 255), (5, 5, 7, 7))
+        return _encode(image, "PNG")
+    if kind == "png_truncated":
+        data = _encode(_bottle(size, color, True), "PNG")
+        return data[: len(data) // 2]
+    if kind == "text":
+        return "Đây không phải ảnh\n".encode() * 20
+    if kind == "png_too_wide":
+        return _encode(Image.new("RGBA", (4100, 300), (*color, 255)), "PNG")
+    if kind == "too_large":
+        return _encode(Image.new("RGBA", (10, 10), (*color, 255)), "PNG") + b"\0" * (10 * 1024 * 1024 + 1)
+    raise ValueError(kind)
+
+
+def write_manifest(scene_dir: Path, data: dict[str, Any] | str) -> Path:
+    """Hand-write `uploads/images.json` (a dict, or raw text for broken-file cases)."""
+    path = scene_dir / "uploads" / "images.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
+    path.write_text(text, encoding="utf-8")
+    return path

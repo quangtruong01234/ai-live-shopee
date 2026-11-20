@@ -77,8 +77,10 @@ Thứ tự ưu tiên đề xuất sau demo (2026-11-17, chờ người dùng), t
 "Sản phẩm cùng loại trên thị trường": (1) đường license cho nhép miệng, (2) trả lời bình luận Shopee, (3) chạy ổn 4 → 8 → 15 giờ
 trên máy đích.
 
-- [ ] Xác minh cách khai báo nội dung AI trên Shopee Live Việt Nam (RISKS P9): nhãn "AI" trong hình đã đủ chưa, có nút khai báo hay
-  phải ghim bình luận (P8) không
+- [ ] Xác minh cách khai báo nội dung AI trên Shopee Live Việt Nam (RISKS P9): nhãn trong hình (đổi thành "AI-GENERATED CONTENT"
+  theo ảnh quy định, ADR-065) đã đủ chưa, có nút khai báo hay phải ghim bình luận (P8) không
+- [ ] Quy định nội dung AI của Shopee coi "không tương tác với người xem" là chất lượng thấp (RISKS P11): xem lại ADR-026, có
+  trả lời bình luận Shopee trước khi live thật
 - [ ] Hoàn tất kiểm tra license: LiveTalking (watermark), Wav2Lip, MuseTalk, S3FD, whisper, model TTS (xem `RISKS.md`). Đọc 2026-11-13:
   Wav2Lip gốc cấm thương mại (L2, phải hỏi Sync Labs), code S3FD BSD-3 nhưng weights chưa rõ (L4), whisper không nằm trên đường wav2lip (L5),
   VieNeu cho dùng thương mại tiếng tạo ra (L8). Còn L1 logo trên YouTube/Shopee, L2, L4 weights, L11 checkpoint `wav2lip256`
@@ -86,7 +88,7 @@ trên máy đích.
 - [ ] Khách xin được whitelist live AI với Shopee
 - [ ] Output cho OBS: [spec `006-obs-output`](../specs/006-obs-output/spec.md) In progress 2026-11-13 (30/35, phần không GPU xong; còn
   task `[GPU]` và gói duyệt): OBS Browser Source trang `/obs`
-  có hình + tiếng không cần bấm, vai `obs` ưu tiên hơn trang `/host`, `OUTPUT_MODE=meet|obs` (ADR-058 Đề xuất). OBS tự đẩy RTMP + Stream
+  có hình + tiếng không cần bấm, vai `obs` ưu tiên hơn trang `/host`, `OUTPUT_MODE=meet|obs` (ADR-058). OBS tự đẩy RTMP + Stream
   Key lên Shopee; virtualcam/RTMP trực tiếp từ fork để sau
 - [ ] (Tạm hoãn, ADR-026) Khảo sát cách đọc comment Shopee Live PC và làm prototype `ShopeeSource`
 - [ ] Lưu phiên Shopee ở dạng mã hóa (ADR-010)

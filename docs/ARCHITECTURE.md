@@ -98,6 +98,23 @@ flowchart LR
    chỉ ảnh tĩnh có cảnh. Hợp đồng: `specs/009-live-scene-layout/contracts/`.
 4. Thay file sản phẩm → vẽ lại; món bị bỏ khỏi file biến khỏi bàn. Bộ cảnh của khách khác (`customer_id` lệch) không bao giờ được vẽ.
 
+**Đổi ảnh và bộ sản phẩm giữa live (feature 012, ADR-071, ADR-072):** người vận hành thay ảnh từng món, đổi cả bộ, hoàn tác hay gỡ ảnh
+từ trang điều khiển mà không tắt show. Không đổi Protocol adapter nào; mọi thứ nằm trong `scene/`, `app/` và trang điều khiển.
+
+1. Ảnh tải lên được chuẩn hóa thành PNG RGBA và lưu ở `SCENE_DIR/uploads/<product_id>/<version_id>.png`; sổ `uploads/images.json`
+   (`ProductImageStore`, `scene/uploads.py`) ghi mỗi món đang dùng gì (`active`: một phiên bản, `"kit"` = ảnh 009, `null` = đã gỡ),
+   lịch sử để "Về ảnh trước" và thời điểm tải / áp / xác nhận quyền dùng. Sổ ghi qua file tạm + `os.replace`, không xóa phiên bản nào.
+   `load_scene_set` đọc sổ: ảnh tải lên đã xác nhận không cần `provenance.json`; thiếu xác nhận hay hỏng thì không vẽ và báo `issues`.
+   Hợp đồng: `specs/012-product-image-upload/contracts/`.
+2. "Áp dụng" chỉ chạy khi tích ô xác nhận quyền dùng (`rights_confirmed` phải là `true`). Sau khi ghi sổ, `SceneController.reload()`
+   chờ đúng lần vẽ đọc sổ mới rồi trả `scene_version`; app phát sự kiện `scene` `image_changed` và log `scene_image_changed` với
+   `to_frame_ms`. `preview()` vẽ khung tĩnh với ảnh hay bộ chưa áp, không đụng live.
+3. "Chuẩn bị bộ mới" (`app/staging.py`) đọc file nội dung mới vào bộ nhớ (tối đa một bộ), gán ảnh từng món, xem trước, rồi
+   "Áp dụng bộ mới" đổi catalog và sổ ảnh trong `SceneController.hold()`, nên không khung nào trộn bộ cũ với bộ mới. Lỗi thì trả cả hai về
+   như cũ (`snapshot`/`restore`).
+4. "AI vừa nói" (`app/spoken.py`, `SpokenLog`): vòng đệm 100 câu kịch bản gần nhất (câu `sentence` có `segment_id`), kèm món và chủ đề;
+   trang lấy lại qua `GET /api/state` (`spoken`) khi tải lại. Bấm một món để xem đủ dữ liệu của món đó, ở bộ live hay bộ chuẩn bị.
+
 **Hai chế độ chạy:**
 
 | Chế độ | Máy | AvatarRenderer | Output | Dùng khi |

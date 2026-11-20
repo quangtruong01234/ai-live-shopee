@@ -19,10 +19,13 @@ from ai_live.director.show_director import ShowDirector
 from ai_live.products.store import DocxProductStore
 
 if TYPE_CHECKING:
+    from ai_live.app.spoken import SpokenLog
+    from ai_live.app.staging import StagedSet
     from ai_live.avatar.character import AvatarCharacter
     from ai_live.brain.chain_engine import ChainReplyEngine
     from ai_live.ops.watchdog import WatchdogService
     from ai_live.scene.controller import SceneController
+    from ai_live.scene.uploads import ProductImageStore
 
 
 class HostRenderer(AvatarRenderer, Protocol):
@@ -59,6 +62,12 @@ class AppContext:
     scene: SceneController | None = None
     # 007: the show watchdog; None when `WATCHDOG_ENABLED` is off.
     watchdog: WatchdogService | None = None
+    # 012: uploaded product images; built even with the scene off so the page can still list and stage them.
+    images: ProductImageStore | None = None
+    # 012 US2: the content file being prepared with its images ("Chuẩn bị bộ mới"); at most one, memory only.
+    staging: StagedSet | None = None
+    # 012 US4: the scripted sentences just said ("AI vừa nói"), newest first in `/api/state`.
+    spoken: SpokenLog | None = None
 
 
 def now_iso() -> str:
@@ -98,4 +107,14 @@ def build_state(ctx: AppContext) -> dict[str, Any]:
         "llm_chain": dict(ctx.chain.snapshot()) if ctx.chain is not None else None,
         # 007: the open watchdog alerts, so a reloaded control page still shows them (contracts/api.md §3).
         "alerts": [alert.to_json() for alert in ctx.watchdog.open_alerts] if ctx.watchdog is not None else [],
+        # 012: the staged set, so a reloaded control page finds it again (contracts/api.md §4).
+        "staging": None
+        if ctx.staging is None
+        else {
+            "staged_id": ctx.staging.staged_id,
+            "source_name": ctx.staging.source_name,
+            "missing": ctx.staging.missing_count,
+        },
+        # 012: what the host just said, so a reloaded control page lists it again (contracts/api.md §4, FR-021).
+        "spoken": ctx.spoken.entries() if ctx.spoken is not None else [],
     }

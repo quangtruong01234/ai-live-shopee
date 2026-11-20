@@ -18,6 +18,8 @@ from ai_live.scene.models import (
     DEFAULT_ACCENT_COLOR,
     DEFAULT_DESK_COLOR,
     DESK_SOURCES,
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_SIDE,
     LayoutParams,
     ProductArt,
     Provenance,
@@ -25,9 +27,17 @@ from ai_live.scene.models import (
     SceneIssue,
     SceneSet,
 )
+from ai_live.scene.uploads import (
+    KIT,
+    MANIFEST_NAME,
+    PRODUCT_ID_MAX,
+    PRODUCT_ID_RE,
+    SCHEMA_VERSION,
+    UPLOADS_DIR,
+    VERSION_ID_RE,
+    version_path,
+)
 
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
-MAX_IMAGE_SIDE = 4000
 # Art is drawn at most ~0.27·H tall (primary × highlight scale); keeping a bigger copy only costs memory and resample
 # time on every redraw.
 ART_MAX_SIDE = 640
@@ -186,8 +196,15 @@ def _product_files(products_dir: Path) -> dict[str, list[Path]]:
 
 
 def _provenance(
-    path: Path | None, root: Path, art_ids: Iterable[str], has_desk: bool, issues: _Issues
+    path: Path | None,
+    root: Path,
+    art_ids: Iterable[str],
+    has_desk: bool,
+    issues: _Issues,
+    skip: frozenset[str] = frozenset(),
 ) -> Provenance | None:
+    """`skip` = products whose image comes from the upload manifest: their kit records no longer describe what is drawn
+    (the operator's rights confirmation replaces them, ADR-071), so they raise no kit issues."""
     data = _read_json(path, issues, "missing_provenance") if path is not None and path.is_file() else None
     if data is None:
         if path is not None and not path.is_file():
@@ -204,6 +221,8 @@ def _provenance(
     raw_products = data.get("products") if isinstance(data.get("products"), dict) else {}
     records: dict[str, ProvenanceRecord] = {}
     for pid, raw in raw_products.items():
+        if pid in skip:
+            continue
         if not isinstance(raw, dict):
             issues.add("missing_provenance", f"provenance.json: mục {pid} phải là object", pid)
             continue
@@ -229,6 +248,114 @@ def _provenance(
             issues.add("missing_provenance", f"provenance.json không có mục cho ảnh {pid}", pid)
     customer = data.get("customer_id")
     return Provenance(str(customer) if customer else None, desk_source, records)
+
+
+def _read_manifest(root: Path, issues: _Issues, customer_id: str) -> dict[str, Any]:
+    """Product entries of `uploads/images.json` (contracts/scene-set.md §3); {} when absent or unusable."""
+    path = root / UPLOADS_DIR / MANIFEST_NAME
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        issues.add("bad_uploads", f"uploads/images.json hỏng: {exc}")
+        return {}
+    if not isinstance(data, dict) or not isinstance(data.get("products"), dict):
+        issues.add("bad_uploads", "uploads/images.json hỏng: cần object có khóa products")
+        return {}
+    if data.get("schema_version") != SCHEMA_VERSION:
+        version = data.get("schema_version")
+        issues.add("bad_uploads", f"uploads/images.json hỏng: schema_version {version!r} chưa hỗ trợ")
+        return {}
+    owner = data.get("customer_id")
+    if owner and customer_id and str(owner) != customer_id:
+        issues.add(
+            "customer_mismatch",
+            f"uploads/images.json của khách '{owner}' nhưng phiên là của '{customer_id}': không vẽ cảnh (Điều I)",
+        )
+        return {}
+    entries: dict[str, Any] = {}
+    for pid, entry in data["products"].items():
+        if not isinstance(pid, str) or len(pid) > PRODUCT_ID_MAX or not PRODUCT_ID_RE.match(pid):
+            issues.add("bad_uploads", f"uploads/images.json: bỏ qua mã sản phẩm lạ {pid!r}")
+            continue
+        entries[pid] = entry
+    return entries
+
+
+def _load_upload(root: Path, pid: str, entry: Any, issues: _Issues) -> ProductArt | None:
+    """The art of a product the manifest manages (active is a version id or null)."""
+    active = entry["active"]
+    if active is None:
+        issues.add("missing_image", f"Sản phẩm {pid} đã gỡ ảnh: chỉ hiện thẻ tên/giá", pid)
+        return None
+    unreadable = f"Ảnh tải lên {active} của sản phẩm {pid} không đọc được"
+    versions = entry.get("versions")
+    version = versions.get(active) if isinstance(versions, dict) else None
+    if not isinstance(version, dict):
+        issues.add("bad_uploads", unreadable, pid)
+        return None
+    if not version.get("rights_confirmed_at"):
+        message = f"Ảnh tải lên của sản phẩm {pid} chưa có xác nhận quyền dùng: không hiện"
+        issues.add("missing_confirmation", message, pid)
+        return None
+    path = root / UPLOADS_DIR / pid / f"{active}.png"
+    scratch = _Issues()
+    image = _load_art(path, pid, scratch)
+    if image is None:
+        issues.add("bad_uploads", unreadable, pid)
+        return None
+    return ProductArt(pid, path, image, source="upload", version_id=active)
+
+
+def _managed(pid: str, entry: Any, issues: _Issues) -> bool:
+    """True when the manifest, not `products/`, decides this product's image."""
+    if not isinstance(entry, dict):
+        issues.add("bad_uploads", f"uploads/images.json: mục {pid} phải là object", pid)
+        return False
+    active = entry.get("active", KIT)
+    if active == KIT:
+        return False
+    if active is None or (isinstance(active, str) and VERSION_ID_RE.match(active)):
+        return True
+    issues.add("bad_uploads", f"uploads/images.json: active {active!r} của sản phẩm {pid} không hợp lệ", pid)
+    return False
+
+
+def _scene_json(root: Path) -> dict[str, Any]:
+    path = root / "scene.json"
+    return (_read_json(path, _Issues(), "bad_scene_json") or {}) if path.is_file() else {}
+
+
+def scene_customer(root: Path) -> str | None:
+    """The `customer_id` written in `scene.json` (None when absent or unreadable)."""
+    owner = _scene_json(root).get("customer_id")
+    return str(owner) if owner else None
+
+
+def kit_art_path(root: Path, product_id: str) -> Path | None:
+    """The kit file the scene would draw for `product_id` (first usable PNG/WebP in `products_dir`), if any."""
+    products_dir = _inside(root, _scene_json(root).get("products_dir", "products"), _Issues(), "products_dir")
+    if products_dir is None:
+        return None
+    usable = [p for p in _product_files(products_dir).get(product_id, []) if p.suffix.lower() in _PRODUCT_SUFFIXES]
+    return usable[0] if usable else None
+
+
+def load_kit_art(root: Path, product_id: str) -> ProductArt | None:
+    """The kit art as the scene draws it (cropped, ≤ `ART_MAX_SIDE`), for thumbnails; None when unusable."""
+    path = kit_art_path(root, product_id)
+    image = _load_art(path, product_id, _Issues()) if path is not None else None
+    return ProductArt(product_id, path, image) if path is not None and image is not None else None
+
+
+def load_version_art(root: Path, product_id: str, version_id: str) -> ProductArt | None:
+    """One uploaded version as the scene would draw it, for previews; None when the file is missing or unreadable."""
+    path = version_path(root / UPLOADS_DIR, product_id, version_id)
+    if not path.is_file():
+        return None
+    image = _load_art(path, product_id, _Issues())
+    return ProductArt(product_id, path, image, source="upload", version_id=version_id) if image is not None else None
 
 
 def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: str = "") -> SceneSet:
@@ -269,8 +396,15 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
 
     products_dir = _inside(root, data.get("products_dir", "products"), issues, "products_dir")
     files = _product_files(products_dir) if products_dir is not None else {}
+    manifest = _read_manifest(root, issues, customer_id)
+    managed = frozenset(pid for pid in ids if pid in manifest and _managed(pid, manifest[pid], issues))
     art: dict[str, ProductArt] = {}
     for pid in ids:
+        if pid in managed:
+            upload = _load_upload(root, pid, manifest[pid], issues)
+            if upload is not None:
+                art[pid] = upload
+            continue
         candidates = files.get(pid, [])
         usable = [p for p in candidates if p.suffix.lower() in _PRODUCT_SUFFIXES]
         if not candidates:
@@ -289,7 +423,8 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
         )
 
     provenance_path = _inside(root, data.get("provenance", "provenance.json"), issues, "provenance")
-    provenance = _provenance(provenance_path, root, art.keys(), desk is not None, issues)
+    kit_ids = [pid for pid, item in art.items() if item.source == "kit"]
+    provenance = _provenance(provenance_path, root, kit_ids, desk is not None, issues, managed)
     if provenance is not None:
         if provenance.customer_id and customer_id and provenance.customer_id != customer_id:
             issues.add(
@@ -298,7 +433,7 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
             )
         for pid, item in art.items():
             record = provenance.products.get(pid)
-            if record is not None and record.placeholder:
+            if item.source == "kit" and record is not None and record.placeholder:
                 art[pid] = ProductArt(pid, item.path, item.image, placeholder=True)
 
     return SceneSet(
