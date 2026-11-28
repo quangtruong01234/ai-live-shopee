@@ -14,9 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+import ai_live.app.image_routes as image_routes
 import ai_live.scene.uploads as uploads_module
 from ai_live.app.main import create_app
-from fixtures.scene_builder import CUSTOMER, image_bytes, make_scene_dir, write_manifest
+from ai_live.scene.limits import ART_MAX_SIDE
+from fixtures.scene_builder import CUSTOMER, image_bytes, make_scene_dir, matting_bytes, write_manifest
 
 # Slugs of the products in `valid_docx()`, in file order (primary first).
 IDS = ["kem-chong-nang-x", "sua-rua-mat-y", "toner-z"]
@@ -179,7 +181,12 @@ def test_same_picture_twice_is_reused(client: TestClient) -> None:
 
 
 def test_jpeg_upload_warns_about_its_background(client: TestClient) -> None:
-    body = upload(client, "jpeg", name="anh.jpg").json()
+    # 013: a plain background is now cut out, so only a busy one (no model in tests) keeps the warning.
+    body = client.post(
+        f"/api/scene/uploads?product_id={PID}",
+        content=matting_bytes("noisy_bg", fmt="JPEG"),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("anh.jpg")},
+    ).json()
     assert body["has_alpha"] is False
     assert body["warnings"] == ["has_background"]
 
@@ -260,7 +267,7 @@ def test_kit_png_is_the_cropped_scene_art(client: TestClient) -> None:
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/png"
     assert r.headers["cache-control"] == "no-cache"
-    assert max(Image.open(io.BytesIO(r.content)).size) <= 640
+    assert max(Image.open(io.BytesIO(r.content)).size) <= ART_MAX_SIDE
     assert client.get("/api/scene/images/serum-khong-co/kit.png").status_code == 404
 
 
@@ -623,3 +630,285 @@ def test_revert_and_remove_of_an_unknown_product_is_404(client: TestClient, path
     assert (r.status_code, r.json()["error"]) == (404, "unknown_product")
     r = client.post(f"/api/scene/images/Kem/{path}", json={"confirm": True})
     assert (r.status_code, r.json()["error"]) == (400, "bad_id")
+
+
+# ---------- T071 (FR-004a): a picture too wide for its slot is flagged before and after apply ----------
+
+WIDE = (1600, 300)  # too flat for the slot even while highlighted
+FLAT = (600, 200)  # fits only the bigger slot of the product being spoken about
+
+
+def test_a_too_wide_upload_warns_before_apply(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload(client, "png", size=WIDE).json()
+    assert body["warnings"] == ["too_wide"]
+    message = body["warning_messages"]["too_wide"]
+    assert "chỉ hiện thẻ" in message and "kể cả lúc AI nói" in message
+
+
+def test_a_flat_upload_warns_it_shows_only_while_spoken_about(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload(client, "png", size=FLAT).json()
+    assert body["warnings"] == ["too_wide"]
+    assert "chỉ hiện lúc AI đang nói về món này" in body["warning_messages"]["too_wide"]
+
+
+def test_a_normal_upload_has_no_shape_warning(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload(client, "png", size=(300, 500)).json()
+    assert body["warnings"] == []
+    assert body["warning_messages"] == {}
+
+
+def test_a_wide_jpeg_gets_both_warnings(client: TestClient) -> None:
+    wait_drawn(client)
+    # 013: the busy background stays (no model in tests), so the upload itself is the recommended version.
+    body = client.post(
+        f"/api/scene/uploads?product_id={PID}",
+        content=matting_bytes("noisy_bg", size=WIDE, fmt="JPEG"),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("anh.jpg")},
+    ).json()
+    assert body["warnings"] == ["has_background", "too_wide"]
+    assert set(body["warning_messages"]) == {"has_background", "too_wide"}
+
+
+def test_no_shape_warning_with_the_scene_off(off_client: TestClient) -> None:
+    body = upload(off_client, "png", size=WIDE).json()
+    assert body["warnings"] == []
+
+
+def test_upload_rejects_an_unknown_target(client: TestClient) -> None:
+    r = client.post(
+        f"/api/scene/uploads?product_id={PID}&target=khac",
+        content=image_bytes("png"),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("a.png")},
+    )
+    assert r.status_code in (400, 422)
+
+
+def test_a_live_wide_picture_is_flagged_in_the_images_list(client: TestClient) -> None:
+    wait_drawn(client)
+    vid = upload(client, "png", size=WIDE).json()["version_id"]
+    assert apply(client, vid).status_code == 200
+    wait_drawn(client)
+    issues = item(images(client))["issues"]
+    assert [(i["level"], i["code"]) for i in issues] == [("warning", "art_too_wide")]
+    assert "quá rộng" in issues[0]["message"]
+    others = [p for p in images(client)["products"] if p["product_id"] != PID]
+    assert all(i["code"] != "art_too_wide" for p in others for i in p["issues"])
+
+
+# ---------- 013 T020: preview with the debug zones ----------
+
+
+def test_preview_debug_draws_the_zones_without_touching_live(client: TestClient) -> None:
+    before = wait_drawn(client)
+    got = record_layers(client)
+    live = client.get("/api/scene/still.png").content
+    plain = client.get("/api/scene/preview.png")
+    debug = client.get("/api/scene/preview.png?debug=1")
+    off = client.get("/api/scene/preview.png?debug=0")
+    assert plain.status_code == debug.status_code == off.status_code == 200
+    assert debug.headers["content-type"] == "image/png" and debug.headers["cache-control"] == "no-store"
+    assert debug.content != plain.content
+    # Without `debug`, or with debug=0, the preview is the 012 one.
+    assert off.content == plain.content
+    assert client.get("/api/scene").json()["version"] == before["version"]
+    assert client.get("/api/scene/still.png").content == live
+    assert got == []
+
+
+# ---------- 013 T035: background removal on upload (013 contracts/api.md §1–§2) ----------
+
+BG_KEYS = {"method", "result", "reason", "ms", "model"}
+REALISTIC = {"mode": "realistic", "desk_top": 0.868, "max_slots": 5, "highlight_scale": 1.04, "cards": "none"}
+
+
+def upload_bytes(client: TestClient, data: bytes, *, pid: str = PID, name: str = "ảnh khách.png"):
+    return client.post(
+        f"/api/scene/uploads?product_id={pid}",
+        content=data,
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote(name)},
+    )
+
+
+def tall_product_on_a_wide_white_photo() -> bytes:
+    """A wide photo whose product is tall: only the cut-out fits the slot.
+
+    `too_wide` follows the recommended version.
+    """
+    photo = Image.new("RGB", WIDE, (255, 255, 255))
+    x = (WIDE[0] - 100) // 2
+    photo.paste(Image.new("RGB", (100, 250), (200, 60, 40)), (x, 25))
+    buf = io.BytesIO()
+    photo.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture
+def realistic_client(app_settings, tmp_path: Path):
+    root = make_scene_dir(tmp_path / "scenes" / "real", IDS, scene={"layout": REALISTIC})
+    settings = app_settings.model_copy(update={"scene_enabled": True, "scene_dir": root, "customer_id": CUSTOMER})
+    with TestClient(create_app(settings)) as c:
+        yield c
+
+
+def test_a_white_background_is_removed_and_the_cutout_is_recommended(client: TestClient) -> None:
+    wait_drawn(client)
+    r = upload_bytes(client, matting_bytes("white_bg", fmt="JPEG"), name="thùng.jpg")
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["has_alpha"] is False
+    assert set(body["bg_removal"]) == BG_KEYS
+    assert (body["bg_removal"]["method"], body["bg_removal"]["result"]) == ("flat", "removed")
+    assert body["bg_removal"]["reason"] is None and body["bg_removal"]["model"] is None
+    assert body["bg_removal"]["ms"] >= 0
+    cutout = body["cutout"]
+    assert set(cutout) == {"version_id", "width", "height", "thumb_url"}
+    assert cutout["version_id"] != body["version_id"]
+    assert cutout["thumb_url"] == f"/api/scene/images/{PID}/versions/{cutout['version_id']}.png"
+    assert body["recommended_version"] == cutout["version_id"]
+    assert "has_background" not in body["warnings"]
+    # The cut-out is a real stored version with alpha, cropped to the product.
+    png = client.get(cutout["thumb_url"])
+    assert png.status_code == 200
+    cut = Image.open(io.BytesIO(png.content))
+    assert cut.mode == "RGBA" and cut.size == (cutout["width"], cutout["height"])
+    assert cut.size[0] < body["width"] and cut.size[1] < body["height"]
+    # Saved only: live still shows the kit picture.
+    assert scene_image(client)["source"] == "kit"
+
+
+def test_a_transparent_png_is_kept_as_is(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload_bytes(client, matting_bytes("transparent")).json()
+    assert (body["bg_removal"]["method"], body["bg_removal"]["result"]) == ("already_transparent", "kept")
+    assert body["cutout"] is None
+    assert body["recommended_version"] == body["version_id"]
+    # The matting fixture is small, so only the 013 FR-028 warning may come.
+    assert [w for w in body["warnings"] if w != "low_resolution"] == []
+
+
+def test_a_busy_background_without_a_model_fails_but_the_upload_is_kept(client: TestClient) -> None:
+    wait_drawn(client)
+    r = upload_bytes(client, matting_bytes("noisy_bg", fmt="JPEG"), name="ảnh chụp.jpg")
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["bg_removal"]["result"] == "failed"
+    assert body["bg_removal"]["reason"] == "chưa cài model tách nền"
+    assert body["cutout"] is None
+    assert body["recommended_version"] == body["version_id"]
+    assert body["warnings"] == ["has_background"]
+    assert [v["version_id"] for v in item(images(client))["versions"]] == [body["version_id"]]
+
+
+def test_too_wide_follows_the_recommended_version(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload_bytes(client, tall_product_on_a_wide_white_photo()).json()
+    assert body["bg_removal"]["result"] == "removed"
+    # The upload itself is as flat as the photo (shrunk to the 1280 px upload limit); only the cut-out fits.
+    assert body["width"] / body["height"] == pytest.approx(WIDE[0] / WIDE[1])
+    assert "too_wide" not in body["warnings"]
+
+
+def test_a_small_picture_warns_it_will_look_soft(client: TestClient) -> None:
+    """013 FR-028: below 1.5 x the lit drawn height the upload warns; the picture still applies."""
+    wait_drawn(client)
+    small = upload(client, "png", size=(60, 120)).json()
+    assert "low_resolution" in small["warnings"]
+    assert "sẽ mờ trên hình" in small["warning_messages"]["low_resolution"]
+    assert apply(client, small["version_id"]).status_code == 200
+    big = upload(client, "png", size=(400, 800), color=(20, 160, 220)).json()
+    assert "low_resolution" not in big["warnings"]
+
+
+def test_images_list_has_the_three_new_version_fields(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload_bytes(client, matting_bytes("white_bg")).json()
+    vid, cut = body["version_id"], body["cutout"]["version_id"]
+    versions = {v["version_id"]: v for v in item(images(client))["versions"]}
+    assert set(versions) == {vid, cut}
+    for v in versions.values():
+        assert {"bg_removal", "cutout_version", "derived_from"} <= set(v)
+    assert versions[vid]["cutout_version"] == cut and versions[vid]["derived_from"] is None
+    assert versions[cut]["derived_from"] == vid and versions[cut]["cutout_version"] is None
+    assert versions[vid]["bg_removal"]["result"] == "removed"
+
+
+def test_the_same_picture_again_reuses_the_stored_result(client: TestClient, monkeypatch) -> None:
+    wait_drawn(client)
+    first = upload_bytes(client, matting_bytes("white_bg")).json()
+    calls: list[Any] = []
+    real = image_routes.remove_background
+
+    async def counting(*args: Any, **kwargs: Any) -> Any:
+        calls.append(args)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(image_routes, "remove_background", counting)
+    again = upload_bytes(client, matting_bytes("white_bg"), name="lần hai.png").json()
+    assert calls == []
+    assert again["reused"] is True
+    assert again["cutout"] == first["cutout"]
+    assert again["recommended_version"] == first["recommended_version"]
+    same = BG_KEYS - {"ms"}
+    assert {k: again["bg_removal"][k] for k in same} == {k: first["bg_removal"][k] for k in same}
+
+
+def test_a_crash_in_the_removal_still_saves_the_upload(client: TestClient, monkeypatch) -> None:
+    wait_drawn(client)
+
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(image_routes, "remove_background", broken)
+    r = upload_bytes(client, matting_bytes("white_bg"))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["bg_removal"]["result"] == "failed" and body["bg_removal"]["reason"]
+    assert body["cutout"] is None
+    assert body["warnings"] == ["has_background"]
+    assert client.get(body["thumb_url"]).status_code == 200
+
+
+def test_the_cutout_applies_reverts_and_removes_like_012(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload_bytes(client, matting_bytes("white_bg")).json()
+    vid, cut = body["version_id"], body["cutout"]["version_id"]
+    r = apply(client, cut, confirmed=False)
+    assert (r.status_code, r.json()["error"]) == (422, "rights_not_confirmed")
+    assert apply(client, cut).status_code == 200
+    wait_drawn(client)
+    assert scene_image(client) == {"product_id": PID, "source": "upload", "version_id": cut}
+    # "Về ảnh trước" goes back to what was live before: the kit picture.
+    assert client.post(f"/api/scene/images/{PID}/revert").status_code == 200
+    assert scene_image(client)["source"] == "kit"
+    assert apply(client, cut).status_code == 200
+    assert client.post(f"/api/scene/images/{PID}/remove", json={"confirm": True}).status_code == 200
+    assert PID not in [i["product_id"] for i in client.get("/api/scene").json()["images"]]
+    # The original upload is always still there to choose.
+    assert vid in [v["version_id"] for v in item(images(client))["versions"]]
+
+
+def test_choosing_the_original_on_a_realistic_desk_warns_about_its_background(realistic_client: TestClient) -> None:
+    wait_drawn(realistic_client)
+    body = upload_bytes(realistic_client, matting_bytes("white_bg")).json()
+    assert body["bg_removal"]["result"] == "removed"
+    assert apply(realistic_client, body["version_id"]).status_code == 200
+    wait_drawn(realistic_client)
+    assert scene_image(realistic_client)["version_id"] == body["version_id"]
+    issues = item(images(realistic_client))["issues"]
+    assert [(i["level"], i["code"]) for i in issues] == [("warning", "art_has_background")]
+    assert "còn nền" in issues[0]["message"]
+    # The cut-out (alpha) clears it.
+    assert apply(realistic_client, body["cutout"]["version_id"]).status_code == 200
+    wait_drawn(realistic_client)
+    assert item(images(realistic_client))["issues"] == []
+
+
+def test_a_picture_with_background_on_the_rows_desk_has_no_such_issue(client: TestClient) -> None:
+    wait_drawn(client)
+    body = upload_bytes(client, matting_bytes("white_bg")).json()
+    assert apply(client, body["version_id"]).status_code == 200
+    wait_drawn(client)
+    assert all(i["code"] != "art_has_background" for i in item(images(client))["issues"])

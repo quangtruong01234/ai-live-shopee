@@ -8,6 +8,9 @@ dependencies = [
     "fastapi>=0.162.0",
     "google-genai>=2.34.0",
     "httpx>=0.28.1",
+    # Background removal (013, ADR-074): already locked through vieneu, declared directly so 013 does not rely on it.
+    "numpy>=2.5.4",
+    "onnxruntime>=1.31.1",
     "pillow>=12.3.0",
     "pydantic-settings>=2.16.2",
     "python-docx>=1.2.0",
@@ -39,8 +42,9 @@ pythonpath = ["tests"]
 markers = [
     "live_llm: gọi LLM thật (Gemini hoặc chuỗi model; cần key trong .env, tính vào hạn mức free)",
     "live_tts: gọi nguồn giọng thật: VieNeu cần model đã tải, Gemini tốn hạn mức",
+    "matting_model: chạy model tách nền thật, cần file model (MATTING_MODEL_PATH)",
 ]
-addopts = '-m "not live_llm and not live_tts"'
+addopts = '-m "not live_llm and not live_tts and not matting_model"'
 
 [dependency-groups]
 dev = [

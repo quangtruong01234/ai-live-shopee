@@ -47,9 +47,12 @@
 - [x] Duyệt số đo 005 US4 (2026-11-16): `LIVETALKING_LEAD_S` mặc định 2,5, batch 16, chấp nhận ~18 khung/giây ở lượt bình luận,
   không làm bộ clip nhỏ hơn / RunPod
 - [x] Bố cục cảnh live quanh host (khung dọc, bàn bày sản phẩm trước host, thẻ tên/giá): [spec `009-live-scene-layout`](../specs/009-live-scene-layout/spec.md) Done 2026-11-13 (38/38; còn ảnh thật của khách, SC-006, SC-007)
-- [ ] Khẩu hình giống người: [spec `010-natural-mouth-shapes`](../specs/010-natural-mouth-shapes/spec.md) In progress 2026-11-13 (29/32):
+- [ ] Khẩu hình giống người: [spec `010-natural-mouth-shapes`](../specs/010-natural-mouth-shapes/spec.md) In progress 2026-11-13 (31/32):
   bộ đo khẩu hình, núm `LIVETALKING_MOUTH_METHOD` (mặc định `w2l`, ADR-055), loại đoạn clip nói đầu nghiêng (ADR-056). Còn chấm A/B
-  `w2l` vs `shift=-1` (ngưỡng góc đầu giữ 35/20/30, 2026-11-16)
+  `w2l` vs `shift=-1` (ngưỡng góc đầu giữ 35/20/30, 2026-11-16); show 10 phút với `shift=-1` đạt hiệu năng (T019, 2026-11-20)
+- [ ] Nhép miệng bằng model riêng của nhân vật (Ultralight): [spec `011-ultralight-live-lipsync`](../specs/011-ultralight-live-lipsync/spec.md)
+  In progress 2026-11-19 (49/63): chạy được trong show (T040), Wav2Lip mặc định không kém trước (T041), chặn model lệch và đổi model ≤ 2 phút (T056, T057), nhưng so với Wav2Lip **chưa đạt** khẩu hình (T048, LSE-C 2,90 so với
+  5,91) → demo giữ Wav2Lip (ADR-066). Còn người dùng chấm gói xem mù (T049), ghi số vào ADR-066 (T050)
 - [ ] ~~Đo độ trễ end-to-end < 5 giây (p95) với comment mock~~ tạm hoãn (ADR-026); đo tốc độ nhân vật theo spec 005
 
 ### ~~M1c: YouTube Unlisted (tùy chọn)~~ Bỏ (ADR-058)
@@ -64,6 +67,14 @@
   (157 s, nhãn "AI" mọi khung, phiếu `Đạt`); còn người dùng xem lại và thử phát qua Meet (007 T058)
 - [ ] Sẵn sàng demo: [spec `007-demo-readiness`](../specs/007-demo-readiness/spec.md) In progress 2026-11-13 (58/59): kiểm tra trước
   demo, canh show + banner, báo cáo tổng duyệt, video dự phòng `verbatim` (ADR-057 Đề xuất). Còn T058 (người dùng)
+- [x] Đổi ảnh sản phẩm trên trang điều khiển giữa phiên live: [spec `012-product-image-upload`](../specs/012-product-image-upload/spec.md)
+  Done 2026-11-20 (71/71): tải/thay/hoàn tác/gỡ ảnh, chuẩn bị bộ sản phẩm mới rồi áp một lần (ADR-071, ADR-072); người dùng chốt
+  phần không GPU 2026-11-20; T067 (SC-001, đổi ảnh khi nhép miệng 179–249 ms) và T068 (SC-006, 20 khung `/host`) Đạt 2026-11-20.
+  T071 xong 2026-11-20: ảnh quá rộng so với ô trên bàn được cảnh báo lúc tải ảnh và trong danh sách ảnh
+- [ ] Bàn livestream giống thật: [spec `013-realistic-desk-products`](../specs/013-realistic-desk-products/spec.md) In progress
+  2026-11-22: sản phẩm đứng trên mặt bàn cạnh tay người dẫn, bỏ nền phẳng khi tải ảnh, tách nền bằng model IS-Net chạy tiến trình
+  riêng, thẻ giá `none`/`one`/`all`, làm nổi bằng ánh sáng ấm (ADR-074). Còn T002 (người dùng tải model), T044–T045, T058–T060 (GPU)
+  và câu hỏi giấy phép DIS5K (`RISKS.md` L15)
 - [ ] Runbook buổi demo: checklist T-1 ngày và T-1 giờ, xử lý sự cố, ai làm gì. Bản nháp [`RUNBOOK.md`](RUNBOOK.md) 2026-11-13; còn
   `TODO:` ai làm gì, Meet chạy máy nào, ngưỡng chuyển sang video dự phòng. 007 thêm §2–§7 (lệnh kiểm, banner, làm video dự phòng, `report`)
 - [ ] Thử chia sẻ tab Chrome có âm thanh vào Google Meet từ máy khác
@@ -90,13 +101,16 @@ trên máy đích.
   task `[GPU]` và gói duyệt): OBS Browser Source trang `/obs`
   có hình + tiếng không cần bấm, vai `obs` ưu tiên hơn trang `/host`, `OUTPUT_MODE=meet|obs` (ADR-058). OBS tự đẩy RTMP + Stream
   Key lên Shopee; virtualcam/RTMP trực tiếp từ fork để sau
+- [ ] (Ý tưởng làm sau, ADR-099) Bày một hàng sản phẩm thật bằng lớp ảnh trong OBS trên mặt bàn sâu hơn (host đẩy lên), trong
+  vùng an toàn ngoài tầm tay host; bước đầu dựng ảnh thử và so với ảnh live đối thủ
 - [ ] (Tạm hoãn, ADR-026) Khảo sát cách đọc comment Shopee Live PC và làm prototype `ShopeeSource`
 - [ ] Lưu phiên Shopee ở dạng mã hóa (ADR-010)
 - [ ] Chạy ổn định 4 giờ, rồi 8 giờ, rồi 15 giờ (tự khởi động lại, watchdog, cảnh báo)
 - [ ] Xoay vòng kịch bản để không lặp nội dung trong ngày
 - [ ] Mô hình chi phí/giờ (GPU, LLM, TTS) và giá bán
 - [ ] Chốt hạ tầng chạy 15 giờ/ngày (thuê dài hạn hay mua GPU?) và ghi ADR
-- [ ] Feature đóng gói app desktop cài trên máy vận hành (ADR-021), làm sau khi khách duyệt demo
+- [ ] Feature 015: app desktop nhẹ cho khách cài + GPU thuê theo giờ (RunPod) + server điều phối nhỏ (ADR-091, thay một phần
+  ADR-021); bắt đầu `/sdd.specify` sau khi khách chốt thuê sau buổi demo
 
 ## M3: Chạy Shopee thật
 - [ ] Phiên live đầu tiên trên Shopee có nhãn AI và người vận hành túc trực

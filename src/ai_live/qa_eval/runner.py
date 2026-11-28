@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ai_live.brain.guard import OutputGuard, refusal_sentence
+from ai_live.brain.guard import OutputGuard, comment_amounts, refusal_sentence
 from ai_live.brain.prompt import addressee
 from ai_live.brain.sanitize import clean_spoken
 from ai_live.core.models import Comment
@@ -215,7 +215,7 @@ async def _host_answer(
             sentence = clean_spoken(raw)
             if not sentence:
                 continue
-            result = guard.check(sentence, catalog)
+            result = guard.check(sentence, catalog, viewer_amounts=comment_amounts(comment.text))
             if result.ok:
                 said.append(sentence)
                 continue

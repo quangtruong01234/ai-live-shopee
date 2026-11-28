@@ -66,9 +66,9 @@ class AvatarRenderer(Protocol):
 
 | Adapter | Hợp đồng |
 |---------|----------|
-| `CommentQueue.put` | Đầy (`COMMENT_QUEUE_MAX`) thì đẩy ra comment ưu tiên thấp nhất, đến sớm nhất; nếu comment mới còn thấp hơn hết thì loại chính nó. Báo `comment_dropped(queue_full)`. |
+| `CommentQueue.put` | Đầy (`COMMENT_QUEUE_MAX`) thì đẩy ra comment ưu tiên thấp nhất, đến sớm nhất; nếu comment mới còn thấp hơn hết thì loại chính nó. Báo `comment_dropped(queue_full)`. Mỗi `author_key` tối đa một comment chờ: comment mới thay comment cũ nếu ưu tiên cao hơn hoặc bằng, không thì chính nó bị loại; báo `comment_dropped(superseded)` (FR-028, ADR-077). |
 | `CommentQueue.get` | Thứ tự (priority, seq). Comment quá tuổi bị bỏ (`stale`) và lấy tiếp. Có thêm vòng quét mỗi 1 s để trang điều khiển thấy comment hết hạn kịp thời. |
-| `CommentIntake.submit` | (không phải adapter, `comments/intake.py`) `MockSource.push` → `CommentFilter.check` → `PriorityClassifier.classify` → `CommentQueue.put`. Bị lọc thì phát `comment_dropped`, không vào hàng đợi; qua lọc thì phát `comment_accepted` rồi `put`. Route `POST /api/comments` và lệnh `ai_live.comments` cùng dùng. |
+| `CommentIntake.submit` | (không phải adapter, `comments/intake.py`) `MockSource.push` → `AuthorLimiter.check` (FR-027, loại `spam`) → `CommentFilter.check` → `PriorityClassifier.classify` → `GreetingRules` (lời chào ưu tiên thấp gắn `meta.kind = "greeting"`; chào lại người đã được chào thì loại `greeted`, FR-026) → `CommentQueue.put`. Bị lọc thì phát `comment_dropped`, không vào hàng đợi; qua lọc thì phát `comment_accepted` rồi `put`. Route `POST /api/comments` và lệnh `ai_live.comments` cùng dùng. |
 | `ProductStore.replace` | Kiểm hết lỗi rồi mới đổi; lỗi thì ném `ContentLoadError(issues)` và **không** đổi catalog. Thành công phát `content_replaced`. |
 | `ReplyEngine.reply` | Câu đầu tiên yield là mốc `llm_first_sentence`. Lỗi nhà cung cấp ném `ReplyEngineError(kind, message)` với `kind` thuộc `api_error`, `rate_limited`, `provider_blocked`, `config_error`. Timeout do `ShowDirector` áp: `LLM_TIMEOUT_S` tính cho **mỗi lần chờ câu kế tiếp** (không tính lúc chờ hàng đợi phát), hết giờ ghi `error_step=llm`. Không chứa lịch sử hội thoại. Huỷ task thì đóng stream HTTP. |
 | `TTSEngine.synthesize` | Chunk đầu là mốc `tts_first_chunk`. Lỗi ném ngoại lệ; director bắt và ghi `error_step=tts`. |

@@ -1,21 +1,25 @@
-"""009 T013, T027, T031: the scene follows the content, the frame and the sentence heard; a failure never stops it."""
+"""009 T013, T027, T031 and 013 T019, T048: the scene follows the content, the frame and the sentence heard.
+
+A failure never stops it.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import io
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from ai_live.core.config import Settings
+from ai_live.core.config import AI_LABEL_DEFAULT_POSITION, Settings
 from ai_live.core.events import Event, EventBus, EventType
 from ai_live.products.models import ProductCatalog
 from ai_live.scene.controller import DISABLED_HOST_CONFIG, SceneController, disabled_status
 from ai_live.scene.fonts import SceneFontError, SceneFonts, load_fonts
-from ai_live.scene.layout import estimate_geometry
+from ai_live.scene.layout import estimate_geometry, price_text
 from ai_live.scene.models import SceneLayer
 from fixtures.scene_builder import CUSTOMER, catalog, demo_catalog, make_scene_dir, product
 
@@ -161,11 +165,11 @@ async def test_content_replace_drops_a_highlight_that_is_gone(rig) -> None:
 async def test_fork_geometry_redraws_only_when_the_frame_moves(rig) -> None:
     controller, renderer, _, _, _ = rig
     [listener] = renderer.geometry
-    same = estimate_geometry(LABEL, "top-right")
+    same = estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION)
     listener(type(same)(same.width, same.height, same.face_bottom, same.keep_out, "fork"))
     await settle(controller)
     assert controller.version == 1
-    listener(estimate_geometry(LABEL, "top-right", face_bottom=304))
+    listener(estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION, face_bottom=304))
     await settle(controller)
     assert controller.version == 2
     assert controller.status()["geometry"]["face_bottom"] == 304
@@ -191,7 +195,7 @@ async def test_draw_failure_reports_and_the_next_draw_works(scene_settings) -> N
     [error] = scene_events(events, "error")
     assert "không có font" in error["message"]
     assert controller.version == 0
-    controller.on_geometry(estimate_geometry(LABEL, "top-right", face_bottom=300))
+    controller.on_geometry(estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION, face_bottom=300))
     await settle(controller)
     assert controller.version == 1 and renderer.layers
     await controller.stop()
@@ -205,7 +209,7 @@ async def test_failed_host_send_is_only_logged(rig, caplog: pytest.LogCaptureFix
         raise ConnectionError("host gone")
 
     renderer.send_to_host = broken
-    controller.on_geometry(estimate_geometry(LABEL, "top-right", face_bottom=300))
+    controller.on_geometry(estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION, face_bottom=300))
     await settle(controller)
     assert controller.version == 2
     assert any(r.getMessage() == "scene_send_failed" for r in caplog.records)
@@ -400,7 +404,7 @@ class _Character:
 def _left_desk_strip_clear(controller: SceneController, layer: SceneLayer) -> bool:
     from PIL import Image
 
-    geometry = estimate_geometry(LABEL, "top-right")
+    geometry = estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION)
     frame = Image.new("RGBA", (geometry.width, geometry.height), (0, 0, 0, 0))
     assert layer.image is not None
     frame.alpha_composite(layer.image, (layer.x, layer.y))
@@ -634,3 +638,286 @@ async def test_hold_with_the_scene_off_is_a_plain_lock(settings) -> None:
     async with controller.hold():
         pass
     assert await asyncio.wait_for(controller.reload(), 1) is None
+
+
+# ---------- 013 T019: realistic desk products ----------
+
+HANDS = (0.30, 0.77, 0.70, 1.0)
+REALISTIC = {"mode": "realistic", "desk_top": 0.868, "max_slots": 5, "highlight_scale": 1.04, "cards": "none"}
+
+
+class _HandsCharacter:
+    """The scene fields the controller reads from `AvatarCharacter` (011 + 013 data-model §2)."""
+
+    def __init__(self, hands_zone: tuple[float, float, float, float] | None = HANDS, desk_top: float = 0.868) -> None:
+        self.desk_in_image = True
+        self.desk_top = desk_top
+        self.hands_zone = hands_zone
+
+
+@pytest.fixture
+def realistic_settings(settings, tmp_path: Path):
+    root = make_scene_dir(
+        tmp_path / "scenes" / "real",
+        [p.id for p in demo_catalog().products],
+        scene={"layout": REALISTIC},
+    )
+    return settings.model_copy(update={"scene_enabled": True, "scene_dir": root, "customer_id": CUSTOMER})
+
+
+async def _started(settings: Settings, character: Any, renderer: FakeRenderer | None = None) -> SceneController:
+    controller = SceneController(
+        settings,
+        FakeStore(demo_catalog()),
+        renderer or FakeRenderer(),
+        EventBus(),
+        None,
+        fonts_loader=_fonts,
+        character=character,
+    )
+    await controller.start()
+    await settle(controller)
+    return controller
+
+
+async def test_realistic_set_uses_the_realistic_layout_and_rows_keeps_009(realistic_settings, scene_settings) -> None:
+    realistic = await _started(realistic_settings, _HandsCharacter())
+    rows = await _started(scene_settings, _HandsCharacter())
+    try:
+        assert realistic._layout.mode == "realistic"
+        assert all(s.station is not None and s.card_box is None for s in realistic._layout.slots)
+        assert realistic._layout.draw_order
+        assert rows._layout.mode == "rows"
+        assert all(s.station is None for s in rows._layout.slots)
+    finally:
+        await realistic.stop()
+        await rows.stop()
+
+
+async def test_character_hands_zone_reaches_the_geometry_and_survives_the_fork_frame(realistic_settings) -> None:
+    renderer = FakeRenderer()
+    controller = await _started(realistic_settings, _HandsCharacter(), renderer)
+    try:
+        expected = estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION).with_hands_zone(HANDS).hands_zone
+        assert controller._geometry.hands_zone == expected
+        assert not any(i["code"] == "hands_zone_missing" for i in controller.status()["issues"])
+        # The fork's `hello.scene` knows nothing of hands: the character's zone stays and nothing is redrawn.
+        version = controller.version
+        controller.on_geometry(replace(estimate_geometry(LABEL, AI_LABEL_DEFAULT_POSITION), source="fork"))
+        await settle(controller)
+        assert controller._geometry.hands_zone == expected
+        assert controller.version == version
+    finally:
+        await controller.stop()
+
+
+async def test_character_without_hands_zone_warns(realistic_settings) -> None:
+    controller = await _started(realistic_settings, _HandsCharacter(hands_zone=None))
+    try:
+        issues = [i for i in controller.status()["issues"] if i["code"] == "hands_zone_missing"]
+        assert issues and issues[0]["level"] == "warning"
+        assert controller._layout.mode == "realistic" and controller._layout.slots
+    finally:
+        await controller.stop()
+
+
+async def test_preview_debug_draws_the_zones_without_touching_the_live_scene(realistic_settings) -> None:
+    renderer = FakeRenderer()
+    controller = await _started(realistic_settings, _HandsCharacter(), renderer)
+    try:
+        store_catalog = demo_catalog()
+        version, layers, base = controller.version, len(renderer.layers), controller._base
+        plain = await controller.preview(store_catalog, {}, None)
+        debug = await controller.preview(store_catalog, {}, None, debug=True)
+        assert plain != debug
+        assert (controller.version, len(renderer.layers), controller._base) == (version, layers, base)
+    finally:
+        await controller.stop()
+
+
+async def test_scene_rendered_log_names_mode_cards_and_stations(
+    realistic_settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="ai_live")
+    controller = await _started(realistic_settings, _HandsCharacter())
+    try:
+        rendered = [r for r in caplog.records if r.getMessage() == "scene_rendered"]
+        fields = rendered[-1].fields  # type: ignore[attr-defined]
+        assert fields["layout_mode"] == "realistic" and fields["cards"] == "none"
+        assert fields["stations"] == {s.product_id: s.station for s in controller._layout.slots}
+    finally:
+        await controller.stop()
+
+
+async def test_one_broken_image_is_skipped_and_the_others_still_draw(realistic_settings) -> None:
+    (realistic_settings.scene_dir / "products" / "toner.png").write_bytes(b"not a picture")
+    controller = await _started(realistic_settings, _HandsCharacter())
+    try:
+        assert any(i["code"] == "bad_image" and i.get("product_id") == "toner" for i in controller.status()["issues"])
+        by_id = {s.product_id: s for s in controller._layout.slots}
+        assert by_id["toner"].art_box is None and by_id["toner"].shadow_box is None
+        drawn = [s for s in controller._layout.slots if s.art_box is not None]
+        assert len(drawn) == 2
+        assert controller._base is not None and controller._base.png
+    finally:
+        await controller.stop()
+
+
+# ---------- 013 T048: the card follows the sentence heard and the file loaded (FR-020, FR-021, SC-007) ----------
+
+
+@pytest.fixture
+def card_rig(settings, tmp_path: Path):
+    """Starts a realistic controller with `cards` set; each test stops its own controller."""
+
+    async def start(cards: str, desk_top: float = 0.868):
+        root = make_scene_dir(
+            tmp_path / "scenes" / cards,
+            [p.id for p in demo_catalog().products],
+            scene={"layout": {**REALISTIC, "cards": cards}},
+        )
+        update = {"scene_enabled": True, "scene_dir": root, "customer_id": CUSTOMER}
+        bus, renderer, store = EventBus(), FakeRenderer(), FakeStore(demo_catalog())
+        controller = SceneController(
+            settings.model_copy(update=update),
+            store,
+            renderer,
+            bus,
+            None,
+            fonts_loader=_fonts,
+            character=_HandsCharacter(desk_top=desk_top),
+        )
+        await controller.start()
+        await settle(controller)
+        return controller, renderer, bus, store
+
+    return start
+
+
+def _cards(controller: SceneController) -> dict[str, Any]:
+    return {s.product_id: s.card_box for s in controller._layout.slots if s.card_box is not None}
+
+
+def _card_logs(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
+    return [r.fields["card_texts"] for r in caplog.records if r.getMessage() == "scene_rendered"]  # type: ignore[attr-defined]
+
+
+def _matches_file(texts: dict[str, Any], catalog: ProductCatalog) -> None:
+    """SC-007: every word on a card is the file's own (name, price or range, first promotion)."""
+    products = {p.id: p for p in catalog.products}
+    for pid, text in texts.items():
+        product = products[pid]
+        name = text["name"]
+        assert name == product.name or (name.endswith("…") and product.name.startswith(name[:-1].rstrip())), text
+        assert text["price"] == price_text(product), text
+        assert text["promotion"] in (None, *product.promotions[:1]), text
+
+
+async def test_cards_one_shows_the_spoken_product_when_its_first_sentence_plays(
+    card_rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="ai_live")
+    controller, renderer, bus, store = await card_rig("one")
+    try:
+        assert _cards(controller) == {}
+        bus.publish(sentence("u1", "toner", "seg-toner"))
+        await settle(controller)
+        assert _cards(controller) == {}  # prepared is not heard: no card yet (FR-021)
+        started = asyncio.get_running_loop().time()
+        controller.playback_started("u1", 0, "Nước hoa hồng")
+        await settle(controller)
+        assert asyncio.get_running_loop().time() - started <= 1.0
+        assert list(_cards(controller)) == ["toner"]
+        assert renderer.last("base").image is not None
+        logged = _card_logs(caplog)[-1]
+        assert list(logged) == ["toner"]
+        _matches_file(logged, store.catalog)
+        # A general segment: nothing is spoken about, so no card (US3 #1).
+        bus.publish(sentence("u2", None, "seg-general"))
+        await settle(controller)
+        controller.playback_started("u2", 0, "x")
+        await settle(controller)
+        assert _cards(controller) == {}
+        assert _card_logs(caplog)[-1] == {}
+    finally:
+        await controller.stop()
+
+
+async def test_card_text_follows_a_new_content_file(card_rig, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="ai_live")
+    controller, _, bus, store = await card_rig("one")
+    try:
+        bus.publish(sentence("u1", "toner"))
+        await settle(controller)
+        controller.playback_started("u1", 0, "x")
+        await settle(controller)
+        assert _card_logs(caplog)[-1]["toner"]["price"] == "1.250.000đ"
+        store.catalog = catalog(
+            demo_catalog().products[1],
+            product("toner", name="Nước hoa hồng Mới", price=990_000),
+            version="v2",
+        )
+        bus.publish(Event(EventType.CONTENT_REPLACED, {}))
+        await settle(controller)
+        assert controller.highlight == "toner"
+        logged = _card_logs(caplog)[-1]
+        assert logged["toner"]["name"] == "Nước hoa hồng Mới" and logged["toner"]["price"] == "990.000đ"
+        _matches_file(logged, store.catalog)
+    finally:
+        await controller.stop()
+
+
+@pytest.mark.parametrize(("cards", "desk_top"), [("one", 0.868), ("all", 0.70)])
+async def test_a_round_of_three_products_shows_only_the_files_words(
+    card_rig, caplog: pytest.LogCaptureFixture, cards: str, desk_top: float
+) -> None:
+    caplog.set_level(logging.INFO, logger="ai_live")
+    controller, _, bus, store = await card_rig(cards, desk_top)
+    try:
+        shown: set[str] = set()
+        for i, product_id in enumerate(["kem-chong-nang", "toner", "sua-rua-mat", None]):
+            uid = f"u{i}"
+            bus.publish(sentence(uid, product_id, f"seg-{i}"))
+            await settle(controller)
+            controller.playback_started(uid, 0, "x")
+            await settle(controller)
+            logged = _card_logs(caplog)[-1]
+            _matches_file(logged, store.catalog)
+            assert set(logged) == set(_cards(controller))
+            if cards == "one":
+                assert set(logged) == ({product_id} if product_id else set())
+            shown |= set(logged)
+        assert shown, controller.status()["issues"]
+    finally:
+        await controller.stop()
+
+
+async def test_the_still_follows_the_room_behind_the_host(rig) -> None:
+    from PIL import Image
+
+    controller, renderer, _, _, _ = rig
+    layers_before, version_before = len(renderer.layers), controller.version
+    room: dict[str, Any] = {"face": None}
+
+    def room_face(face: Any) -> Any:
+        return room["face"]
+
+    controller.set_room(room_face)
+    room["face"] = Image.new("RGB", (480, 832), (0, 0, 255))
+    controller.refresh()
+    await settle(controller)
+    assert controller.version == version_before + 1
+    assert len(renderer.layers) == layers_before  # nothing new for the fork: only the still changed
+    assert renderer.sent[-1] == {"type": "scene", "version": controller.version}
+    still = Image.open(io.BytesIO(controller.still_png or b""))
+    assert still.getpixel((5, 5))[:3] == (0, 0, 255)  # the room, not the dark default face
+
+    room["face"] = None  # the video went back to the original room
+    controller.refresh()
+    await settle(controller)
+    assert controller.version == version_before + 2
+    assert Image.open(io.BytesIO(controller.still_png or b"")).getpixel((5, 5))[:3] != (0, 0, 255)
+
+    controller.refresh()  # nothing changed: no new version
+    await settle(controller)
+    assert controller.version == version_before + 2

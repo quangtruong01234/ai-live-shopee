@@ -32,12 +32,24 @@ Lần chạy thử 2 phút cùng ngày (nhép miệng + VieNeu, `REPLY_ENGINE=fa
 - [ ] `.env` của máy demo (xem §6): `REPLY_ENGINE=chain`, `TTS_PROVIDER=vieneu`, `AVATAR_MODE=livetalking`, `SCENE_ENABLED` theo bộ cảnh đã duyệt,
       `LIVETALKING_*` theo các giá trị đã duyệt ở gói duyệt 005/010 (`LIVETALKING_LEAD_S=2.5`, `LIVETALKING_BATCH_SIZE=16` đã chốt;
       TODO: `LIVETALKING_MOUTH_METHOD` `w2l` hay `shift=-1` theo chấm A/B 010; xem `progress/OPEN.md` §4).
-- [ ] Chạy thử một show ngắn 5–10 phút với LLM thật để chắc chuỗi model trả lời được. **Không chạy bộ tự kiểm, `qa_eval` hay benchmark
-      trong ngày demo và ngày trước đó** nếu hạn mức free thấp (Q11, Q14: SEA-LION bị `rate_limited` sau khoảng 194 request trong một ngày).
+- [ ] Chạy thử một show ngắn 5–10 phút với LLM thật để chắc chuỗi model trả lời được. Mọi việc gọi LLM thật theo **lịch hạn mức** ngay
+      dưới đây.
+- [ ] **Lịch hạn mức LLM.** Hạn mức ngày của SEA-LION (mục 1 của chuỗi, Cloudflare qua freellmapi) **reset lúc 07:00 giờ Việt Nam**
+      (00:00 UTC; `retryAtMs` freellmapi báo ngày 2026-11-13). Khoảng 194 request/ngày (Q14), một show 30 phút dùng 60–120 request, nên
+      một ngày hạn mức chỉ đủ khoảng 45–90 phút show. Mọi lượt gọi từ 07:00 ngày demo tới lúc demo dùng chung hạn mức với buổi demo.
+      - Ngày T-1, xong trước 07:00 ngày demo: tổng duyệt 30 phút, show thử 5–10 phút, `uv run pytest -m live_llm`, `qa_eval`, benchmark.
+      - Từ 07:00 ngày demo tới hết buổi: chỉ được gọi LLM thật ở §3 bước 7 (2–3 câu). Không tổng duyệt, không `qa_eval`, không benchmark,
+        không `-m live_llm` (`uv run pytest` thường tự bỏ qua test `live_llm`, chạy được).
+      - Demo trước 07:00 thì khung hạn mức là 07:00 ngày T-1 tới 07:00 ngày demo: mọi việc trên dời sang trước 07:00 ngày T-1.
+      - TODO: giờ reset hạn mức của Groq (mục 2) và Gemini (mục 3) chưa kiểm; hai mục này có hạn mức riêng, không chung với SEA-LION.
+- [ ] Sao lưu freellmapi (database và `ENCRYPTION_KEY`) **sau khi** đã nhập xong key nhà cung cấp:
+      `powershell -ExecutionPolicy Bypass -File scripts/freellmapi/backup.ps1`. Lệnh phải báo "Đã sao lưu" và giải mã được n/n key.
+      Bản sao lưu nằm ở `%USERPROFILE%\freellmapi-backup\<ngày-giờ>\`. Thư mục này chứa key dùng được ngay, nên không đưa vào git, OneDrive
+      hay gửi cho ai. Cách khôi phục: §4 dòng "freellmapi mất key".
 - [ ] Video dự phòng 2–3 phút (PRD tiêu chí 5) đã làm theo §5, phiếu kiểm `Đạt`, đúng khách, nhân vật và bản nội dung hiện tại; đã chép
       sang máy chia sẻ Meet và thử phát qua Meet có tiếng.
 - [ ] Tổng duyệt 30 phút với cấu hình thật (§7 lệnh `report`): tiêu chí 3 và 4 đều `ĐẠT`, không có báo cáo nào ghi "chưa phải tổng
-      duyệt thật". **Tổng duyệt dùng LLM thật nên tốn hạn mức free; làm trước T-1 ngày, không làm trong ngày demo.**
+      duyệt thật". **Tổng duyệt dùng LLM thật nên tốn hạn mức free; làm theo lịch hạn mức ở trên, không làm trong ngày demo.**
 - [ ] Chạy `uv run python -m ai_live.ops readiness` trên máy demo (đủ fork + app như §3 bước 2–4): mọi mục máy kiểm được `ĐẠT`, các mục
       `CHÚ Ý` đã đọc và chấp nhận. Lệnh trả mã 0 khi sẵn sàng, 1 khi còn mục `LỖI`.
 - [ ] Thử chia sẻ tab Chrome có âm thanh vào Meet từ máy khác (ROADMAP M1d): người bên kia thấy nhân vật, nhãn "AI", nghe tiếng khớp miệng.
@@ -57,8 +69,8 @@ Lần chạy thử 2 phút cùng ngày (nhép miệng + VieNeu, `REPLY_ENGINE=fa
    banner đỏ "Không có model nào sẵn sàng". Bấm **Kiểm tra trước demo** (hoặc chạy `uv run python -m ai_live.ops readiness` ở terminal
    3): bảng phải ghi "SẴN SÀNG"; còn dòng `LỖI` thì làm theo cột "Việc cần làm" (dòng `→` ở terminal) rồi kiểm lại. Ba mục máy không kiểm được (văn bản
    đồng ý, thử chia sẻ Meet, không có RunPod) phải tự tích tay. Lệnh kiểm **không gọi LLM** (mục chuỗi model chỉ đọc trạng thái có sẵn).
-6. Nhìn `/host`: nhân vật chạy clip chờ, miệng khép, nhãn "AI-GENERATED CONTENT" (ADR-065) trong khung (không được che hay tắt), watermark LiveTalking ở góc
-   (license yêu cầu, ràng buộc 5); có cảnh thì thấy bàn và sản phẩm.
+6. Nhìn `/host`: nhân vật chạy clip chờ, miệng khép, nhãn "AI-GENERATED CONTENT" (ADR-065) trong khung (không được che hay tắt), không còn chữ "LiveTalking"
+   ở góc trái trên (`LIVETALKING_WATERMARK=off`, ADR-075; còn chữ thì kiểm `.env` rồi chạy lại fork); có cảnh thì thấy bàn và sản phẩm.
 7. Bấm **Bắt đầu show**, nghe 2–3 câu: câu đầu ≤ 5 s, tiếng khớp miệng. Bấm **Kết thúc**. Mỗi lần bấm Bắt đầu là một `show_id` mới.
    Show thử này cũng làm ấm fork: show đầu tiên sau khi bật fork thỉnh thoảng nói câu đầu chậm tới ~5 s và hiện banner "Host im lặng"
    (007 quickstart §T056); các show sau ~1,6–2,3 s.
@@ -82,7 +94,7 @@ mỗi lần mở và tắt được ghi vào `alerts.jsonl` của phiên. Mỗi 
 | "Mất kết nối tới fork nhép miệng (N giây)" | đỏ | Xem terminal fork; fork chết thì chạy lại `run.ps1`, đợi banner này tắt rồi bấm **Bật lại nhân vật nhép miệng** (bấm sớm hơn thì app chưa thấy fork mới, lại rơi về ảnh tĩnh; khi đó bấm lại). Show vẫn chạy bằng ảnh tĩnh trong lúc chờ (fork bật lại mất khoảng 30 giây) |
 | "Màn hình host đã đóng" | đỏ | Mở lại `/host`, bấm "Bắt đầu" rồi chia sẻ lại tab vào Meet |
 | "Show đang ở chế độ dự phòng: dịch vụ viết kịch bản đang lỗi" | vàng | Để show chạy chế độ dự phòng; nếu kéo dài thì chuyển sang video dự phòng (§5) |
-| "Nhân vật nhép miệng lỗi, đang dùng ảnh tĩnh" | vàng | Xem terminal fork; fork còn chạy thì bấm **Bật lại nhân vật nhép miệng** |
+| "Nhân vật nhép miệng lỗi, đang dùng ảnh tĩnh" | vàng | Xem terminal fork; fork còn chạy thì bấm **Bật lại nhân vật nhép miệng**. Bấm mà vẫn rơi về ảnh tĩnh (host đứng im, đầu không động) thì fork đang giữ phiên cũ (`--max_session 1`, gặp 2026-11-28): dừng fork, chạy lại `run.ps1` rồi bấm lại |
 
 Banner đỏ kèm dòng chung: "Cần người vận hành: xem terminal app và mục Lỗi của show; không cứu được trong khoảng 1 phút thì người dẫn
 báo khách và phát video dự phòng (runbook §5)". Bộ canh chỉ tự làm một việc là bỏ câu kẹt; không tự bật lại fork, không tự đổi cấu hình.
@@ -96,6 +108,7 @@ Các dấu hiệu khác (không có banner riêng hoặc có từ trước 007):
 | Khách không nghe tiếng | Chưa bấm "Bắt đầu" ở `/host`, hoặc Meet chia sẻ không kèm âm thanh tab | Bấm "Bắt đầu" trên `/host`; chia sẻ lại tab, tích âm thanh |
 | Host "chưa mở" (banner "Chưa mở màn hình host") | Tab `/host` bị đóng hoặc tải lại | Mở lại `/host`, bấm "Bắt đầu", chia sẻ lại tab vào Meet |
 | Banner "Đang dùng model dự phòng" ở khu Model LLM | Model đầu chuỗi lỗi hoặc hết hạn mức, chuỗi đã tự chuyển (008, ADR-040) | Không cần làm gì, show vẫn chạy; giọng văn có thể khác đôi chút (Q19) |
+| freellmapi mất key: mục `sealion` lỗi xác thực, dashboard `http://localhost:3001` trống key, hoặc volume Docker bị xóa | `.env` của freellmapi bị tạo lại `ENCRYPTION_KEY` (key cũ không giải mã được nữa) hoặc mất volume `freellmapi_freellmapi-data` | Giữa show: để chuỗi tự chuyển sang Qwen/Gemini, **không khôi phục lúc đang live** (lệnh dừng freellmapi). Ngoài show: `powershell -ExecutionPolicy Bypass -File scripts/freellmapi/backup.ps1 -Restore %USERPROFILE%\freellmapi-backup\<ngày-giờ>`. Lệnh tự sao lưu trạng thái hiện tại trước, thay database, đổi `.env` nếu khác key (giữ bản cũ `.env.before-restore-…`), chờ healthy và kiểm giải mã |
 | Banner đỏ "Không có model nào sẵn sàng" hoặc "Đang ở chế độ dự phòng" | Mọi model trong chuỗi lỗi; sau `SCRIPT_FALLBACK_AFTER` lần lỗi show đọc phần giới thiệu có sẵn trong file sản phẩm | Để show chạy chế độ dự phòng (vẫn realtime, vẫn qua guard); nếu kéo dài, chuyển sang video dự phòng (§5) |
 | Banner "Nhân vật nhép miệng lỗi 2 lượt liền, đang dùng ảnh tĩnh" | Fork lỗi nhiều lần liên tiếp, app tự chuyển về `static` (FR-022) | Xem terminal 1; fork còn sống thì bấm **Bật lại nhân vật nhép miệng**; fork chết thì bật lại `run.ps1` rồi bấm nút đó |
 | Hình giật, miệng chậm | GPU/CPU quá tải (VieNeu và Wav2Lip cùng chạy; lượt bình luận đo được `render_fps` ~18) | Đóng ứng dụng khác, kiểm sạc; không đổi cấu hình giữa buổi |
@@ -173,12 +186,27 @@ phí, cài trên máy chạy live. Spec: `specs/006-obs-output/`.
 3. Trong OBS, ở cảnh dùng cho live: **Sources → + → Browser** (Nguồn trình duyệt), đặt tên `AI host`, rồi điền:
    - **URL:** `http://127.0.0.1:<APP_PORT>/obs` (mặc định `http://127.0.0.1:8000/obs`). Không thêm gì sau `/obs`: trang bỏ qua mọi
      tham số, nhãn "AI" luôn hiện.
-   - **Width** `720`, **Height** `1248` (khung dọc 9:16 của cảnh 009).
+   - **Width** `1080`, **Height** `1872` (khung dọc của cảnh 009 phóng lên full-HD; canvas OBS 1080×1920, đặt nguồn ở y = 24).
    - Bật **Control audio via OBS** để tiếng của host đi vào mixer OBS.
    - Bỏ chọn **Shutdown source when not visible**: chuyển cảnh không làm rớt kết nối. Nếu lỡ bật, ẩn nguồn là mất tiếng và trang điều
      khiển báo "Nguồn OBS đã ngắt"; hiện lại thì nguồn tự nối.
    - Bỏ chọn **Refresh browser when scene becomes active**.
    - Bấm OK.
+   **Lớp bàn sản phẩm (ADR-101, tùy chọn):** chạy `uv run python scripts/obs/desk_overlay.py` để ra
+   `assets/scenes/demo/obs_overlay/desk_overlay.png`. Trong OBS thêm **Sources → + → Image** tên `Bàn sản phẩm (ghép)` trỏ tới file đó,
+   kéo nằm **trên** `AI host`, vị trí (0, 24), tỉ lệ 1, rồi khóa. Đổi ảnh sản phẩm thì chạy lại script; muốn xếp lại thì
+   `--write-arrangement`, sửa `obs_overlay/arrangement.json`, chạy lại (OBS không tự nạp thì chuột phải nguồn → Reload). Lớp này tĩnh,
+   không làm nổi món host đang nói, và chỉ có trong OBS, không có trên `/host`.
+   **Ba lớp ảnh kiểu editor (ADR-102, thay lớp trên cho demo):** app chạy cảnh phông xanh, bàn trống:
+   `SCENE_DIR=assets/scenes/obs_layers` (cùng `OUTPUT_MODE=obs`). Chạy `uv run python scripts/obs/photo_layers.py` để ra
+   `assets/scenes/obs_layers/layers/background.png` và `desk_front.png` (ảnh bàn nguồn `layers/source/desk_photo.png` cần file xác nhận
+   `desk_photo.json`; muốn cắt khác thì `--write-recipe`, sửa `layers/recipe.json`, chạy lại; nền để nét, muốn mờ thì đặt
+   `background_blur_px`). Phông của cảnh phải là xanh lá thuần (0,255,0): màu khác bị app chỉnh sáng thành xanh ngọc, key không sạch,
+   ra viền sáng quanh tóc và bậc sáng ở đỉnh khung. Trong OBS, từ dưới lên:
+   `Nền shop (ảnh)` (Image, `background.png`, vị trí 0,0) → `AI host` (thêm **Filters → + → Chroma Key**, màu Green, Similarity 490,
+   Smoothness 15, Key Color Spill Reduction 40; Similarity + Smoothness quá 515 ăn vào tóc và chữ nhãn AI, Spill cao làm da xám) → `Bàn sản phẩm (ảnh)` (Image, `desk_front.png`, vị trí 0,0); ẩn `Bàn sản phẩm (ghép)`.
+   Xem preview: không còn viền xanh quanh tóc và vai, nhãn "AI-GENERATED CONTENT" còn nguyên, tay host trên mặt bàn. Ảnh sản phẩm do
+   Gemini tạo **chỉ cho demo Meet/YouTube qua OBS, không lên Shopee**. Hoàn tác: đóng OBS, trả `AI_Live.json` từ `AI_Live.json.bak-adr102`.
 4. Mixer OBS → bánh răng của `AI host` → **Advanced Audio Properties**: giữ **Audio Monitoring** ở **Monitor Off** (mặc định). Bật
    nghe thử trên cùng loa với micro hoặc với trang khác đang phát dễ gây vọng tiếng.
 5. Trang điều khiển phải hiện **Đầu ra: OBS (đã nối)**. Chạy kiểm tra trước demo (§2, §3): mục "Màn hình host" phải `ĐẠT` "Nguồn OBS đã
@@ -219,3 +247,26 @@ Mọi thao tác ở khối **Ảnh sản phẩm** trên trang điều khiển; s
 5. **Dọn tay `uploads/`:** app không tự xóa ảnh đã tải (dung lượng hiện ở phần chi tiết). Muốn bỏ hẳn ảnh của một món: **tắt app**, xóa
    `SCENE_DIR/uploads/<product_id>/` và mục `<product_id>` trong `uploads/images.json` (hoặc xóa cả `uploads/` để về bộ cảnh gốc), rồi
    chạy `uv run python -m ai_live.scene check` (012 contracts/scene-set.md §6). Không sửa tay khi app đang chạy.
+
+## 10. Bày sản phẩm như thật và bỏ nền ảnh (feature 013)
+
+Chi tiết: `specs/013-realistic-desk-products/quickstart.md`.
+
+1. **Bật cách bày:** trong `SCENE_DIR/scene.json` đặt `"layout": {"mode": "realistic"}`; thẻ mặc định `none`, muốn hiện giá trên hình (demo
+   Meet) thì thêm `"cards": "one"` (chỉ thẻ món đang nói) hay `"all"`. Chạy `uv run python -m ai_live.scene check` không còn lỗi; cảnh báo
+   `card_no_room` nghĩa là thẻ của món đó bị ẩn vì hết chỗ.
+2. **Đo mép bàn và vùng tay khi làm nhân vật mới:** `uv run python -m ai_live.scene preview <SCENE_DIR> --out out/debug.png --debug-zones`
+   (thêm `--host-frame vendor/livetalking/data/avatars/<avatar>/full_imgs/00000000.png` để vẽ lên đúng khung live của fork)
+   (hoặc `/api/scene/preview.png?debug=1`). Vạch xanh lá phải trùng mép bàn trong ảnh nhân vật (lệch ≤ 1% chiều cao), khung tím phải ôm
+   cả hai tay ở mọi clip nói. Sai thì sửa `scene.desk_top`, `scene.hands_zone` trong `character.json` của nhân vật rồi chụp lại. Kiểm trước
+   demo không còn `hands_zone_missing`.
+3. **Model tách nền (chỉ khi ADR-074 đã duyệt):** tải `isnet-general-use.onnx` theo `specs/013-realistic-desk-products/research.md` R6
+   vào `models/matting/` (ngoài git), so md5 `fc16ebd8b0c10d971d3513d564d01e29`, đặt `MATTING_MODEL_PATH=models/matting/isnet-general-use.onnx`
+   trong `.env`. Thử: tải một ảnh nền phức tạp ở khối **Ảnh sản phẩm** khi show chưa chạy, trong ≤ 20 s phải có bản bỏ nền hoặc lý do
+   `failed`. Không có model thì ảnh nền trơn vẫn bỏ nền được; ảnh nền phức tạp báo "chưa cài model tách nền" và ảnh gốc vẫn dùng được.
+4. **`MATTING_DURING_SHOW`:** mặc định `true` (model chạy cả khi đang live, tiến trình con ưu tiên thấp). Nếu thấy lip-sync hay tiếng giật
+   khi tải ảnh giữa show thì đặt `false`: ảnh nền phức tạp báo "đang live, bỏ nền phức tạp sau khi dừng show", nền trơn vẫn bỏ được ngay.
+5. **Luôn xem bản bỏ nền trước khi áp:** trang tự chọn sẵn bản bỏ nền chỉ khi hệ thống chắc; bản báo `failed` không bao giờ được chọn sẵn.
+   Mép còn viền hay mất một phần sản phẩm thì dùng ảnh gốc hoặc xin khách ảnh PNG nền trong suốt.
+6. **M2 (Shopee Live):** để `cards: none` vì Shopee có thẻ ghim riêng. Khi mở phiên Shopee, người bán **ghim món chính một lần** trong ứng
+   dụng Shopee Live (thao tác tay, hệ thống không chạm vào tài khoản Shopee); món phụ người xem mua qua giỏ hàng của phiên.

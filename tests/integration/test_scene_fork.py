@@ -21,9 +21,12 @@ from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
 from ai_live.core.events import EventBus, EventType
 from ai_live.core.models import TurnOutcome
 from ai_live.director.latency import LatencyTracker
+from ai_live.scene.background import BackgroundController
 from ai_live.scene.controller import SceneController
+from fixtures.background_builder import CHARACTER_ID as BG_CHARACTER
+from fixtures.background_builder import make_background_dir
 from fixtures.fake_fork import FakeFork
-from fixtures.scene_builder import CUSTOMER, demo_catalog, make_scene_dir
+from fixtures.scene_builder import CUSTOMER, catalog, demo_catalog, make_scene_dir
 
 pytestmark = pytest.mark.anyio
 
@@ -75,20 +78,35 @@ def decode(message: dict[str, Any]) -> Image.Image:
 
 
 Rig = tuple[SceneController, LiveTalkingRenderer, EventBus]
+# 014: every background controller the rig made, newest last.
+BACKGROUNDS: list[BackgroundController] = []
 
 
 @pytest.fixture
 async def make_rig(settings, tmp_path: Path):
     made: list[tuple[SceneController, LiveTalkingRenderer]] = []
 
-    async def factory(fork: FakeFork, *, subtitles: bool = False) -> Rig:
-        root = make_scene_dir(tmp_path / "scenes" / "demo", [p.id for p in demo_catalog().products])
+    async def factory(fork: FakeFork, *, subtitles: bool = False, background: dict[str, Any] | None = None) -> Rig:
+        root = make_scene_dir(
+            tmp_path / "scenes" / "demo",
+            [p.id for p in demo_catalog().products],
+            scene={"background": background} if background is not None else None,
+            distinct_colors=background is not None,
+        )
         scene_settings = settings.model_copy(
             update={"scene_enabled": True, "scene_dir": root, "customer_id": CUSTOMER, "scene_subtitles": subtitles}
         )
         bus = EventBus()
         renderer = LiveTalkingRenderer(fork.url, HostLink(), bus=bus)
         controller = SceneController(scene_settings, Store(), renderer, bus, None)
+        if background is not None:
+            # Same wiring as `main.py` (014 T029): made before the renderer starts so it hears the first `hello`.
+            character = tmp_path / "avatars" / BG_CHARACTER
+            character.mkdir(parents=True, exist_ok=True)
+            make_background_dir(character)
+            BACKGROUNDS.append(BackgroundController(renderer, bus, character))
+            controller.add_scene_loaded_listener(BACKGROUNDS[-1].on_scene_loaded)
+            await BACKGROUNDS[-1].start()
         # Same order as the app: the renderer first, so the fork link exists to take the first layer.
         await renderer.start()
         await controller.start()
@@ -184,3 +202,55 @@ async def test_scene_ms_reaches_render_stats_and_latency(make_rig) -> None:
         tracker = LatencyTracker()
         turn = tracker.finish("u1", TurnOutcome.COMPLETED, render=stats)
         assert turn is not None and turn.to_row()["scene_ms"] == 2.0
+
+
+# ---------- 014 T022: the backdrop through the renderer to the (fake) fork (fork-protocol §1, §3) ----------
+
+KE_HANG = {"style": "ke_hang", "softness_px": 3.0, "brightness": 0.95}
+
+
+async def test_ke_hang_sends_exactly_one_plate_of_frame_size_after_hello(make_rig) -> None:
+    async with FakeFork(scene=FORK_SCENE, background=FakeFork.background_block()) as fork:
+        controller, _, _ = await make_rig(fork, background=KE_HANG)
+        await until(lambda: "base" in fork.scene_layers and len(fork.scene_backgrounds) >= 1)
+        await controller.wait_idle()
+        await anyio.sleep(0.2)  # a second send would have arrived by now
+        assert len(fork.scene_backgrounds) == 1
+        plate = decode(fork.scene_backgrounds[0])
+        assert (plate.format, plate.size) == ("PNG", (480, 832))
+        status = BACKGROUNDS[-1].status()
+        assert (status["active"], status["mask_status"]) == (True, "valid")
+        # The 009/013 layers still go out next to the plate; the AI label stays the fork's own.
+        assert "base" in fork.scene_layers
+
+
+async def test_plate_is_sent_again_after_a_fork_restart(make_rig) -> None:
+    async with FakeFork(scene=FORK_SCENE, background=FakeFork.background_block()) as fork:
+        await make_rig(fork, background=KE_HANG)
+        await until(lambda: len(fork.scene_backgrounds) == 1)
+        first_connections = fork.connections
+        await fork.restart()
+        await until(lambda: fork.connections > first_connections and len(fork.scene_backgrounds) == 2)
+        assert fork.scene_backgrounds[1]["png_b64"] == fork.scene_backgrounds[0]["png_b64"]
+
+
+async def test_a_new_product_set_sends_a_new_plate(make_rig) -> None:
+    async with FakeFork(scene=FORK_SCENE, background=FakeFork.background_block()) as fork:
+        controller, _, _ = await make_rig(fork, background=KE_HANG)
+        await until(lambda: len(fork.scene_backgrounds) == 1)
+        first = demo_catalog().products[0]
+        # 012 "Áp dụng bộ mới": a smaller set, then the reload the apply route awaits.
+        controller._store.catalog = catalog(first)  # noqa: SLF001
+        await controller.reload()
+        await until(lambda: len(fork.scene_backgrounds) == 2)
+        assert fork.scene_backgrounds[1]["png_b64"] != fork.scene_backgrounds[0]["png_b64"]
+        assert set(BACKGROUNDS[-1].status()["items"]) == {first.id}
+
+
+async def test_goc_scene_sends_no_plate(make_rig) -> None:
+    async with FakeFork(scene=FORK_SCENE, background=FakeFork.background_block()) as fork:
+        controller, _, _ = await make_rig(fork, background={"style": "goc"})
+        await until(lambda: "base" in fork.scene_layers)
+        await controller.wait_idle()
+        await anyio.sleep(0.2)
+        assert fork.scene_backgrounds == []

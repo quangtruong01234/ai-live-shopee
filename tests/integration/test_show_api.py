@@ -711,7 +711,7 @@ def test_show_next_while_paused_is_accepted(client):
         _ack_started(host, _next_start(host))
         assert client.post("/api/pause").json()["show_state"] == "paused"
 
-        r = client.post("/api/show/next", json={"topic": "faq"})
+        r = client.post("/api/show/next", json={"topic": "specs"})
 
     assert r.status_code == 200, r.text
     assert r.json()["origin"] == "operator"

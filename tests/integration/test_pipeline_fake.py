@@ -18,8 +18,10 @@ from ai_live.app.main import create_app
 from ai_live.avatar.static_renderer import StaticRenderer
 from ai_live.brain.fake_engine import FakeReplyEngine
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
+from ai_live.comments.author_limits import AuthorLimiter
 from ai_live.comments.classifier import PriorityClassifier
 from ai_live.comments.filters import CommentFilter
+from ai_live.comments.greetings import GreetingReplier, GreetingRules
 from ai_live.comments.intake import CommentIntake
 from ai_live.comments.mock_source import MockSource
 from ai_live.core.events import EventBus, EventType
@@ -177,7 +179,8 @@ async def test_engine_error_marks_turn_error_and_next_comment_answered():
     runner = asyncio.create_task(p.director.run())
     try:
         await p.queue.put(_comment("giá bao nhiêu?", cid="c1"), Priority.MEDIUM)
-        await p.queue.put(_comment("giá bao nhiêu vậy shop?", cid="c2"), Priority.MEDIUM)
+        # Another viewer: a second comment from Lan would replace the first while it waits (001 FR-028).
+        await p.queue.put(_comment("giá bao nhiêu vậy shop?", author="Mai", cid="c2"), Priority.MEDIUM)
         for _ in range(200):
             if len(p.director.recent) >= 2:
                 break
@@ -512,3 +515,94 @@ def test_us3_session_files_and_latency_summary_on_shutdown(app_settings):
         text = path.read_text(encoding="utf-8")
         assert FAKE_KEY not in text, path.name
         assert "AIza" not in text, path.name
+
+
+# ---------- ADR-077: greetings answered from templates, per-viewer spam limit (001 FR-026..FR-028) ----------
+
+GREETINGS = Path(__file__).resolve().parents[2] / "data" / "rules" / "greetings.json"
+
+
+def _intake_077(p: Pipeline, clock=None) -> CommentIntake:
+    limiter = AuthorLimiter(3, 30, 120, clock=clock) if clock is not None else AuthorLimiter(3, 30, 120)
+    return CommentIntake(
+        source=MockSource(),
+        comment_filter=CommentFilter(banned_words=[]),
+        classifier=PriorityClassifier.from_file(RULES),
+        queue=p.queue,
+        bus=p.bus,
+        limiter=limiter,
+        greetings=GreetingRules.from_file(GREETINGS),
+    )
+
+
+async def test_077_greeting_is_answered_from_template_without_the_llm():
+    engine = RecordingEngine()
+    p = Pipeline(engine)
+    p.director.greeter = GreetingReplier.from_file(GREETINGS)
+    await p.connect()
+    intake = _intake_077(p)
+    first = await intake.submit("Huy", "hi shop")
+    again = await intake.submit("Huy", "hello")
+    assert first.drop_reason is None and first.comment.meta["kind"] == "greeting"
+    assert again.drop_reason is DropReason.GREETED
+
+    queued = await p.queue.get()
+    utt = await p.director.run_turn(queued)
+    assert utt.outcome is TurnOutcome.COMPLETED
+    assert engine.seen == []
+    assert "bạn Huy" in utt.sentences[0]
+    assert p.spoken() == utt.sentences
+
+
+async def test_077_spammer_is_muted_and_keeps_one_waiting_comment():
+    p = Pipeline(RecordingEngine())
+    intake = _intake_077(p)
+    results = [await intake.submit("Tú", f"đẹp quá {i}") for i in range(6)]
+    assert [r.drop_reason for r in results[3:]] == [DropReason.SPAM] * 3
+    # Only the newest accepted comment of Tú waits; a quiet viewer is unaffected.
+    other = await intake.submit("Lan", "giá bao nhiêu?")
+    assert other.drop_reason is None
+    assert [(q.comment.author, q.comment.text) for q in p.queue.snapshot()] == [
+        ("Lan", "giá bao nhiêu?"),
+        ("Tú", "đẹp quá 2"),
+    ]
+    assert results[0].drop_reason is None  # accepted at intake, superseded later in the queue
+
+
+# ---------- ADR-078: the operator blocks a viewer (001 FR-029) ----------
+
+
+async def test_078_blocked_viewer_is_dropped_and_waiting_comment_removed():
+    p = Pipeline(RecordingEngine())
+    intake = _intake_077(p)
+    await intake.submit("Tú", "giá bao nhiêu?")
+    async with p.bus.subscribe() as sub:
+        removed = intake.block("tu", 5, author="Tú")
+        events = sub.drain()
+    assert removed == 1 and p.queue.snapshot() == []
+    changed = [e for e in events if e.type is EventType.VIEWERS_CHANGED]
+    assert changed[-1].payload["viewers"][0]["kind"] == "manual"
+
+    blocked = await intake.submit("Tú", "còn hàng không?")
+    assert blocked.drop_reason is DropReason.BLOCKED
+    # A block does not count toward the rate limit: after unblocking, Tú gets a fresh start.
+    for i in range(5):
+        await intake.submit("Tú", f"x {i}")
+    intake.unblock("tu")
+    assert intake.viewers() == []
+    assert (await intake.submit("Tú", "giá sao shop?")).drop_reason is None
+    assert (await intake.submit("Lan", "hi")).drop_reason is None
+
+
+async def test_078_auto_mute_is_published_for_the_control_page():
+    p = Pipeline(RecordingEngine())
+    intake = _intake_077(p)
+    async with p.bus.subscribe() as sub:
+        for i in range(4):
+            await intake.submit("Tú", f"đẹp quá {i}")
+        events = sub.drain()
+    changed = [e for e in events if e.type is EventType.VIEWERS_CHANGED]
+    assert len(changed) == 1
+    [viewer] = changed[0].payload["viewers"]
+    assert (viewer["author_key"], viewer["author"], viewer["kind"]) == ("tu", "Tú", "auto")
+    assert 119 < viewer["remaining_s"] <= 120

@@ -109,7 +109,9 @@ Hành vi `speak` (giống `StaticRenderer`, khác đích gửi):
 2. Gửi `sentence_start`, các chunk PCM, `sentence_end` qua `/ailive/ws` (contracts/fork-protocol.md §2).
 3. Chờ `playback_started` ≤ `first_frame_timeout_s` (quá hạn → `RendererError("timeout")`, để route và bộ đếm lỗi lượt đọc được
    `kind`; bản thiết kế ghi `TimeoutError`); câu `seq == 0` ghi `first_playback_at`. Ngay khi có ack, gửi
-   `{"type":"subtitle", utterance_id, seq, text}` tới trang host.
+   `{"type":"subtitle", utterance_id, seq, text}` tới trang host và báo `playback_started` cho các listener (watchdog, cảnh).
+   Fork phát chunk ngay khi nhận, nên ack có thể tới khi TTS còn đang gửi chunk: phụ đề và báo "đã phát" theo ack, không chờ
+   gửi xong `sentence_end` (sửa 2026-11-25: trước đó phụ đề trễ ~5 s và watchdog báo nhầm `audio_missing`).
 4. Chờ `sentence_played` ≤ thời lượng tiếng + `ack_timeout_s`; xong gửi `{"type":"subtitle_clear", utterance_id, seq}`. Với
    `lead_s > 0`, `speak` trả về sớm `lead_s` giây trước khi câu phát xong; một tác vụ nền chờ `sentence_played` rồi mới gửi `subtitle_clear`, chờ thêm `stats` (≤ 0,5 giây) rồi mới coi câu đã xong (`turn_settled`).
 5. Tin `error` từ fork khi đang chờ → `RendererError(kind, message)`. Mất kết nối khi đang chờ → `RendererError("lipsync_unavailable")`.

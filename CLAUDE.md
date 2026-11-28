@@ -16,20 +16,26 @@ A livestream-selling service with an **AI host**: a real-time lip-synced avatar,
 - **Code status:** `src/ai_live/` has the 001 pipeline (101/116 tasks, paused by ADR-026), the 004 show director (80/81), the
   003 Vietnamese TTS (done), the 005 lip-sync fork (80/83: US1–US3 done except T068, US4 measured, T075 tail and T080 wait for
   the user), the 008 LLM chain (done) and the 009 live scene (done: desk, product cards and highlight composited into the frame;
-  real customer photos and viewer checks wait for the user) and the 010 mouth shapes (29/32: mouth-shape benchmark,
+  real customer photos and viewer checks wait for the user) and the 010 mouth shapes (31/32: mouth-shape benchmark,
   `LIVETALKING_MOUTH_METHOD` default `w2l`, head-pose trimming of talk clips; the blind A/B review waits for the user)
   and the 007 demo readiness (58/59: `src/ai_live/ops/` readiness check, show watchdog with control-page banners, rehearsal
   report, `verbatim` backup video via `python -m ai_live.ops backup-video`; reviewing the backup video waits for the user)
   and the 006 OBS output (30/35: `/obs` page as an OBS Browser Source, role `obs` beats `/host`, `OUTPUT_MODE=meet|obs`,
-  readiness and watchdog per mode; the GPU runs and the review in real OBS wait for the user).
+  readiness and watchdog per mode; the GPU runs and the review in real OBS wait for the user)
+  and the 011 Ultralight lip-sync (49/63: runs live, loses to Wav2Lip on mouth shapes, demo keeps Wav2Lip per ADR-066)
+  and the 012 product-image upload (done: replace/revert/remove images and apply a staged product set from the control page,
+  ADR-071/072; GPU checks T067/T068 pass; over-wide images get a `too_wide` warning)
+  and the 013 realistic desk (in progress: products stand on the desk by the host's hands, flat-background removal on upload,
+  IS-Net matting subprocess, cards none/one/all, ADR-074; `showcase` layout with riser and price sticker, ADR-079; products never overlap, ADR-081; near-real size and camera softness, ADR-082; model download
+  T002, GPU checks, DIS5K licence wait for the user).
   Current status: `progress/STATUS.md`.
 
 ## Architecture (summary)
 
 The pipeline has 6 stages, each an adapter behind a common interface:
 **Comment source** (mock / Shopee; YouTube dropped by ADR-058) → **Priority queue** (spam filter, dedup, drop stale comments)
-→ **ReplyEngine** (`REPLY_ENGINE=chain`: pinned free models, SEA-LION via freellmapi then Qwen3.8 on Groq, switching on
-error, ADR-035/040; streams sentence by sentence, grounded only in product data) → **Vietnamese TTS**
+→ **ReplyEngine** (`REPLY_ENGINE=chain`: pinned free models, SEA-LION via freellmapi, then Qwen3.8 on Groq, then
+Gemini 3.5 Flash-Lite, switching on error, ADR-035/040/073; streams sentence by sentence, grounded only in product data) → **Vietnamese TTS**
 (`TTS_PROVIDER`: VieNeu on CPU for live sessions, Gemini TTS free tier only for short tries, ADR-024; PCM16 mono 16 kHz
 in chunks) → **AvatarRenderer** (local: `static` = image + audio; GPU: LiveTalking fork with Wav2Lip or MuseTalk)
 → **Output** (`OUTPUT_MODE=meet`: the `/host` page shared on Meet; `obs`: the `/obs` page as an OBS Browser Source, OBS pushes
@@ -82,7 +88,7 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 - Every utterance has an `utterance_id`; log the milestones `comment_received`, `llm_first_sentence`, `tts_first_chunk`,
   `avatar_first_frame` to track the latency budget. Scripted sentences use `segment_id` + `segment_requested` instead of
   `comment_received`.
-- Tests: pipeline logic must run entirely without a GPU (mock source, fake TTS and static renderer).
+- Tests: pipeline logic runs without a GPU (mock source, fake TTS, static renderer). Visual changes (AI label, scene, pages): verify live in Chrome DevTools.
 
 ## Mandatory constraints
 
@@ -92,7 +98,7 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
    Default text "AI-GENERATED CONTENT", the banner in Shopee's AI content rules (ADR-065).
 3. **One AI host per account.** An avatar and voice belong to exactly one customer / one shop.
 4. **Signed consent** from the model for both likeness and voice before use. The signed copy is stored outside git.
-5. **Check licenses before commercialization:** LiveTalking (requires a watermark), Wav2Lip, MuseTalk, S3FD, whisper and the TTS
+5. **Check licenses before commercialization:** LiveTalking (README asks for a watermark on some platforms; `LIVETALKING_WATERMARK`, off for the demo by ADR-075), Wav2Lip, MuseTalk, S3FD, whisper and the TTS
    model. Tracked in `docs/RISKS.md`.
 6. **Secrets live only in `.env`** (never committed). The customer's Shopee session must be **stored encrypted** and only on the
    machine that runs the live.
@@ -106,7 +112,7 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 ## DO NOT
 
 - DO NOT stream pre-recorded video or audio on Shopee Live. The 2–3 minute backup video is **only** for Meet/YouTube demos.
-- DO NOT hide or remove the AI label, and do not remove watermarks a license requires.
+- DO NOT hide or remove the AI label, and do not remove watermarks a license requires (the "LiveTalking" text is not one: ADR-075).
 - DO NOT commit `.env`, API keys, stream keys, Shopee cookies/sessions, model weights, model photos/videos/voices or customer data.
 - DO NOT use the likeness or voice of anyone who has not signed consent. Never clone a celebrity's voice or face.
 - DO NOT reuse one customer's avatar or voice for another customer or another account.
@@ -135,7 +141,7 @@ uv run ruff check . && uv run ruff format --check .    # ruff only (ADR-015)
 - `.specify/memory/constitution.md`: project constitution · `.specify/templates/`: spec, plan, tasks templates
 - `progress/`: current status, feature registry, pending decisions, work log (single place for progress)
 - `src/README.md`: source tree layout
-- `.claude/commands/`: `/update-context`, `/sdd.*` and `/schedule-resume` (reopen Claude Code after the usage limit resets)
+- `.claude/commands/`: `/update-context`, `/sdd.*`, `/schedule-resume`; skill `live-scene-realism` tunes the 013 scene to look real
 
 ## Open questions
 

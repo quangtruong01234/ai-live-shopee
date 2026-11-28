@@ -39,7 +39,7 @@ Với mỗi `product_id` của catalog đang nạp:
 | `null` | không ảnh | | `warning` `missing_image` ("đã gỡ ảnh") |
 
 - Ảnh tải lên đã chuẩn hóa nên luôn có alpha; luật `no_alpha` của 009 không áp cho chúng (ảnh JPEG đã thành RGBA đặc lúc tải, research R2).
-  Bộ nạp vẫn cắt theo vùng alpha và thu ≤ 640 px như 009 (`_load_art`).
+  Bộ nạp vẫn cắt theo vùng alpha và thu ≤ 640 px như 009 (`_load_art`) (013 ADR-079 nâng lên 960 px).
 - File trong `products/` của một sản phẩm mà sổ đang chọn ảnh tải lên hay đã gỡ: không vẽ, không báo `orphan_image` (sản phẩm vẫn có trong
   catalog), không kiểm `provenance.json` cho nó.
 - `ProductArt.source` = `"upload"` và `version_id` đặt cho ảnh tải lên; `"kit"` cho ảnh 009.

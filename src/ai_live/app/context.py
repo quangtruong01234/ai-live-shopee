@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ai_live.avatar.character import AvatarCharacter
     from ai_live.brain.chain_engine import ChainReplyEngine
     from ai_live.ops.watchdog import WatchdogService
+    from ai_live.scene.background import BackgroundController
     from ai_live.scene.controller import SceneController
     from ai_live.scene.uploads import ProductImageStore
 
@@ -60,6 +61,8 @@ class AppContext:
     character: AvatarCharacter | None = None
     # 009: the live scene around the host; None when `SCENE_ENABLED` is off.
     scene: SceneController | None = None
+    # 014: the room behind the host; None when `SCENE_ENABLED` is off.
+    background: BackgroundController | None = None
     # 007: the show watchdog; None when `WATCHDOG_ENABLED` is off.
     watchdog: WatchdogService | None = None
     # 012: uploaded product images; built even with the scene off so the page can still list and stage them.
@@ -88,6 +91,8 @@ def build_state(ctx: AppContext) -> dict[str, Any]:
             "host_role": ctx.renderer.host_role,
         },
         "queue": [item.to_json() for item in ctx.queue.snapshot()],
+        # 001 FR-029: blocked and muted viewers (`ViewerBlock`), so a reloaded control page lists them again.
+        "viewers": ctx.intake.viewers(),
         "current_utterance": None
         if current is None
         else {

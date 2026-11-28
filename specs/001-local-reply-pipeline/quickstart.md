@@ -8,7 +8,8 @@
 ```bash
 uv sync                                   # dependency đã duyệt ở ADR-014/015/018 (plan.md)
 cp .env.example .env
-# Điền: GEMINI_API_KEY (key free tier tạo ở Google AI Studio; bỏ trống được nếu REPLY_ENGINE=fake)
+# Điền: REPLY_ENGINE=chain (mặc định, ADR-035/040) cần FREELLMAPI_KEY + GROQ_API_KEY và freellmapi chạy ở 127.0.0.1:3001;
+#       REPLY_ENGINE=gemini cần GEMINI_API_KEY; REPLY_ENGINE=fake không cần key
 #       PRODUCT_DATA_PATH=data/products/demo.docx, TTS_PROVIDER=fake, AVATAR_MODE=static, APP_ENV=dev
 uv run python scripts/make_demo_content.py      # sinh template.docx và demo.docx (dữ liệu hư cấu)
 uv run python -m ai_live.products validate data/products/demo.docx
@@ -49,7 +50,7 @@ curl -X POST http://127.0.0.1:8000/api/debug/speak -H "Content-Type: application
 
 ## US3: Đo độ trễ (P2), quy trình kiểm SC-001
 
-1. `REPLY_ENGINE=gemini`, model theo `.env`. Gửi 20 comment hỏi về sản phẩm, **mỗi comment sau khi host nói xong câu trước**.
+1. `REPLY_ENGINE=chain` (hoặc `gemini`), model theo `LLM_CHAIN` trong `.env`. Gửi 20 comment hỏi về sản phẩm, **mỗi comment sau khi host nói xong câu trước**.
 2. Mở bảng độ trễ trên trang điều khiển (hoặc `GET /api/latency?idle_only=true`).
 3. **Kỳ vọng:** p95 `total` ≤ 3,5 s (SC-001); có đủ 4 mốc cho mọi lượt `completed`. Thời gian chờ hàng đợi xem riêng ở cột `queue_wait`.
 4. Tắt app (Ctrl+C), xem lại `data/sessions/<id>/utterances.jsonl` và `latency_summary.json` (FR-019).
@@ -73,7 +74,8 @@ curl -X POST http://127.0.0.1:8000/api/debug/speak -H "Content-Type: application
 1. Trên trang điều khiển, nạp một bản `demo.docx` đã sửa giá → hiện version mới; hỏi giá → host nói giá mới.
    Với `REPLY_ENGINE=fake`, câu hỏi giá nào cũng nhận giá của **sản phẩm chính**, nên phải sửa giá sản phẩm chính mới nghe được giá mới.
 2. Nạp file thiếu mục "Khẳng định bị cấm" và có giá `250k` → bị từ chối, liệt kê đủ 2 lỗi; host vẫn dùng nội dung cũ.
-3. Chấm bộ câu hỏi (cần `GEMINI_API_KEY`; free tier, tính vào giới hạn tần suất của project):
+3. Chấm bộ câu hỏi (cần key của engine đang chọn; free tier, tính vào hạn mức ngày. SEA-LION qua Cloudflare hết hạn mức thì báo
+   `rate_limited` tới 07:00 hôm sau; thêm `--entry sealion --pace 10` để chỉ chấm model chính):
    ```bash
    uv run python -m ai_live.qa_eval run --content data/products/demo.docx \
        --questions data/eval/demo_questions.json --repeat 3
@@ -89,7 +91,8 @@ Mở `data/products/template.docx` và `demo.docx` bằng Word giao diện tiế
 
 ## Hồi quy khi đổi prompt, engine hoặc model (Điều III)
 
-Mỗi lần sửa `brain/prompt.py`, `brain/guard.py`, `GeminiReplyEngine` hoặc đổi `LLM_MODEL`:
+Mỗi lần sửa `brain/prompt.py`, `brain/guard.py`, `data/rules/claim_phrases.txt`, engine (`chain_engine.py`, `gemini_engine.py`) hoặc đổi
+`LLM_CHAIN` / `LLM_MODEL`:
 
 ```bash
 uv run python -m ai_live.qa_eval run --content data/products/demo.docx \
@@ -112,9 +115,10 @@ uv run pytest -m live_llm      # cần GEMINI_API_KEY (free tier, tính vào quo
 
 | Ngày | Mục | Kết quả | Ghi chú |
 |------|-----|---------|---------|
-| | SC-001 (p95 khi host rảnh, ≥ 20 lượt) | | model, `queue_wait` p95. Chưa đo: cần LLM thật (T101) |
+| 2026-11-20 | SC-001 (p95 khi host rảnh, ≥ 20 lượt) | Đạt | 26 lượt gửi khi host rảnh qua `/api/comments`: p95 `total` 1,811 s (trung vị 1,086 s), p95 `llm` 1,608 s, p95 `queue_wait` 0,01 s. Engine `chain` (SEA-LION v4 27B qua freellmapi/cloudflare, Qwen dự phòng), **TTS fake, avatar static**: chưa gồm thời gian TTS thật và lip-sync. Cả 4 mốc có ở mọi lượt `completed` |
 | 2026-11-13 | SC-007 (bỏ qua / tạm dừng, ≥ 10 lần mỗi lệnh) | Đạt | 10 bỏ qua (đều khi đang nói, 10 `turn_skipped`), 10 tạm dừng: `latency_ms` lớn nhất skip 0,0, pause 0,0 (resume 16,0; đồng hồ Windows bước ~16 ms). 0 `turn_started` khi đang tạm dừng, comment mới nằm chờ trong hàng đợi. Engine fake (T106) |
 | 2026-11-13 | SC-005 / SC-006 (chạy 30 phút, lỗi giả lập, nhãn AI) | Đạt | 30 phút, 60 comment (~1 comment/30 s), 4 lỗi giả lập (llm/error, tts/error, llm/timeout, tts/error) → 4 lượt `error` đúng bước, lượt kế tiếp đều `completed`; 56 lượt `completed`, `/health` luôn 200, không traceback. 12/12 ảnh chụp `/host` có nhãn **AI** hiện (visibility visible, nằm trong khung). Engine fake, TTS fake, avatar static (T105) |
 | 2026-11-13 | Quickstart US1–US5 (engine fake) | Đạt phần không cần LLM | US1 giá đúng file, câu không có dữ liệu → từ chối, "99k" không bị nói; US2 lọc link/trùng, thứ tự ưu tiên, `stale` sau 11,5 s; US3 24 lượt, p95 `total` 0,145 s (**không phải** SC-001, engine fake); US4 6/6 lỗi (llm/tts/render × error/timeout) và đóng tab host → lỗi `render` `host_unavailable`, mở lại chạy tiếp; US5 nạp file mới → version mới và giá mới, file lỗi → 400 với đủ 2 lỗi. Chưa chạy: `/api/debug/speak`, `make_demo_content.py`, qa_eval (T100) |
-| | SC-008 / SC-009 (bộ câu hỏi mẫu, 3 lần) | | điểm từng lần, lệch với chấm tay. Chưa đo: cần LLM thật |
+| 2026-11-20 | SC-002 (bộ câu hỏi bẫy, 0 câu bịa) | Chưa đạt → đã sửa, chờ chạy lại bằng SEA-LION | Lần 1 (`chain`, cả 12 câu SEA-LION, `runs/20261120-114925`): 11/12, a08 nói "Dạ còn hàng nha" (bịa tồn kho). Chạy tay US3 thêm 2 câu bịa: "không nâng tông", "dùng sau khi đã thoa kem dưỡng". Sửa (đường tắt sửa lỗi): thêm luật tồn kho và tính chất/cách dùng vào `_RULES` của `prompt.py`, thêm cụm vào `data/rules/claim_phrases.txt` (tồn kho kèm tiếng đệm, "nâng tông", "trị/hết/giảm/ngừa mụn", "kem dưỡng"). Phát lại 148 câu trả lời thật qua guard mới: chặn đúng 4 câu bịa, không chặn câu đúng nào; 2.772 câu cũ của show chỉ thêm 2 câu bị chặn (đều bịa bước dưỡng). Lần 2 bằng Qwen (`--entry qwen`, `runs/20261120-124457`): 11/12, a08 đã đúng; a02 "không có công dụng trị mụn" nay bị guard chặn. SEA-LION hết hạn mức ngày (reset 07:00 2026-11-21): chưa chạy lại, người vận hành chưa đọc từng câu |
+| 2026-11-20 | SC-008 / SC-009 (bộ câu hỏi mẫu, 3 lần) | Đạt cả hai | `demo_questions.json` × 3, engine `chain`: 10/10, 10/10, 10/10 (cả 30 câu do SEA-LION trả lời). Báo cáo `data/eval/runs/20261120-114753`, `-114822`, `-114853`. SC-009: chấm tay báo cáo `-114753` so với `demo.docx` (Claude chấm theo yêu cầu người dùng, người dùng quan sát qua Chrome): 10/10 Đúng, khớp tự chấm 10/10 |
 | 2026-11-13 | File Word: Word tiếng Việt / Google Docs / WPS | Một phần | Word 16 giao diện tiếng Anh (en-GB) lưu lại `template.docx` và `demo.docx`: `validate` cho kết quả như bản gốc (xem research R1). TODO: Word giao diện tiếng Việt, Google Docs, WPS chưa thử (T107) |

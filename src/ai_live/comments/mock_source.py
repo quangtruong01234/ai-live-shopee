@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Callable
 
 from ai_live.core.logging import log_event
 from ai_live.core.models import Comment
-from ai_live.core.text import normalize_text
+from ai_live.core.text import match_form, normalize_text
 
 logger = logging.getLogger("ai_live.comments")
 
@@ -44,7 +44,8 @@ class MockSource:
             text=normalize_text(full, self.max_chars),
             received_at=self._clock(),
             # Cutting happens here, so the filter could not tell otherwise (data-model.md §1 `meta.truncated`).
-            meta={"truncated": len(full) > self.max_chars},
+            # The mock has no account ids, so the raw name stands in for one (per-viewer limits, ADR-077).
+            meta={"truncated": len(full) > self.max_chars, "author_key": match_form(author)},
         )
         log_event(logger, "comment_received", comment_id=comment.id, t_mono=comment.received_at)
         log_event(

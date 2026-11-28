@@ -126,7 +126,15 @@ class Rig:
     async def put(
         self, text: str, cid: str, priority: Priority = Priority.MEDIUM, *, author: str = "Lan", age_s: float = 0.0
     ) -> None:
-        comment = Comment(id=cid, source="mock", author=author, text=text, received_at=time.monotonic() - age_s)
+        # One viewer per comment id: the one-waiting-comment-per-viewer rule (FR-028) has its own tests.
+        comment = Comment(
+            id=cid,
+            source="mock",
+            author=author,
+            text=text,
+            received_at=time.monotonic() - age_s,
+            meta={"author_key": f"viewer-{cid}"},
+        )
         await self.queue.put(comment, priority)
 
     @property
@@ -489,9 +497,9 @@ class RecordingGuard(OutputGuard):
         super().__init__()
         self.checked: list[str] = []
 
-    def check(self, sentence, catalog):
+    def check(self, sentence, catalog, *, viewer_amounts=()):
         self.checked.append(sentence)
-        return super().check(sentence, catalog)
+        return super().check(sentence, catalog, viewer_amounts=viewer_amounts)
 
 
 class ShowRig:

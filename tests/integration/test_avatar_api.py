@@ -171,9 +171,16 @@ def test_host_config_static(app_settings) -> None:
         "active": "static",
         "livetalking_url": s.livetalking_url,
         "ai_label": {"text": "AI", "position": "bottom-left"},
+        "subtitles": False,
         "scene": {"enabled": False, "subtitles": False, "version": None},
         "output_mode": "meet",
     }
+
+
+def test_host_config_subtitles_follow_setting(app_settings) -> None:
+    """ADR-092: the spoken text shows on the host page only when HOST_SUBTITLES is on."""
+    with TestClient(create_app(app_settings.model_copy(update={"host_subtitles": True}))) as c:
+        assert c.get("/api/host-config").json()["subtitles"] is True
 
 
 def test_host_config_livetalking(lipsync_settings) -> None:

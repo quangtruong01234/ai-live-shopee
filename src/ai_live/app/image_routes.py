@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import logging
 import time
 from pathlib import Path
@@ -17,6 +18,7 @@ from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
+from PIL import Image
 from pydantic import BaseModel
 
 from ai_live.app.context import AppContext
@@ -26,16 +28,20 @@ from ai_live.app.staging import StagedSet
 from ai_live.core.events import Event, EventType
 from ai_live.core.logging import log_event
 from ai_live.products.models import Product, product_detail
+from ai_live.scene.layout import ArtFit
 from ai_live.scene.loader import kit_art_path, load_kit_art, load_scene_set, load_version_art, scene_customer
+from ai_live.scene.matting import CutResult, remove_background
 from ai_live.scene.models import MAX_IMAGE_BYTES, ProductArt, SceneSet
 from ai_live.scene.render import encode_png
 from ai_live.scene.uploads import (
     KIT,
     ImageState,
     ImageStoreError,
+    NormalizedImage,
     ProductImageStore,
     check_product_id,
     check_version_id,
+    needs_bg_removal,
     now_iso,
     validate_and_normalize,
 )
@@ -47,6 +53,21 @@ router = APIRouter()
 
 CUSTOMER_MISMATCH_MESSAGE = "Bộ cảnh không thuộc khách của phiên này"
 IMMUTABLE = "max-age=31536000, immutable"
+HAS_BACKGROUND_MESSAGE = (
+    "Ảnh này không có nền trong suốt (ảnh còn nền): trên bàn sẽ hiện nguyên khung chữ nhật. Nên tách nền trước nếu kịp."
+)
+# Shown when removal itself broke (a bug, a full disk): the upload is kept and nothing is recorded, so the next upload
+# of the same picture tries again.
+BG_ERROR_REASON = "bỏ nền bị lỗi, thử tải lại ảnh"
+BG_RECORD_KEYS = ("method", "result", "reason", "ms", "model")
+LOW_RESOLUTION_ADVICE = "Ảnh vẫn áp được."
+_TOO_WIDE_ADVICE = "Nên dùng ảnh gần vuông hoặc dọc hơn; ảnh vẫn áp được."
+TOO_WIDE_MESSAGES: dict[ArtFit, str] = {
+    "highlight_only": "Ảnh quá rộng so với ô của món trên bàn: chỉ hiện lúc AI đang nói về món này, "
+    "lúc khác chỉ còn thẻ. " + _TOO_WIDE_ADVICE,
+    "card_only": "Ảnh quá rộng so với ô của món trên bàn: trên live chỉ hiện thẻ, "
+    "kể cả lúc AI nói về món này. " + _TOO_WIDE_ADVICE,
+}
 
 
 def _ctx(request: Request) -> AppContext:
@@ -90,6 +111,28 @@ async def _check_scene_owner(ctx: AppContext) -> None:
     session = ctx.settings.customer_id
     if owner and session and owner != session:
         raise ApiError(409, "customer_mismatch", CUSTOMER_MISMATCH_MESSAGE)
+
+
+def _art_fit(ctx: AppContext, product_id: str, size: tuple[int, int], target: str) -> ArtFit | None:
+    """How the picture would fare in the set it is meant for (FR-004a); the other set when the pid is not in it."""
+    if ctx.scene is None:
+        return None
+    live = list(ctx.store.catalog.products)
+    staged = list(ctx.staging.catalog.products) if ctx.staging is not None else []
+    first, second = (staged, live) if target == "staging" else (live, staged)
+    products = first if any(p.id == product_id for p in first) else second
+    return ctx.scene.art_fit(products, product_id, size)
+
+
+def _low_resolution(ctx: AppContext, product_id: str, size: tuple[int, int], target: str) -> str | None:
+    """The FR-028 warning for the picture in the set it is meant for, chosen as `_art_fit` chooses it (013)."""
+    if ctx.scene is None:
+        return None
+    live = list(ctx.store.catalog.products)
+    staged = list(ctx.staging.catalog.products) if ctx.staging is not None else []
+    first, second = (staged, live) if target == "staging" else (live, staged)
+    products = first if any(p.id == product_id for p in first) else second
+    return ctx.scene.low_resolution(products, product_id, size)
 
 
 def _thumb_url(product_id: str, state: str, version_id: str | None) -> str | None:
@@ -139,6 +182,9 @@ def _product_status(
                 "uploaded_at": v.get("uploaded_at"),
                 "source_name": v.get("source_name"),
                 "applied_at": v.get("applied_at"),
+                "bg_removal": v.get("bg_removal"),
+                "cutout_version": v.get("cutout_version"),
+                "derived_from": v.get("derived_from"),
             }
             for vid, v in newest_first
         ],
@@ -157,7 +203,8 @@ async def get_scene_images(request: Request) -> dict[str, Any]:
     ids = [p.id for p in catalog.products]
     kits = await asyncio.to_thread(lambda: {pid: kit_art_path(root, pid) is not None for pid in ids})
     issues: dict[str, list[dict[str, Any]]] = {}
-    for issue in scene.issues if scene is not None else ():
+    layout_issues = ctx.scene.layout_issues(catalog) if ctx.scene is not None else []
+    for issue in [*(scene.issues if scene is not None else ()), *layout_issues]:
         if issue.product_id is not None:
             issues.setdefault(issue.product_id, []).append(issue.to_json())
     uploads_bytes = sum(
@@ -176,8 +223,10 @@ async def get_scene_images(request: Request) -> dict[str, Any]:
 
 
 @router.post("/api/scene/uploads", status_code=201)
-async def upload_scene_image(request: Request, product_id: str) -> dict[str, Any]:
-    """Store one uploaded image as a new version without showing it (contracts/api.md §1, FR-002–FR-004)."""
+async def upload_scene_image(
+    request: Request, product_id: str, target: Literal["live", "staging"] = "live"
+) -> dict[str, Any]:
+    """Store one uploaded image as a new version without showing it (contracts/api.md §1, FR-002–FR-004a)."""
     started = time.perf_counter()
     ctx = _ctx(request)
     try:
@@ -197,6 +246,9 @@ async def upload_scene_image(request: Request, product_id: str) -> dict[str, Any
     except ApiError as exc:
         log_event(logger, "scene_image_rejected", logging.WARNING, code=exc.error)
         raise
+    version = _images(ctx).version(product_id, image.version_id) or version
+    if needs_bg_removal(version):
+        version = await _remove_background(ctx, product_id, image, version)
     log_event(
         logger,
         "scene_image_uploaded",
@@ -209,6 +261,23 @@ async def upload_scene_image(request: Request, product_id: str) -> dict[str, Any
         bytes=version["bytes"],
         ms=round((time.perf_counter() - started) * 1000, 1),
     )
+    record = version.get("bg_removal")
+    cutout_id = version.get("cutout_version")
+    cutout = _images(ctx).version(product_id, cutout_id) if cutout_id else None
+    recommended = cutout if cutout is not None else version
+    warnings: dict[str, str] = {}
+    # 013: only a failed removal leaves the operator without a see-through version (contracts/api.md §1).
+    failed = record["result"] == "failed" if isinstance(record, dict) else not version["has_alpha"]
+    if failed:
+        warnings["has_background"] = HAS_BACKGROUND_MESSAGE
+    size = (int(recommended["width"]), int(recommended["height"]))
+    fit = _art_fit(ctx, product_id, size, target)
+    if fit is not None and fit != "shown":
+        warnings["too_wide"] = TOO_WIDE_MESSAGES[fit]
+    # 013 FR-028: a small picture still applies; it just looks soft once the frame is scaled up.
+    low = _low_resolution(ctx, product_id, size, target)
+    if low is not None:
+        warnings["low_resolution"] = f"{low}. {LOW_RESOLUTION_ADVICE}"
     return {
         "product_id": product_id,
         "version_id": image.version_id,
@@ -216,9 +285,54 @@ async def upload_scene_image(request: Request, product_id: str) -> dict[str, Any
         "width": version["width"],
         "height": version["height"],
         "has_alpha": version["has_alpha"],
-        "warnings": [] if version["has_alpha"] else ["has_background"],
+        "bg_removal": {key: record.get(key) for key in BG_RECORD_KEYS} if isinstance(record, dict) else None,
+        "cutout": None
+        if cutout is None
+        else {
+            "version_id": cutout_id,
+            "width": cutout["width"],
+            "height": cutout["height"],
+            "thumb_url": _thumb_url(product_id, "upload", cutout_id),
+        },
+        "recommended_version": cutout_id if cutout is not None else image.version_id,
+        "warnings": list(warnings),
+        "warning_messages": warnings,
         "thumb_url": _thumb_url(product_id, "upload", image.version_id),
     }
+
+
+def _open_rgba(png: bytes) -> Image.Image:
+    with Image.open(io.BytesIO(png)) as source:
+        return source.convert("RGBA")
+
+
+async def _remove_background(
+    ctx: AppContext, product_id: str, image: NormalizedImage, version: dict[str, Any]
+) -> dict[str, Any]:
+    """Run 013 background removal on a saved upload and record it; never fails the upload (contracts/api.md §1).
+
+    The request waits for it (research R9): the operator chooses between the two pictures right after.
+    """
+    try:
+        picture = await asyncio.to_thread(_open_rgba, image.png)
+        cut = await remove_background(
+            picture,
+            has_alpha=image.has_alpha,
+            show_running=ctx.director.show_active,
+            settings=ctx.settings,
+        )
+        return await _images(ctx).record_bg_removal(product_id, image.version_id, cut)
+    except Exception as exc:  # noqa: BLE001 - any failure here must still leave a usable upload
+        log_event(
+            logger,
+            "scene_bg_removal_error",
+            logging.WARNING,
+            product_id=product_id,
+            version_id=image.version_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        failed = CutResult(None, "flat", "failed", BG_ERROR_REASON)
+        return {**version, "bg_removal": {key: getattr(failed, key) for key in BG_RECORD_KEYS}, "cutout_version": None}
 
 
 @router.get("/api/scene/images/{product_id}/versions/{version_id}.png", include_in_schema=False)
@@ -254,8 +368,12 @@ async def scene_preview(
     target: Literal["live", "staging"] = "live",
     product_id: str | None = None,
     version_id: str | None = None,
+    debug: bool = False,
 ) -> Response:
-    """A still of the frame with one product's candidate image; the live scene is not touched (research R4)."""
+    """A still of the frame with one product's candidate image; the live scene is not touched (research R4).
+
+    `debug=1` (013) draws the keep-out zones, the desk edge and the hands zone, to measure a new character.
+    """
     ctx = _ctx(request)
     staged = _staging(ctx) if target == "staging" else None
     controller = ctx.scene
@@ -269,7 +387,7 @@ async def scene_preview(
             staged.product(product_id)
         if version_id is not None:
             raise ApiError(400, "bad_id", "Xem trước bộ chuẩn bị không nhận version_id, gán ảnh trước")
-        return await _staging_preview(ctx, staged)
+        return await _staging_preview(ctx, staged, debug=debug)
     overrides = {}
     if product_id is not None:
         _live_product(ctx, product_id)
@@ -282,7 +400,7 @@ async def scene_preview(
         if not known or art is None:
             raise ApiError(404, "unknown_version", f"Không có phiên bản ảnh {version_id} của sản phẩm {product_id}")
         overrides[product_id] = art
-    png = await controller.preview(ctx.store.catalog, overrides, controller.highlight, target=target)
+    png = await controller.preview(ctx.store.catalog, overrides, controller.highlight, target=target, debug=debug)
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
@@ -442,7 +560,7 @@ def _staging_event(ctx: AppContext, action: str, staged_id: str) -> None:
     ctx.bus.publish(Event(EventType.SCENE, {"kind": "staging", "action": action, "staged_id": staged_id}))
 
 
-async def _staging_preview(ctx: AppContext, staged: StagedSet) -> Response:
+async def _staging_preview(ctx: AppContext, staged: StagedSet, *, debug: bool = False) -> Response:
     """The whole staged set drawn as it would go live: its catalog and the images it would end up with (R4)."""
     controller = ctx.scene
     assert controller is not None
@@ -456,7 +574,7 @@ async def _staging_preview(ctx: AppContext, staged: StagedSet) -> Response:
         return scene, overrides
 
     scene, overrides = await asyncio.to_thread(_load)
-    png = await controller.preview(staged.catalog, overrides, None, scene=scene, target="staging")
+    png = await controller.preview(staged.catalog, overrides, None, scene=scene, target="staging", debug=debug)
     return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 

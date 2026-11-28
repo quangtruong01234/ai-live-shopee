@@ -299,6 +299,12 @@ def live_guard():
         ("Anh chị nhớ tranh thủ nha, số lượng có hạn thôi đó.", "số lượng có hạn"),
         ("Khuyến mãi có thể kết thúc bất cứ lúc nào đó ạ.", "bất cứ lúc nào"),
         ("Da kem nay AN TOAN CHO DA lam nha.", "an toàn cho da"),
+        # Ungrounded answers from the 001 SC-002 run with a real LLM (2026-11-20).
+        ("Dạ còn hàng nha bạn Linh.", "còn hàng nha"),
+        ("Dạ bạn Oanh ơi, kem chống nắng X này không nâng tông nha.", "nâng tông"),
+        ("Dạ bạn Phúc ơi, kem chống nắng X dùng sau khi đã thoa kem dưỡng nha.", "kem dưỡng"),
+        ("Dạ chai 100 ml vẫn còn nhiều hàng lắm anh chị ơi.", "còn nhiều hàng"),
+        ("Dạ sản phẩm này không có công dụng trị mụn viêm, bạn Ngọc nhé.", "trị mụn"),
     ],
 )
 def test_unsupported_claim_blocked_when_not_in_file(live_guard, catalog, sentence, detail):
@@ -315,6 +321,7 @@ def test_unsupported_claim_blocked_when_not_in_file(live_guard, catalog, sentenc
         # "có sản phẩm" ~ "có sẵn", "con hàng" ~ "còn hàng", "cung ứng" ~ "cũng ưng".
         "Chắc chắn sẽ có sản phẩm phù hợp với da của anh chị đó.",
         "Con hàng này là kem chống nắng X nha anh chị.",
+        "Con hàng đó là kem chống nắng X nha anh chị.",
         "Shop cung ứng kem chống nắng X chính hãng nha.",
         "Dạ kem không chứa cồn, dùng cho da dầu được nha.",
     ],
@@ -338,6 +345,8 @@ def test_unsupported_claim_allowed_when_file_has_it(live_guard):
         "Shop chưa có thông tin về độ an toàn cho da nhạy cảm nha anh chị.",
         "Dạ em không rõ sản phẩm có thể gây kích ứng hay không ạ.",
         "shop chua co thong tin ve kich ung nha",
+        "Dạ em chưa có thông tin về nâng tông, bạn Oanh nhắn shop giúp em nha.",
+        "Dạ em chưa có thông tin về việc trị mụn, bạn Ngọc nhắn shop giúp em nha.",
     ],
 )
 def test_no_info_sentence_naming_a_claim_passes(live_guard, catalog, sentence):

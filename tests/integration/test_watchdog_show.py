@@ -301,3 +301,58 @@ async def test_obs_mode_host_tab_is_output_lost_until_obs_connects_and_stale_sou
         beat(ctx, obs, None)
         await run.wait(lambda: sum(a["kind"] == "host_closed" and a["state"] == "closed" for a in run.alerts) == 2)
         ctx.director.end_show()
+
+
+# --- 014 T038: a background error from the fork is a scene warning, not an alert (contracts/events.md) ---
+
+
+async def test_background_failure_is_a_scene_warning_and_the_show_goes_on(lipsync_fast, tmp_path: Path):
+    from fixtures.background_builder import make_background_dir
+    from fixtures.scene_builder import make_scene_dir
+
+    make_background_dir(lipsync_fast.avatar_dir)
+    root = make_scene_dir(
+        tmp_path / "scenes" / "demo",
+        ["kem-chong-nang-x", "sua-rua-mat-y", "toner-z"],
+        customer_id=CUSTOMER_ID,
+        scene={"background": {"style": "ke_hang"}},
+    )
+    async with FakeFork(background=FakeFork.background_block()) as fork:
+        s = lipsync_fast.model_copy(update={"livetalking_url": fork.url, "scene_enabled": True, "scene_dir": root})
+        async with running_app(s) as run:
+            ctx = run.ctx
+            scene_events: list[dict] = []
+            sub = ctx.bus.subscribe()
+
+            async def collect() -> None:
+                async for event in sub:
+                    if event.type is EventType.SCENE:
+                        scene_events.append(event.payload)
+
+            task = asyncio.create_task(collect())
+            host = await connect_host(ctx, lipsync_session="sess-1")
+            await run.wait(lambda: ctx.renderer.lipsync.ready)
+            await run.wait(lambda: ctx.background.status()["active"])
+            await ctx.director.start_show()
+            beat(ctx, host, 100)
+
+            await fork.fail_background("lỗi ghép")
+            # The fixture face is not a real picture, so the 009 still draw may report its own scene error too.
+            errors = lambda: [  # noqa: E731
+                e for e in scene_events if e.get("kind") == "error" and e["message"].startswith("Nền sau host")
+            ]
+            await run.wait(lambda: errors())
+            # Shown like the other scene errors: the control page puts it in red on the scene line.
+            assert "lỗi ghép" in errors()[0]["message"]
+            status = ctx.background.status()
+            assert status["active"] is False and status["fallback_reason"] == "failed:lỗi ghép"
+
+            # The picture keeps coming and the show keeps running: no alert of any kind.
+            for frames in (130, 160, 190):
+                await asyncio.sleep(0.3)
+                beat(ctx, host, frames)
+            assert ctx.director.state == "running"
+            assert run.alerts == []
+            assert len(errors()) == 1
+            ctx.director.end_show()
+            task.cancel()

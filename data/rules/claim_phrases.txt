@@ -14,6 +14,12 @@ da nhạy cảm
 mềm mại
 mịn màng
 căng bóng
+nâng tông
+# Công dụng với mụn: cả câu phủ định ("không có công dụng trị mụn") cũng là khẳng định ngoài dữ liệu (001 SC-002)
+trị mụn
+hết mụn
+giảm mụn
+ngừa mụn
 không bết dính
 không nhờn rít
 
@@ -35,6 +41,16 @@ dùng cũng ưng
 dùng cũng rất ưng
 
 # Tồn kho và hối thúc theo thời gian
+# "còn hàng" một mình trùng "con hàng" khi bỏ dấu, nên chỉ ghi kèm từ đứng trước hoặc tiếng đệm đứng sau
+# (001 SC-002: host trả lời "Dạ còn hàng nha bạn Linh.").
+dạ còn hàng
+còn hàng nha
+còn hàng nhé
+còn hàng ạ
+còn hàng anh chị
+còn hàng luôn
+còn nhiều hàng
+hàng còn nhiều
 vẫn còn hàng
 đang còn hàng
 còn ít hàng
@@ -48,3 +64,19 @@ sắp hết
 bất cứ lúc nào
 chỉ hôm nay
 chỉ trong hôm nay
+
+# Cách dùng, thứ tự bước dưỡng mà file nội dung không ghi (001 SC-002: "dùng sau khi đã thoa kem dưỡng")
+kem dưỡng
+
+# Hợp với thể trạng, sức khỏe (ADR-088): tư vấn chỉ đọc thành phần và lưu ý đã ghi rồi khuyên hỏi bác sĩ, không kết luận
+an toàn cho người
+an toàn cho bà bầu
+an toàn cho trẻ
+không ảnh hưởng sức khỏe
+không hại sức khỏe
+không có hại
+tốt cho người
+uống thoải mái
+dùng thoải mái
+yên tâm uống
+yên tâm dùng

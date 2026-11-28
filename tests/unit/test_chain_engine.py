@@ -492,11 +492,17 @@ def _config_error(settings: Settings, **kw: Any) -> str:
 
 
 async def test_from_settings_builds_the_default_chain():
-    settings = Settings(_env_file=None, reply_engine="chain", freellmapi_key=FREELLMAPI_KEY, groq_api_key=GROQ_KEY)
+    settings = Settings(
+        _env_file=None,
+        reply_engine="chain",
+        freellmapi_key=FREELLMAPI_KEY,
+        groq_api_key=GROQ_KEY,
+        gemini_api_key=fo.FAKE_KEYS["GEMINI_API_KEY"],
+    )
     engine = ChainReplyEngine.from_settings(settings)
     try:
-        assert [e.label for e in engine.entries] == ["sealion", "qwen"]
-        assert [e.position for e in engine.entries] == [1, 2]
+        assert [e.label for e in engine.entries] == ["sealion", "qwen", "gemini"]
+        assert [e.position for e in engine.entries] == [1, 2, 3]
         assert engine.cooldown_s == 60
     finally:
         await engine.aclose()

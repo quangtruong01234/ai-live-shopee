@@ -1,0 +1,18 @@
+{
+  "_comment": "Greeting replies (001 FR-026, ADR-077). A comment is a greeting when it has one of `keywords` as a whole word, ranks LOW (no price/order/question words) and has at most `max_words` words. Keywords match the lowercase text WITH diacritics, so list unaccented spellings explicitly: 'chao' is listed but 'cháo' (porridge) and 'hì' (a laugh) do not match. The host answers with one of `replies` and then one of `follow_ups`, taken in turn; {who} is 'bạn <tên>' and {product} the main product's name. Replies never mention prices or promotions, so they need no LLM.",
+  "keywords": [
+    "hello", "helo", "hellu", "hi", "hii", "hiii", "hey", "alo", "alô", "a lô",
+    "chào", "chao", "xin chào", "xin chao", "chào shop", "chao shop"
+  ],
+  "max_words": 8,
+  "replies": [
+    "Dạ em chào {who} nha, cảm ơn {who} đã ghé live của shop ạ.",
+    "Em chào {who} ạ, rất vui được gặp {who} trong live hôm nay.",
+    "Dạ chào {who} nha, {who} vào live đúng lúc lắm luôn ạ."
+  ],
+  "follow_ups": [
+    "Hôm nay em đang giới thiệu {product} đó, {who} cần gì cứ hỏi em nha.",
+    "{who} muốn biết thêm về {product} thì cứ comment hỏi em nha.",
+    "Em đang nói về {product}, {who} ở lại xem cùng em nha."
+  ]
+}

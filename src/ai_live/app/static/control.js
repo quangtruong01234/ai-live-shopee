@@ -59,6 +59,10 @@
     stale: "quá cũ",
     queue_full: "hàng đợi đầy",
     show_ended: "phiên đã kết thúc",
+    spam: "gửi quá nhanh",
+    greeted: "đã chào rồi",
+    superseded: "đã có comment khác của cùng người",
+    blocked: "người vận hành đã chặn",
   };
 
   // Step keys of LatencySummary (director/latency.py), in display order; `total` goes last as the headline row.
@@ -116,6 +120,7 @@
     }
     list.prepend(li);
     while (list.children.length > MAX_ITEMS) list.lastChild.remove();
+    return li;
   }
 
   // 006: which output the show leaves through (OUTPUT_MODE) and whether the connection that plays is the right one.
@@ -158,6 +163,127 @@
       return null;
     }
   }
+
+  // ---------- 001 FR-029: block a viewer by hand (ADR-078) ----------
+
+  const BLOCK_CHOICES = [
+    [5, "5 phút"],
+    [30, "30 phút"],
+    [null, "Cả phiên"],
+  ];
+  // ViewerBlock list; each remaining_s becomes a local end time `endsAt` (ms, null = whole session) for the countdown.
+  let viewers = [];
+
+  async function postJson(path, body) {
+    try {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(await apiMessage(res));
+      return await res.json();
+    } catch (err) {
+      $("viewers-msg").textContent = `Lệnh lỗi: ${err.message || err}`;
+      return null;
+    }
+  }
+
+  // A small "Chặn" button that opens the three durations in place; nothing is sent until one is picked.
+  function blockControl(authorKey, author) {
+    const box = document.createElement("span");
+    box.className = "block-ctl";
+    if (!authorKey) return box;
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "mini";
+    open.textContent = "Chặn";
+    open.title = `Chặn ${author}: bỏ comment của người này, không cắt lượt đang nói`;
+    open.addEventListener("click", () => {
+      const choices = BLOCK_CHOICES.map(([minutes, label]) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "mini danger";
+        b.textContent = label;
+        b.addEventListener("click", async () => {
+          const body = await postJson("/api/viewers/block", { author_key: authorKey, author, minutes });
+          if (!body) return;
+          renderViewers(body.viewers);
+          const removed = body.removed ? `, bỏ ${body.removed} comment đang chờ` : "";
+          $("viewers-msg").textContent = `Đã chặn ${author} (${label.toLowerCase()})${removed}.`;
+        });
+        return b;
+      });
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "mini";
+      cancel.textContent = "✕";
+      cancel.title = "Thôi";
+      cancel.addEventListener("click", () => box.replaceChildren(open));
+      box.replaceChildren(...choices, cancel);
+    });
+    box.append(open);
+    return box;
+  }
+
+  function isBlocked(authorKey) {
+    return viewers.some((v) => v.author_key === authorKey && v.kind === "manual");
+  }
+
+  function renderViewers(list) {
+    const now = Date.now();
+    viewers = (list || []).map((v) => ({
+      ...v,
+      endsAt: v.remaining_s == null ? null : now + v.remaining_s * 1000,
+    }));
+    drawViewers();
+  }
+
+  function remainingText(v) {
+    if (v.endsAt == null) return "cả phiên";
+    const s = Math.max(0, Math.round((v.endsAt - Date.now()) / 1000));
+    return `còn ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+
+  function drawViewers() {
+    // Automatic mutes end on the server without an event; drop them here when their time is up.
+    viewers = viewers.filter((v) => v.endsAt == null || v.endsAt > Date.now());
+    const list = $("viewers");
+    $("viewers-count").textContent = String(viewers.length);
+    if (viewers.length === 0) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "Không có ai.";
+      list.replaceChildren(li);
+      return;
+    }
+    list.replaceChildren(
+      ...viewers.map((v) => {
+        const li = document.createElement("li");
+        const kind = document.createElement("span");
+        kind.className = "reason";
+        kind.textContent = v.kind === "manual" ? "đã chặn" : "gửi quá nhanh";
+        const who = document.createElement("span");
+        who.textContent = `${v.author} · ${remainingText(v)}`;
+        const lift = document.createElement("button");
+        lift.type = "button";
+        lift.className = "mini";
+        lift.textContent = "Bỏ chặn";
+        lift.addEventListener("click", async () => {
+          const body = await postJson("/api/viewers/unblock", { author_key: v.author_key });
+          if (!body) return;
+          renderViewers(body.viewers);
+          $("viewers-msg").textContent = `Đã bỏ chặn ${v.author}.`;
+        });
+        li.append(kind, who, lift);
+        return li;
+      }),
+    );
+  }
+
+  setInterval(() => {
+    if (viewers.length) drawViewers();
+  }, 1000);
 
   // ---------- 005: lip-synced character (contracts/api.md §5) ----------
 
@@ -259,13 +385,54 @@
     }
   }
 
+  // ---------- 014: the room behind the host ----------
+
+  // Same keys as BackgroundConfig.style and the fork's mask status (014 data-model §1, §4).
+  const BACKGROUND_STYLES = { goc: "phòng gốc", ke_hang: "kệ hàng", bang_shop: "bảng tên shop", anh_shop: "ảnh shop" };
+  const MASK_LABELS = { valid: "hợp lệ", missing: "chưa chuẩn bị", mismatch: "không khớp", unknown: "chưa rõ" };
+
+  function renderBackground(bg) {
+    const el = $("scene-background");
+    el.hidden = !bg;
+    if (!bg) return;
+    const style = BACKGROUND_STYLES[bg.style] || bg.style;
+    const parts = [];
+    if (bg.active) {
+      parts.push(`${style}, mặt nạ ${MASK_LABELS[bg.mask_status] || bg.mask_status}`);
+      if (bg.reviewed === false) parts.push("chưa duyệt bằng mắt");
+    } else {
+      parts.push(`phòng gốc${bg.style !== "goc" ? ` (chọn ${style})` : ""}`);
+      if (bg.mask_status && bg.mask_status !== "unknown") parts.push(`mặt nạ ${MASK_LABELS[bg.mask_status] || bg.mask_status}`);
+      // The fallback says what happened and what to do (data-model §5).
+      if (bg.fallback_message) parts.push(bg.fallback_message);
+    }
+    $("background-text").textContent = parts.join(" · ");
+    el.classList.toggle("warn", !bg.active && bg.style !== "goc");
+    const link = $("background-preview-link");
+    link.hidden = !bg.active;
+    if (bg.active) $("background-preview").src = `/api/scene/background/preview.png?t=${Date.now()}`;
+  }
+
+  async function loadBackground() {
+    try {
+      const res = await fetch("/api/scene/background");
+      if (!res.ok) return;
+      const body = await res.json();
+      // With the scene off there is no new room to talk about: the line stays hidden.
+      renderBackground(body.fallback_reason === "scene_disabled" ? null : body);
+    } catch (_) {
+      // The next `background` scene event brings the state.
+    }
+  }
+
   // ---------- 012: product images ----------
 
   // Same states as ProductImageStatus.state (012 data-model §4).
   const IMAGE_STATE_LABELS = { kit: "ảnh bộ cảnh", upload: "ảnh tải lên", removed: "đã gỡ ảnh", none: "chưa có ảnh" };
   const images = { products: [], sceneEnabled: true, sceneUsable: true, catalogVersion: null, uploadsBytes: 0 };
   // The product being edited and the uploaded version waiting for "Áp dụng"; nothing here touches live.
-  const pick = { pid: null, vid: null, previewOf: null, previewUrl: null };
+  // `busy` while the upload request runs (background removal included); `cut` is the upload and its cut-out (013).
+  const pick = { pid: null, vid: null, previewOf: null, previewUrl: null, busy: false, cut: null };
 
   async function apiMessage(res) {
     try {
@@ -295,20 +462,79 @@
     if (reason) $("image-msg").textContent = reason;
   }
 
+  // 012 T071 (FR-004a): a picture too wide for its slot shows on the desk as a card only; say so before apply.
+  function showWideWarning(id, body) {
+    const message = body && (body.warnings || []).includes("too_wide") ? (body.warning_messages || {}).too_wide : "";
+    $(id).textContent = message || "";
+    $(id).hidden = !message;
+  }
+
+  // 013 (contracts/api.md §4): the upload and its cut-out side by side on a checkerboard; the recommended one is
+  // picked and the operator can click the other. `state` is `pick` (live) or `staging`.
+  const CUT_METHOD_LABELS = { flat: "nền trơn", model: "model tách nền", already_transparent: "ảnh đã trong suốt" };
+  const CUT_FAIL_HINT = "Gợi ý: xin khách ảnh nền trơn hoặc ảnh đã tách nền.";
+
+  function cutImage(prefix, which) {
+    return $(`${prefix}-cut-${which}`).querySelector("img");
+  }
+
+  function hideCut(prefix, state) {
+    state.cut = null;
+    $(`${prefix}-cut`).hidden = true;
+    $(`${prefix}-cut-fail`).hidden = true;
+    for (const which of ["original", "cutout"]) cutImage(prefix, which).removeAttribute("src");
+  }
+
+  function renderCut(prefix, state, body) {
+    const bg = body.bg_removal;
+    const cutout = body.cutout;
+    state.cut = { original: body.version_id, cutout: cutout ? cutout.version_id : null, hasAlpha: !!body.has_alpha };
+    if (body.thumb_url) cutImage(prefix, "original").src = body.thumb_url;
+    $(`${prefix}-cut-cutout`).hidden = !cutout;
+    if (cutout) cutImage(prefix, "cutout").src = cutout.thumb_url;
+    const method = bg ? CUT_METHOD_LABELS[bg.method] || bg.method : "";
+    let info = "";
+    if (bg && bg.result === "removed") {
+      info = `Bỏ nền bằng ${method}, mất ${((bg.ms || 0) / 1000).toFixed(1)} s. Bấm vào ảnh để chọn bản đưa lên bàn.`;
+    } else if (bg && bg.result === "kept") {
+      info = `Không cần bỏ nền: ${method}.`;
+    }
+    $(`${prefix}-cut-info`).textContent = info;
+    const failed = !!bg && bg.result === "failed";
+    $(`${prefix}-cut-fail`).textContent = failed ? `Chưa bỏ nền được: ${bg.reason || "không rõ lý do"}. ${CUT_FAIL_HINT}` : "";
+    $(`${prefix}-cut-fail`).hidden = !failed;
+    $(`${prefix}-cut`).hidden = false;
+    chooseCut(prefix, state, body.recommended_version || body.version_id);
+  }
+
+  function chooseCut(prefix, state, vid) {
+    if (!state.cut || !vid) return;
+    state.vid = vid;
+    const onCutout = vid === state.cut.cutout;
+    $(`${prefix}-cut-original`).setAttribute("aria-pressed", String(!onCutout));
+    $(`${prefix}-cut-cutout`).setAttribute("aria-pressed", String(onCutout));
+    // The 012 banner: only the upload itself, picked without transparency, still shows its background on the desk.
+    $(`${prefix}-bg-warning`).hidden = onCutout || state.cut.hasAlpha;
+  }
+
   function resetCandidate() {
     pick.vid = null;
+    hideCut("image", pick);
     clearPreview();
     $("image-file").value = "";
     $("image-rights").checked = false;
     $("image-bg-warning").hidden = true;
+    showWideWarning("image-wide-warning", null);
     $("image-upload-msg").textContent = "";
     updateImageButtons();
   }
 
   function updateImageButtons() {
-    $("image-preview-btn").disabled = !pick.vid || !images.sceneEnabled || !images.sceneUsable;
+    // 013: nothing can be previewed or applied while the background is still being removed.
+    const ready = !!pick.vid && !pick.busy;
+    $("image-preview-btn").disabled = !ready || !images.sceneEnabled || !images.sceneUsable;
     // FR-006: nothing goes live without the rights box ticked.
-    $("image-apply-btn").disabled = !pick.vid || !$("image-rights").checked;
+    $("image-apply-btn").disabled = !ready || !$("image-rights").checked;
   }
 
   function imageItem(p) {
@@ -529,10 +755,13 @@
     if (!file || !pick.pid) return;
     const pid = pick.pid;
     pick.vid = null;
+    pick.busy = true;
+    hideCut("image", pick);
     clearPreview();
     $("image-bg-warning").hidden = true;
+    showWideWarning("image-wide-warning", null);
     updateImageButtons();
-    $("image-upload-msg").textContent = "Đang kiểm ảnh…";
+    $("image-upload-msg").textContent = "Đang bỏ nền… (ảnh nền phức tạp có thể mất tới 20 giây)";
     try {
       // Raw body like PUT /api/content (012 research R3); the name is only shown back, never used as a path.
       const res = await fetch(`/api/scene/uploads?product_id=${encodeURIComponent(pid)}`, {
@@ -546,8 +775,9 @@
       }
       const body = await res.json();
       if (pick.pid !== pid) return;
-      pick.vid = body.version_id;
-      $("image-bg-warning").hidden = !(body.warnings || []).includes("has_background");
+      pick.busy = false;
+      renderCut("image", pick, body);
+      showWideWarning("image-wide-warning", body);
       $("image-upload-msg").textContent = `Đã nhận ảnh ${body.width}×${body.height}${body.reused ? " (trùng ảnh đã tải trước)" : ""}.`;
       updateImageButtons();
       loadImages();
@@ -555,8 +785,24 @@
       if (images.sceneEnabled && images.sceneUsable) previewImage();
     } catch (err) {
       $("image-upload-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      pick.busy = false;
+      updateImageButtons();
     }
   });
+
+  // US2 #5: the operator may prefer the other version; the preview follows the pick.
+  function pickImageVersion(which) {
+    const vid = pick.cut && pick.cut[which];
+    if (!vid || pick.busy || vid === pick.vid) return;
+    chooseCut("image", pick, vid);
+    clearPreview();
+    updateImageButtons();
+    if (images.sceneEnabled && images.sceneUsable) previewImage();
+  }
+
+  $("image-cut-original").addEventListener("click", () => pickImageVersion("original"));
+  $("image-cut-cutout").addEventListener("click", () => pickImageVersion("cutout"));
 
   $("image-rights").addEventListener("change", updateImageButtons);
   $("image-preview-btn").addEventListener("click", previewImage);
@@ -614,7 +860,7 @@
     missing: "thiếu ảnh",
   };
   // The staged set as the server last sent it, the product being edited and its uploaded version not yet assigned.
-  const staging = { view: null, pid: null, vid: null, previewUrl: null };
+  const staging = { view: null, pid: null, vid: null, previewUrl: null, busy: false, cut: null };
 
   function stagedProduct() {
     return staging.view && staging.view.products.find((p) => p.product_id === staging.pid);
@@ -639,16 +885,18 @@
 
   function resetStagingCandidate() {
     staging.vid = null;
+    hideCut("staging", staging);
     $("staging-image-file").value = "";
     $("staging-rights").checked = false;
     $("staging-bg-warning").hidden = true;
+    showWideWarning("staging-wide-warning", null);
     $("staging-upload-msg").textContent = "";
     updateStagingButtons();
   }
 
   function updateStagingButtons() {
     // FR-006 as in US1: an image joins the set only with the rights box ticked.
-    $("staging-assign-btn").disabled = !staging.vid || !$("staging-rights").checked;
+    $("staging-assign-btn").disabled = !staging.vid || staging.busy || !$("staging-rights").checked;
     const current = stagedProduct();
     $("staging-unassign-btn").hidden = !current || current.image !== "staged";
     $("staging-preview-btn").disabled = !images.sceneEnabled || !images.sceneUsable;
@@ -786,12 +1034,16 @@
   $("staging-image-file").addEventListener("change", async () => {
     const file = $("staging-image-file").files[0];
     if (!file || !staging.pid) return;
+    const pid = staging.pid;
     staging.vid = null;
+    staging.busy = true;
+    hideCut("staging", staging);
     $("staging-bg-warning").hidden = true;
+    showWideWarning("staging-wide-warning", null);
     updateStagingButtons();
-    $("staging-upload-msg").textContent = "Đang kiểm ảnh…";
+    $("staging-upload-msg").textContent = "Đang bỏ nền… (ảnh nền phức tạp có thể mất tới 20 giây)";
     try {
-      const res = await fetch(`/api/scene/uploads?product_id=${encodeURIComponent(staging.pid)}`, {
+      const res = await fetch(`/api/scene/uploads?product_id=${encodeURIComponent(pid)}&target=staging`, {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream", "X-Filename": encodeURIComponent(file.name) },
         body: file,
@@ -801,15 +1053,30 @@
         return;
       }
       const body = await res.json();
-      staging.vid = body.version_id;
-      $("staging-bg-warning").hidden = !(body.warnings || []).includes("has_background");
+      if (staging.pid !== pid) return;
+      staging.busy = false;
+      renderCut("staging", staging, body);
+      showWideWarning("staging-wide-warning", body);
       const reused = body.reused ? " (trùng ảnh đã tải trước)" : "";
       $("staging-upload-msg").textContent = `Đã nhận ảnh ${body.width}×${body.height}${reused}. Tick xác nhận rồi bấm “Gán ảnh này”.`;
       updateStagingButtons();
     } catch (err) {
       $("staging-upload-msg").textContent = `Không gửi được: ${err}`;
+    } finally {
+      staging.busy = false;
+      updateStagingButtons();
     }
   });
+
+  function pickStagingVersion(which) {
+    const vid = staging.cut && staging.cut[which];
+    if (!vid || staging.busy) return;
+    chooseCut("staging", staging, vid);
+    updateStagingButtons();
+  }
+
+  $("staging-cut-original").addEventListener("click", () => pickStagingVersion("original"));
+  $("staging-cut-cutout").addEventListener("click", () => pickStagingVersion("cutout"));
 
   async function assignStaged(versionId) {
     const view = staging.view;
@@ -959,7 +1226,7 @@
         prio.textContent = item.priority;
         const body = document.createElement("span");
         body.textContent = `${item.author}: ${item.text}`;
-        li.append(prio, body);
+        li.append(prio, body, blockControl(item.author_key, item.author));
         return li;
       }),
     );
@@ -1527,6 +1794,7 @@
       setHost(Boolean(msg.session && msg.session.host_connected), msg.session && msg.session.host_role);
       if (msg.session) setSession(msg.session.state);
       renderQueue(msg.queue || []);
+      renderViewers(msg.viewers || []);
       renderCatalog(msg.catalog);
       renderShow(msg.show || null);
       // 012 US4: the server's list is the whole truth on (re)connect.
@@ -1582,12 +1850,16 @@
     queue_changed(msg) {
       renderQueue(msg.queue || []);
     },
+    viewers_changed(msg) {
+      renderViewers(msg.viewers || []);
+    },
     comment_dropped(msg) {
       const why = DROP_LABELS[msg.reason] || msg.reason;
-      pushItem("dropped", msg.ts, [
+      const li = pushItem("dropped", msg.ts, [
         [why, "reason"],
         [`${msg.author}: ${msg.text}`, null],
       ]);
+      if (msg.reason !== "blocked" && !isBlocked(msg.author_key)) li.append(blockControl(msg.author_key, msg.author));
     },
     host_connection(msg) {
       setHost(msg.connected, msg.role);
@@ -1596,6 +1868,7 @@
       turns.set(msg.utterance_id, { author: msg.author, text: msg.text });
       currentId = msg.utterance_id;
       $("turn-meta").textContent = `Đang trả lời ${msg.author}: “${msg.text}”`;
+      $("turn-meta").append(" ", blockControl(msg.author_key, msg.author));
       $("turn-sentences").replaceChildren();
     },
     sentence(msg) {
@@ -1662,6 +1935,7 @@
     },
     scene(msg) {
       scene.enabled = true;
+      if (msg.kind === "background") return renderBackground(msg);
       if (msg.kind === "highlight") scene.highlight = msg.product_id;
       else if (msg.kind === "error") scene.error = msg.message;
       else if (msg.kind === "image_changed") return onImageChanged(msg);
@@ -1685,6 +1959,7 @@
       // Nor the avatar mode: the `avatar_mode` event fires only on a change, so a fresh page asks once.
       loadAvatar();
       loadScene();
+      loadBackground();
       loadImages();
     };
     ws.onmessage = (ev) => {

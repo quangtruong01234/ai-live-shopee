@@ -279,15 +279,27 @@ chuẩn bị.
 - [x] T065 Chạy quickstart §0–§6 không GPU từ đầu tới cuối, gồm bấm giờ SC-002 (thay một ảnh ≤ 30 s, §1 bước 9) và SC-005 (3 món mới
   ≤ 3 phút, §4 bước 7) và độ trễ SC-007 (câu mới hiện trên "AI vừa nói" ≤ 1 s, §5); ghi số vào `progress/LOG.md`. Đã chạy bằng máy (trình duyệt headless + API); bấm giờ tay SC-002/SC-005 do người dùng làm lúc duyệt (T069)
 - [x] T066 `uv run pytest` và `uv run ruff check . && uv run ruff format --check .` đều sạch
-- [~] T067 [GPU] Đo SC-001 theo quickstart §7 trên GPU laptop (`AVATAR_MODE=livetalking`): show 10 phút không đổi ảnh, rồi show 10 phút với 10
-  lần áp/hoàn tác; `to_frame_ms` cả 10 lần ≤ 2000, show không dừng, lặng giữa câu p95 tăng ≤ 0,1 s; ghi số vào `progress/LOG.md`
-- [~] T068 [GPU] Chụp ≥ 20 khung `/host` quanh các lần đổi theo quickstart §8 (ảnh 300×1600, 1600×300, ảnh còn nền; có lần áp bộ mới); script
+- [x] T067 [GPU] Đo SC-001 theo quickstart §7 trên GPU laptop (`AVATAR_MODE=livetalking`): show 10 phút không đổi ảnh, rồi show 10 phút với 10
+  lần áp/hoàn tác; `to_frame_ms` cả 10 lần ≤ 2000, show không dừng, lặng giữa câu p95 tăng ≤ 0,1 s; ghi số vào `progress/LOG.md`.
+  **Đạt** 2026-11-20 (phiên 20261120-200420, nhép miệng Ultralight `demo_host_02` theo `.env`): show A 616,5 s / show B 604,7 s, cả hai kết
+  thúc bình thường; `to_frame_ms` 10 lần 179–249 ms; lặng p95 0,047 s ở cả hai show (tăng 0); render p50 25,2 fps; không cảnh báo
+- [x] T068 [GPU] Chụp ≥ 20 khung `/host` quanh các lần đổi theo quickstart §8 (ảnh 300×1600, 1600×300, ảnh còn nền; có lần áp bộ mới); script
   so vùng như 009 quickstart §8: nhãn AI, watermark, mặt host không bị che, không khung nào ghép ảnh món này với thẻ món khác (SC-006);
-  lưu ảnh vào `out/012_review/frames/`
-- [~] T069 Soạn gói duyệt cho người dùng theo quickstart §9 trong `out/012_review/README.md`: ảnh chụp trang điều khiển (khối ảnh, bộ chuẩn
+  lưu ảnh vào `out/012_review/frames/`. **Đạt** 2026-11-20: 20 khung, nhãn và watermark 20/20; cảnh ghép luôn bắt đầu dưới vùng mặt
+  (y 477–557, mặt tới 406) ở 10/10 lần đổi; ảnh và thẻ khớp món ở mọi khung. **Phát hiện:** ảnh 1600×300 không hiện ở ô món phụ (chỉ
+  còn thẻ) vì cao sau khi thu < 6% khung (`MIN_ART_HEIGHT`), trang điều khiển vẫn báo áp thành công, cảnh báo cảnh lại ghi sai lý do
+  "dưới vùng mặt". Xem T071
+- [x] T071 (thêm 2026-11-20 sau T068, người dùng "sửa 071") FR-004a, ảnh quá rộng bị ẩn mà không báo. Spec, contracts/api.md, data-model
+  đã sửa trước. Code: `scene/layout.py` tách lý do bỏ ảnh: ô quá hẹp → mã mới `art_too_wide` (cảnh báo), không đủ chỗ dưới vùng mặt →
+  giữ `layout_keep_out`; hàm `art_fit()` trả `shown | highlight_only | card_only`; `SceneController.art_fit()` theo khung và bố cục hiện
+  tại; `POST /api/scene/uploads` nhận `target=live|staging`, thêm `too_wide` + `warning_messages`; `GET /api/scene/images` thêm vấn đề
+  bố cục của từng món; trang điều khiển hiện cảnh báo ở cả hai khối tải ảnh. Test trước: `tests/unit/test_scene_layout.py`,
+  `tests/integration/` của route ảnh. **Xong** 2026-11-20: test trước rồi code (3 test bố cục + `art_fit` 3 ca, 7 test route ảnh, 2 test bộ chuẩn bị; test 009 `test_no_room_for_art_shows_card_only` đổi sang `art_too_wide` theo FR-004a); toàn bộ 2821 passed, ruff sạch. Thử trên trang điều khiển thật (Chrome DevTools, cảnh bản sao): tải ảnh 1600×300 cho món phụ hiện băng cam "Ảnh quá rộng… chỉ hiện thẻ, kể cả lúc AI nói về món này"; sau khi áp, danh sách ảnh ghi đúng lý do `art_too_wide` (`out/012_review/t071_1_wide_warning.png`, `t071_2_list_warning.png`)
+- [x] T069 Soạn gói duyệt cho người dùng theo quickstart §9 trong `out/012_review/README.md`: ảnh chụp trang điều khiển (khối ảnh, bộ chuẩn
   bị, "AI vừa nói", chi tiết sản phẩm), câu ô xác nhận quyền dùng, số đo T067, ảnh T068. Chờ người dùng xem. Đã soạn (13 ảnh/file US1–US4,
-  câu xác nhận, số T065); còn thiếu số T067 và ảnh T068 (chờ GPU) và lượt xem của người dùng
-- [ ] T070 Chạy `/update-context`
+  câu xác nhận, số T065). Người dùng chốt phần không GPU 2026-11-20 (giao diện, câu xác nhận quyền dùng); số T067 và ảnh T068 bổ sung
+  vào gói khi có buổi GPU laptop
+- [x] T070 Chạy `/update-context` (2026-11-20)
 
 ## Phụ thuộc và thứ tự
 

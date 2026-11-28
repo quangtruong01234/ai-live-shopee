@@ -1,6 +1,8 @@
 """In-process priority comment queue (contracts/adapters.md `CommentQueue`, research R9).
 
-Bounded: when full, the lowest-priority earliest comment makes room (`queue_full`). Comments older than
+One waiting comment per viewer (001 FR-028, ADR-077): a newer comment from the same viewer replaces the waiting one
+unless it ranks lower, and the loser is dropped as `superseded`; without this a fast viewer fills every turn even under
+the rate limit. Bounded: when full, the lowest-priority earliest comment makes room (`queue_full`). Comments older than
 `max_age_s` are dropped (`stale`) both when `get()` reaches them and by the periodic `sweep()`, so the host never
 answers a question the viewer asked long ago.
 """
@@ -40,8 +42,22 @@ class InMemoryCommentQueue:
         self._clock = clock
 
     async def put(self, comment: Comment, priority: Priority) -> QueuedComment:
-        """Returns the queued item; its status is `dropped` when the queue was full and it ranked strictly lowest."""
+        """Returns the queued item; its status is `dropped` when the queue was full and it ranked strictly lowest, or
+        when the same viewer already has a higher-ranked or newer comment waiting (`superseded`)."""
         item = QueuedComment(comment=comment, priority=priority, seq=next(self._seq))
+        key = comment.author_key
+        waiting = next((e for e in self._heap if e[2].comment.author_key == key), None)
+        if waiting is not None:
+            old = waiting[2]
+            # A comment put back after a pause is older than the one that arrived meanwhile, so age breaks the tie.
+            newer_or_same = comment.received_at >= old.comment.received_at
+            if int(priority) < int(old.priority) or (priority == old.priority and newer_or_same):
+                self._heap.remove(waiting)
+                heapq.heapify(self._heap)
+                self._drop([old], DropReason.SUPERSEDED)
+            else:
+                self._drop([item], DropReason.SUPERSEDED)
+                return item
         if len(self._heap) >= self._max_size:
             worst = max(entry[0] for entry in self._heap)
             if int(priority) > worst:
@@ -88,6 +104,18 @@ class InMemoryCommentQueue:
         while True:
             await asyncio.sleep(interval_s)
             self.sweep()
+
+    def remove_author(self, author_key: str, reason: DropReason = DropReason.BLOCKED) -> list[QueuedComment]:
+        """Drop every waiting comment of one viewer (001 FR-029: the operator blocked them)."""
+        gone = [e for e in self._heap if e[2].comment.author_key == author_key]
+        if not gone:
+            return []
+        self._heap = [e for e in self._heap if e not in gone]
+        heapq.heapify(self._heap)
+        items = [e[2] for e in sorted(gone)]
+        self._drop(items, reason)
+        self._publish_changed()
+        return items
 
     def _remove_stale(self) -> list[QueuedComment]:
         now = self._clock()

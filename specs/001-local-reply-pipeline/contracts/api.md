@@ -24,7 +24,9 @@ Nhãn AI trên `/host` không có tham số nào để ẩn. `AI_LABEL_TEXT` r�
 | POST | `/api/resume` | — | `200 {"state": "running"}` (idempotent) | |
 | POST | `/api/skip` | — | `200 {"skipped_utterance_id": str \| null}` | |
 | PUT | `/api/content` | raw `.docx`, header `X-Filename` | `200 {"version", "products": [{id, name, is_primary}]}` | `400 content_invalid` + `details: [ContentIssue]`; `413` quá `CONTENT_MAX_BYTES`; `415` không phải docx |
-| GET | `/api/state` | — | `200 {session, queue: [QueuedComment], current_utterance, catalog: {version, products}}` | |
+| GET | `/api/state` | — | `200 {session, queue: [QueuedComment], current_utterance, catalog: {version, products}, viewers: [ViewerBlock]}` (`viewers` thêm bởi ADR-078) | |
+| POST | `/api/viewers/block` | `{"author_key": str, "author"?: str, "minutes": int (1–240) \| null}` (`null` = cả phiên) | `200 {"viewers": [ViewerBlock], "removed": int}` (`removed`: số comment đang chờ bị bỏ) | `422` sai schema (FR-029, ADR-078) |
+| POST | `/api/viewers/unblock` | `{"author_key": str}` | `200 {"viewers": [ViewerBlock]}` (idempotent; gỡ cả tạm bỏ qua tự động) | `422` |
 | GET | `/api/latency` | `?idle_only=bool` | `200 LatencySummary` (xem data-model §4) | |
 | GET | `/health` | — | `200 {"status": "ok", "host_connected": bool, "catalog_version"}` | |
 | GET | `/favicon.ico` | — | `204` rỗng: trình duyệt tự hỏi biểu tượng; trả rỗng để log và console không có 404 giả (sửa lỗi 2026-11-17) | |

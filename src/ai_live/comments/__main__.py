@@ -13,8 +13,10 @@ import asyncio
 import sys
 
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
+from ai_live.comments.author_limits import AuthorLimiter
 from ai_live.comments.classifier import PriorityClassifier
 from ai_live.comments.filters import CommentFilter
+from ai_live.comments.greetings import GreetingRules
 from ai_live.comments.intake import CommentIntake, IntakeResult
 from ai_live.comments.mock_source import MockSource
 from ai_live.core.config import Settings
@@ -42,6 +44,10 @@ async def _run(settings: Settings, comments: list[str]) -> None:
         classifier=PriorityClassifier.from_settings(settings),
         queue=queue,
         bus=bus,
+        limiter=AuthorLimiter(
+            settings.comment_author_max, settings.comment_author_window_s, settings.comment_author_mute_s
+        ),
+        greetings=GreetingRules.from_settings(settings),
     )
     print("Kết quả lọc và phân loại:")
     for arg in comments:

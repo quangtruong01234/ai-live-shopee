@@ -196,6 +196,11 @@ chấm bộ câu hỏi mẫu (R13) và tạm dừng / bỏ qua (R14).
 | `COMMENT_MAX_CHARS` | `300` | |
 | `PROFANITY_LIST_PATH` | `data/rules/profanity.txt` | |
 | `PRIORITY_RULES_PATH` | `data/rules/priority_keywords.json` | |
+| `COMMENT_AUTHOR_MAX` | `3` | FR-027, ADR-077: số comment tối đa của 1 người trong cửa sổ |
+| `COMMENT_AUTHOR_WINDOW_S` | `30` | FR-027 |
+| `COMMENT_AUTHOR_MUTE_S` | `120` | FR-027: thời gian tạm bỏ qua người gửi quá nhanh |
+| `COMMENT_GREETING_REPEAT_S` | `600` | FR-026: chào lại cùng người tối đa 1 lần trong khoảng này |
+| `GREETING_RULES_PATH` | `data/rules/greetings.json` | FR-026: từ khóa và câu mẫu chào |
 | `SESSION_DATA_DIR` | `data/sessions` | |
 | `FAKE_TTS_DELAY_MS` | `0` | giả lập độ trễ TTS |
 | `CONTENT_MAX_BYTES` | `5242880` | 5 MB |

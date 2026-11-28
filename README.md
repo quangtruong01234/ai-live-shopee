@@ -137,5 +137,5 @@ khách.
 
 ## Giấy phép
 
-Repo riêng tư, chưa chọn giấy phép. Phải kiểm giấy phép của LiveTalking (yêu cầu watermark), Wav2Lip, MuseTalk, S3FD, whisper và
+Repo riêng tư, chưa chọn giấy phép. Phải kiểm giấy phép của LiveTalking (README yêu cầu watermark trên vài nền tảng; demo tắt bằng `LIVETALKING_WATERMARK`, ADR-075), Wav2Lip, MuseTalk, S3FD, whisper và
 model TTS trước khi thương mại hóa; theo dõi ở [`docs/RISKS.md`](docs/RISKS.md).

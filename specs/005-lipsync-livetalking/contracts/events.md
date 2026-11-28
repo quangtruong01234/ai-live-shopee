@@ -66,7 +66,7 @@ LIVETALKING_HOLD_S=2.5          # fork đọc; giữ clip nói (miệng khép) c
 AILIVE_RECORD_DIR=              # fork đọc; tự kiểm: ghi luồng ra mp4/wav/jsonl vào đây (vd out/selfcheck, ngoài git); trống = tắt
 AILIVE_RECORD_MAX_S=600         # fork đọc; mỗi bản ghi tự dừng sau chừng ấy giây
 AI_LABEL_TEXT=AI-GENERATED CONTENT  # đổi bởi ADR-065 (trước là AI); ở livetalking chỉ dùng chữ ASCII
-AI_LABEL_POSITION=top-right
+AI_LABEL_POSITION=top-center   # đổi bởi ADR-090 (trước là shopee-top, ADR-085; trước nữa top-center, ADR-076; top-right)
 RENDERER_ACK_TIMEOUT_S=3
 ```
 

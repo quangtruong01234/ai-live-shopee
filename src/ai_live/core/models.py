@@ -13,6 +13,8 @@ from datetime import datetime
 from enum import IntEnum, StrEnum
 from typing import Any, Literal
 
+from ai_live.core.text import match_form
+
 
 @dataclass(frozen=True)
 class Comment:
@@ -25,6 +27,14 @@ class Comment:
     received_at: float  # time.monotonic(); this is the comment_received milestone
     platform_ts: datetime | None = None
     meta: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def author_key(self) -> str:
+        """Who sent it, for per-viewer limits (ADR-077): the account id if the source has one, else the name match form.
+
+        The source sets `meta.author_key` from the raw name, so two unsafe names that both read as "bạn" stay apart.
+        """
+        return str(self.meta.get("author_key") or match_form(self.author))
 
 
 class Priority(IntEnum):
@@ -43,6 +53,10 @@ class DropReason(StrEnum):
     STALE = "stale"
     QUEUE_FULL = "queue_full"
     SHOW_ENDED = "show_ended"  # taken from the queue while the show is closing or ended (004 FR-030)
+    SPAM = "spam"  # the viewer sent too many comments too fast, or is muted for it (001 FR-027)
+    GREETED = "greeted"  # a greeting from a viewer the host already greeted recently (001 FR-026)
+    SUPERSEDED = "superseded"  # the same viewer has another comment waiting (001 FR-028)
+    BLOCKED = "blocked"  # the operator blocked this viewer from the control page (001 FR-029)
 
     @property
     def label(self) -> str:
@@ -57,6 +71,10 @@ _DROP_LABELS = {
     DropReason.STALE: "quá cũ",
     DropReason.QUEUE_FULL: "hàng đợi đầy",
     DropReason.SHOW_ENDED: "phiên đã kết thúc",
+    DropReason.SPAM: "gửi quá nhanh",
+    DropReason.GREETED: "đã chào rồi",
+    DropReason.SUPERSEDED: "đã có comment khác của cùng người",
+    DropReason.BLOCKED: "người vận hành đã chặn",
 }
 
 
@@ -82,6 +100,7 @@ class QueuedComment:
         return {
             "comment_id": self.comment.id,
             "author": self.comment.author,
+            "author_key": self.comment.author_key,
             "text": self.comment.text,
             "priority": self.priority.name,
             "status": self.status.value,
@@ -328,7 +347,9 @@ _TOPIC_LABELS = {
 }
 
 # Topics the rotation cycles through per product; the runner creates `opening` and `closing` itself.
-ROTATION_TOPICS: tuple[Topic, ...] = tuple(t for t in Topic if t.has_product)
+# `faq` is left out (ADR-088): the host asking a question and answering it itself sounds staged on live; the FAQ
+# pairs stay in the file for replies to real comments. The member stays so old logs still parse.
+ROTATION_TOPICS: tuple[Topic, ...] = tuple(t for t in Topic if t.has_product and t is not Topic.FAQ)
 
 
 class SegmentOrigin(StrEnum):
@@ -449,8 +470,10 @@ class Segment:
 RECENT_SHOW_ITEMS = 20
 
 # 007 R6: `verbatim` reads the product's own intro and description, never the engine (the backup video).
-ContentSource = Literal["script", "verbatim"]
-CONTENT_SOURCES: tuple[ContentSource, ...] = ("script", "verbatim")
+# ADR-088: `loop` repeats one fixed passage per product built from the file, with lines inviting viewers to ask for
+# advice; no engine call while nobody comments, so the LLM is kept for replies.
+ContentSource = Literal["script", "verbatim", "loop"]
+CONTENT_SOURCES: tuple[ContentSource, ...] = ("script", "verbatim", "loop")
 
 
 @dataclass

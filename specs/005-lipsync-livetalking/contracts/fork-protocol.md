@@ -48,8 +48,10 @@ Ack chỉ gửi cho câu đã nhận `sentence_start` trên **cùng** kết nố
 
 - **Nhãn AI** (`label.py`): vẽ trên mọi khung trong `process_frames`, ngay trước `push_video_frame`, sau watermark gốc. Hình chữ nhật nền
   đặc + chữ trắng, góc theo `AI_LABEL_POSITION`, lề 12 px, cỡ chữ tỉ lệ chiều cao khung. Chữ rỗng hoặc ngoài ASCII → fork thoát với mã lỗi
-  khi khởi động. Không có endpoint hay tham số nào tắt nhãn.
-- **Watermark "LiveTalking"** của upstream: giữ nguyên, không sửa.
+  khi khởi động. Không có endpoint hay tham số nào tắt nhãn. _(Sửa bởi ADR-076: chữ trắng đậm viền tối có bóng mờ, không nền;
+  font TrueType hệ thống (`seguibl.ttf` → `segoeuib.ttf` → `arialbd.ttf` → `DejaVuSans-Bold.ttf`, thiếu hết thì dùng Hershey cùng kiểu
+  viền); vị trí thêm `top-center`, `bottom-center`, mặc định `top-center`; cỡ chữ 0,031 × chiều cao khung. ADR-085 thêm `shopee-top` và đổi mặc định sang `shopee-top`. ADR-089: ở `shopee-top` thử font hẹp đậm trước (`bahnschrift.ttf` Bold Condensed → `DejaVuSansCondensed-Bold.ttf` → `ARIALNB.TTF`), hộp nhãn không quá 19,5% chiều cao khung. ADR-090: mặc định về lại `top-center` một dòng cho demo Meet; `shopee-top` dùng khi phát lên Shopee qua OBS.)_
+- **Watermark "LiveTalking"** của upstream: giữ nguyên, không sửa. _(Sửa bởi ADR-075: có công tắc `LIVETALKING_WATERMARK=on|off`, mặc định `on`; demo đặt `off`.)_
 - **Xoay clip** (`rotation.py`, thuần Python): `pick_next(clips: Sequence[Clip], kind, last_id: str | None, rng) -> Clip`: chọn ngẫu nhiên
   trong các clip đúng loại khác `last_id`; chỉ có một thì trả clip đó. Clip nói chọn khi bắt đầu nói từ clip chờ, và khi
   clip nói đang dùng đã chạy hết một vòng đi tới đi lùi (tới ranh giới câu: lô im lặng trong khoảng giữ, hoặc lô có `sentence_start`);

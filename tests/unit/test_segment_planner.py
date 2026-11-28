@@ -75,7 +75,16 @@ def test_full_product_has_every_rotation_topic_in_r5_order():
     planner = SegmentPlanner(_three_products(), primary_share=0.5)
 
     assert planner.available_topics("p1") == ALL_TOPICS
-    assert ALL_TOPICS == (T.INTRO, T.HIGHLIGHTS, T.SPECS, T.PRICE, T.PROMOTION, T.FAQ, T.CALL_TO_ACTION)
+    assert ALL_TOPICS == (T.INTRO, T.HIGHLIGHTS, T.SPECS, T.PRICE, T.PROMOTION, T.CALL_TO_ACTION)
+
+
+def test_faq_is_never_a_rotation_topic_even_with_data():
+    # ADR-088: the host never asks itself a question and answers it; FAQ pairs are kept for real comments.
+    planner = SegmentPlanner(_three_products(), primary_share=0.5)
+
+    assert all(T.FAQ not in topics for topics in planner.availability().values())
+    with pytest.raises(TopicUnavailable):
+        planner.choose("p1", T.FAQ)
 
 
 def test_opening_and_closing_are_never_rotation_topics():
@@ -216,7 +225,7 @@ def test_each_product_rotates_through_its_topics_in_order():
 
 def test_primary_only_rotates_its_own_topics():
     planner = SegmentPlanner(_catalog(_product("p1", primary=True)), primary_share=0.5)
-    slots = _run(planner, 21)
+    slots = _run(planner, 3 * len(ALL_TOPICS))
 
     assert {slot.product_id for slot in slots} == {"p1"}
     assert [slot.topic for slot in slots] == list(ALL_TOPICS) * 3
@@ -313,7 +322,7 @@ def test_choose_product_only_takes_the_next_topic_of_that_products_cursor():
 def test_choose_topic_only_takes_the_first_product_with_that_topic_primary_first():
     # The primary is listed last on purpose: "primary first" must not depend on the file order.
     planner = SegmentPlanner(_catalog(_product("p2"), _product("p3"), _product("p1", primary=True)), primary_share=0.5)
-    assert planner.choose(None, T.FAQ) == PlannedSlot("p1", T.FAQ, SegmentOrigin.OPERATOR)
+    assert planner.choose(None, T.SPECS) == PlannedSlot("p1", T.SPECS, SegmentOrigin.OPERATOR)
 
     no_promo_primary = SegmentPlanner(
         _catalog(_product("p1", primary=True, promotions=()), _product("p2", promotions=()), _product("p3")),
@@ -335,7 +344,7 @@ def test_choose_product_and_topic_takes_exactly_that_combination():
         ("p2", T.SPECS),
         ("missing", None),  # unknown product
         ("missing", T.INTRO),
-        (None, T.FAQ),  # no product has a FAQ
+        (None, T.FAQ),  # never a rotation topic (ADR-088)
         (None, T.OPENING),  # opening and closing belong to the show, never to a choice
         ("p1", T.CLOSING),
     ],
@@ -362,7 +371,7 @@ def test_take_override_returns_the_chosen_slot_once():
     planner = SegmentPlanner(_three_products(), primary_share=0.5)
     assert planner.take_override() is None
 
-    chosen = planner.choose("p3", T.FAQ)
+    chosen = planner.choose("p3", T.SPECS)
     assert planner.override == chosen  # visible to the snapshot without consuming it
     assert planner.take_override() == chosen
     assert planner.take_override() is None
@@ -373,7 +382,7 @@ def test_a_second_choice_replaces_the_first():
     planner = SegmentPlanner(_three_products(), primary_share=0.5)
     planner.choose("p2", T.PRICE)
 
-    second = planner.choose("p3", T.FAQ)
+    second = planner.choose("p3", T.SPECS)
 
     assert planner.take_override() == second
     assert planner.take_override() is None
@@ -384,7 +393,7 @@ def test_choose_does_not_change_the_planned_rotation_slot():
     _run(planner, 3)
     before = planner.peek_slot()
 
-    planner.choose("p3", T.FAQ)
+    planner.choose("p3", T.SPECS)
 
     assert planner.peek_slot() == before
 
@@ -395,7 +404,7 @@ def test_a_manual_segment_does_not_consume_a_rotation_slot():
 
     planner = SegmentPlanner(_three_products(), primary_share=0.5)
     got = [(s.product_id, s.topic) for s in _run(planner, 3)]
-    planner.choose("p3", T.FAQ)
+    planner.choose("p3", T.SPECS)
     manual = planner.take_override()
     got += [(s.product_id, s.topic) for s in _run(planner, 9)]
 

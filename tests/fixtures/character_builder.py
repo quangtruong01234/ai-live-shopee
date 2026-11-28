@@ -54,10 +54,15 @@ def make_character_dir(
     write_provenance: bool = True,
     prepare: dict[str, Any] | None = None,
     skip_files: tuple[str, ...] = (),
+    desk_in_image: bool | None = None,
+    desk_top: float | None = None,
+    hands_zone: Any = None,
 ) -> Path:
     """Write `root/demo_host_01/` with `character.json`, `face.png`, clips and `provenance.json`; return the folder.
 
     `character` overrides top-level keys of `character.json` (a value of `None` removes the key).
+    `desk_in_image`, `desk_top` and `hands_zone` go into the `scene` block when given (011, 013 contracts/scene-set.md
+    §2); `hands_zone` takes any value so tests can write a malformed one.
     """
     avatar_dir = root / CHARACTER_ID
     (avatar_dir / "clips").mkdir(parents=True, exist_ok=True)
@@ -76,6 +81,11 @@ def make_character_dir(
             data.pop(key, None)
         else:
             data[key] = value
+    scene_keys = {"desk_in_image": desk_in_image, "desk_top": desk_top, "hands_zone": hands_zone}
+    scene = {k: v for k, v in scene_keys.items() if v is not None}
+    if scene:
+        block = data.get("scene")
+        data["scene"] = {**block, **scene} if isinstance(block, dict) else scene
     (avatar_dir / "character.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     files = ["face.png", *(c["file"] for c in data.get("clips", []) if isinstance(c, dict) and "file" in c)]
     for rel in files:

@@ -58,6 +58,11 @@ def test_feature_001_settings_present():
         "renderer_ack_timeout_s",
         "comment_max_age_s",
         "comment_queue_max",
+        "comment_author_max",
+        "comment_author_window_s",
+        "comment_author_mute_s",
+        "comment_greeting_repeat_s",
+        "greeting_rules_path",
         "comment_dedup_window_s",
         "comment_max_chars",
         "profanity_list_path",
@@ -176,6 +181,15 @@ DEFAULT_CHAIN = [
         "first_sentence_timeout_s": 2.0,
         "params": {"reasoning_effort": "none"},
     },
+    {
+        "label": "gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model": "models/gemini-3.5-flash-lite",
+        "key_env": "GEMINI_API_KEY",
+        "platform": None,
+        "first_sentence_timeout_s": 2.0,
+        "params": {"reasoning_effort": "low"},
+    },
 ]
 
 
@@ -200,8 +214,10 @@ def test_feature_008_defaults():
     assert s.freellmapi_key is None
     assert s.groq_api_key is None
     assert [entry.model_dump() for entry in s.llm_chain] == DEFAULT_CHAIN
-    assert [entry.position for entry in s.llm_chain] == [1, 2]
-    assert [entry.local for entry in s.llm_chain] == [True, False]
+    assert [entry.position for entry in s.llm_chain] == [1, 2, 3]
+    assert [entry.local for entry in s.llm_chain] == [True, False, False]
+    # ADR-073: the worst-case wait for a first sentence still fits the 8 s turn limit.
+    assert sum(entry.first_sentence_timeout_s for entry in s.llm_chain) <= min(s.llm_timeout_s, s.script_llm_timeout_s)
 
 
 def test_feature_008_secrets_are_secretstr():
@@ -346,6 +362,7 @@ FORK_ONLY_VARS = (
     "LIVETALKING_HOLD_S",
     "AILIVE_RECORD_DIR",
     "AILIVE_RECORD_MAX_S",
+    "LIVETALKING_WATERMARK",
 )
 
 LIPSYNC_OK = {"avatar_mode": "livetalking", "customer_id": "demo_customer_01", "avatar_id": "demo_host_01"}
@@ -673,3 +690,39 @@ def test_lipsync_model_keys_in_env_example_with_defaults():
     example = parse_env_example()
     assert example["LIVETALKING_MODEL"] == "wav2lip"
     assert example["LIVETALKING_ULTRALIGHT_TEACHER"] == "musetalk"
+
+
+# ---------- 013 T006: background removal (contracts/api.md §7) ----------
+
+
+def test_feature_013_matting_defaults():
+    s = Settings(_env_file=None)
+    assert s.matting_model_path is None
+    assert s.matting_during_show is True
+
+
+def test_feature_013_matting_read_from_environment(monkeypatch):
+    monkeypatch.setenv("MATTING_MODEL_PATH", "models/matting/isnet-general-use.onnx")
+    monkeypatch.setenv("MATTING_DURING_SHOW", "false")
+    s = Settings(_env_file=None)
+    assert s.matting_model_path == Path("models/matting/isnet-general-use.onnx")
+    assert s.matting_during_show is False
+
+
+def test_feature_013_empty_matting_model_path_means_none(monkeypatch):
+    monkeypatch.setenv("MATTING_MODEL_PATH", "")
+    assert Settings(_env_file=None).matting_model_path is None
+
+
+# ---------- 014 T002: background segmenter (ADR-083, research R3) ----------
+
+
+def test_feature_014_background_segmenter_model_defaults_to_empty():
+    # Empty = only the `plate` method; `--method mediapipe` needs a model downloaded by hand after ADR-083.
+    assert Settings(_env_file=None).background_segmenter_model == ""
+    assert parse_env_example()["BACKGROUND_SEGMENTER_MODEL"] == ""
+
+
+def test_feature_014_background_segmenter_model_read_from_environment(monkeypatch):
+    monkeypatch.setenv("BACKGROUND_SEGMENTER_MODEL", "models/segmenter/selfie_multiclass_256x256.tflite")
+    assert Settings(_env_file=None).background_segmenter_model == "models/segmenter/selfie_multiclass_256x256.tflite"

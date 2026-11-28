@@ -73,6 +73,7 @@ class ShowStats:
         self._sentence_counts: Counter[str] = Counter()
         self._fallback_spoken = 0
         self._verbatim_spoken = 0
+        self._loop_spoken = 0
         self._reached_dedup = 0
         self._duplicate_drops = 0
         self._spoken_script_forms: list[str] = []
@@ -108,7 +109,9 @@ class ShowStats:
         at = segment.started_at or segment.requested_at
         self._segment_times.append((at, segment.product_id, segment.status))
 
-    def record_sentence(self, sentence: ScriptSentence, source: Literal["script", "fallback", "verbatim"]) -> None:
+    def record_sentence(
+        self, sentence: ScriptSentence, source: Literal["script", "fallback", "verbatim", "loop"]
+    ) -> None:
         status = sentence.status
         self._sentence_counts[status.value] += 1
         if status is SentenceStatus.SPOKEN:
@@ -116,6 +119,8 @@ class ShowStats:
                 self._fallback_spoken += 1
             elif source == "verbatim":
                 self._verbatim_spoken += 1
+            elif source == "loop":
+                self._loop_spoken += 1
             else:
                 self._spoken_script_forms.append(sentence.word_form)
                 self._spoken_by_segment.setdefault(sentence.segment_id, []).append(sentence.word_form)
@@ -244,6 +249,7 @@ class ShowStats:
                 "interrupted": counts[SentenceStatus.INTERRUPTED.value],
                 "fallback_spoken": self._fallback_spoken,
                 "verbatim_spoken": self._verbatim_spoken,
+                "loop_spoken": self._loop_spoken,
             },
             gaps={
                 "counted": self._gap_stats(self._counted_gaps()),

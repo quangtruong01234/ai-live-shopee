@@ -12,15 +12,16 @@ from ai_live.core.models import Comment, CommentStatus, DropReason, Priority
 pytestmark = pytest.mark.anyio
 
 
-def make_comment(text: str, received_at: float | None = None) -> Comment:
+def make_comment(text: str, received_at: float | None = None, author: str | None = None) -> Comment:
     return Comment(
         id=text,
         source="mock",
-        author="Lan",
+        author=author or "Lan",
         text=text,
         received_at=time.monotonic() if received_at is None else received_at,
         platform_ts=None,
-        meta={},
+        # A key per comment unless a test names the author: these tests are about order, not one-per-viewer (FR-028).
+        meta={} if author else {"author_key": f"viewer-{text}"},
     )
 
 
@@ -101,7 +102,9 @@ async def test_full_queue_evicts_lowest_priority_earliest(clock):
     assert queued.status is CommentStatus.WAITING
     assert [qc.comment.id for qc in q.snapshot()] == ["high", "mid", "low2"]
     dropped = [e.payload for e in events if e.type == EventType.COMMENT_DROPPED]
-    assert dropped == [{"comment_id": "low1", "author": "Lan", "text": "low1", "reason": "queue_full"}]
+    assert dropped == [
+        {"comment_id": "low1", "author": "Lan", "author_key": "viewer-low1", "text": "low1", "reason": "queue_full"}
+    ]
     changed = [e.payload for e in events if e.type == EventType.QUEUE_CHANGED]
     assert [item["comment_id"] for item in changed[-1]["queue"]] == ["high", "mid", "low2"]
 
@@ -154,7 +157,9 @@ async def test_get_skips_stale_comments(clock):
     assert old.status is CommentStatus.DROPPED
     assert old.drop_reason is DropReason.STALE
     dropped = [e.payload for e in events if e.type == EventType.COMMENT_DROPPED]
-    assert dropped == [{"comment_id": "old", "author": "Lan", "text": "old", "reason": "stale"}]
+    assert dropped == [
+        {"comment_id": "old", "author": "Lan", "author_key": "viewer-old", "text": "old", "reason": "stale"}
+    ]
 
 
 async def test_get_waits_when_only_stale_comments(clock):
@@ -212,6 +217,7 @@ async def test_put_publishes_queue_changed(clock):
     assert events[0].payload["queue"][0] == {
         "comment_id": "a",
         "author": "Lan",
+        "author_key": "viewer-a",
         "text": "a",
         "priority": "HIGH",
         "status": "waiting",
@@ -227,3 +233,69 @@ async def test_get_publishes_queue_changed(clock):
         events = sub.drain()
     assert events[-1].type == EventType.QUEUE_CHANGED
     assert events[-1].payload == {"queue": []}
+
+
+# ---------- 001 FR-028, ADR-077: one waiting comment per viewer ----------
+
+
+async def test_newer_comment_from_same_viewer_replaces_the_waiting_one():
+    q = InMemoryCommentQueue()
+    old = await q.put(make_comment("hi", received_at=1.0, author="Tú"), Priority.LOW)
+    new = await q.put(make_comment("đẹp quá", received_at=2.0, author="Tú"), Priority.LOW)
+    assert [qc.comment.id for qc in q.snapshot()] == ["đẹp quá"]
+    assert old.status is CommentStatus.DROPPED and old.drop_reason is DropReason.SUPERSEDED
+    assert new.status is CommentStatus.WAITING
+
+
+async def test_higher_priority_question_replaces_small_talk():
+    q = InMemoryCommentQueue()
+    await q.put(make_comment("hi", received_at=1.0, author="Tú"), Priority.LOW)
+    await q.put(make_comment("giá bao nhiêu", received_at=2.0, author="Tú"), Priority.HIGH)
+    assert [qc.comment.id for qc in q.snapshot()] == ["giá bao nhiêu"]
+
+
+async def test_lower_priority_comment_does_not_replace_a_question():
+    q = InMemoryCommentQueue()
+    await q.put(make_comment("giá bao nhiêu", received_at=1.0, author="Tú"), Priority.HIGH)
+    late = await q.put(make_comment("đẹp quá", received_at=2.0, author="Tú"), Priority.LOW)
+    assert late.drop_reason is DropReason.SUPERSEDED
+    assert [qc.comment.id for qc in q.snapshot()] == ["giá bao nhiêu"]
+
+
+async def test_comment_put_back_after_pause_does_not_replace_a_newer_one():
+    q = InMemoryCommentQueue()
+    await q.put(make_comment("mới", received_at=5.0, author="Tú"), Priority.MEDIUM)
+    back = await q.put(make_comment("cũ", received_at=1.0, author="Tú"), Priority.MEDIUM)
+    assert back.drop_reason is DropReason.SUPERSEDED
+    assert [qc.comment.id for qc in q.snapshot()] == ["mới"]
+
+
+async def test_supersede_publishes_drop_event():
+    bus = EventBus()
+    q = InMemoryCommentQueue(bus=bus)
+    async with bus.subscribe() as sub:
+        await q.put(make_comment("a", received_at=1.0, author="Tú"), Priority.LOW)
+        await q.put(make_comment("b", received_at=2.0, author="Tú"), Priority.LOW)
+        events = sub.drain()
+    dropped = [e for e in events if e.type == EventType.COMMENT_DROPPED]
+    assert [e.payload["comment_id"] for e in dropped] == ["a"]
+    assert dropped[0].payload["reason"] == "superseded"
+
+
+async def test_remove_author_drops_only_that_viewer_as_blocked():
+    """001 FR-029: blocking a viewer drops their waiting comment and tells the control page."""
+    bus = EventBus()
+    q = InMemoryCommentQueue(bus=bus)
+    await q.put(make_comment("a", author="Tú"), Priority.HIGH)
+    await q.put(make_comment("b", author="Lan"), Priority.LOW)
+    async with bus.subscribe() as sub:
+        gone = q.remove_author("tu")
+        events = sub.drain()
+    assert [qc.comment.id for qc in gone] == ["a"]
+    assert gone[0].status is CommentStatus.DROPPED and gone[0].drop_reason is DropReason.BLOCKED
+    assert [qc.comment.id for qc in q.snapshot()] == ["b"]
+    dropped = next(e for e in events if e.type is EventType.COMMENT_DROPPED)
+    assert dropped.payload["reason"] == "blocked" and dropped.payload["author_key"] == "tu"
+    assert events[-1].type is EventType.QUEUE_CHANGED
+    assert events[-1].payload["queue"][0]["author_key"] == "lan"
+    assert q.remove_author("nobody") == []

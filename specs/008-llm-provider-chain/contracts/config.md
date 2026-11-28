@@ -28,18 +28,18 @@ Khi `REPLY_ENGINE=chain`, key không được mục nào tham chiếu có thể 
 ## 2. Giá trị mặc định của `LLM_CHAIN`
 
 ```
-LLM_CHAIN=[{"label":"sealion","base_url":"http://127.0.0.1:3001/v1","model":"gemma-sea-lion-v4-27b","key_env":"FREELLMAPI_KEY","platform":"cloudflare","first_sentence_timeout_s":2.5},{"label":"qwen","base_url":"https://api.groq.com/openai/v1","model":"qwen/qwen3.8-27b","key_env":"GROQ_API_KEY","first_sentence_timeout_s":2.0,"params":{"reasoning_effort":"none"}}]
+LLM_CHAIN=[{"label":"sealion","base_url":"http://127.0.0.1:3001/v1","model":"gemma-sea-lion-v4-27b","key_env":"FREELLMAPI_KEY","platform":"cloudflare","first_sentence_timeout_s":2.5},{"label":"qwen","base_url":"https://api.groq.com/openai/v1","model":"qwen/qwen3.8-27b","key_env":"GROQ_API_KEY","first_sentence_timeout_s":2.0,"params":{"reasoning_effort":"none"}},{"label":"gemini","base_url":"https://generativelanguage.googleapis.com/v1beta/openai","model":"models/gemini-3.5-flash-lite","key_env":"GEMINI_API_KEY","first_sentence_timeout_s":2.0,"params":{"reasoning_effort":"low"}}]
 ```
 
 Chuỗi theo ADR-040: `gptoss` bị bỏ vì không đạt SC-001 ở T055; giờ chờ SEA-LION hạ từ 3,5 s xuống 2,5 s (cổng Q18). `.env.example` giữ
-mục `gptoss` cũ thành dòng chú thích, và một dòng ví dụ đã comment cho Gemini qua freellmapi; cả hai chỉ bật sau khi qua bộ kiểm US4.
+mục `gptoss` cũ thành dòng chú thích. ADR-073 (2026-11-20) thêm mục cuối `gemini`: `models/gemini-3.5-flash-lite` gọi thẳng endpoint
+OpenAI của Google (không qua freellmapi, không khai `platform`), chờ câu đầu 2,0 s; tổng ba mục 6,5 s ≤ 8 s.
 Các ví dụ thông báo lỗi ở §3–§4 vẫn dùng chuỗi 3 mục cũ (mục 2 `gptoss`) để minh họa hai mục chung một `base_url`.
 
 `platform` là id nền tảng của freellmapi mà benchmark ADR-035 đã chạy (`cloudflare` cho SEA-LION, `groq` cho gpt-oss-120b trước ADR-040; research R2,
 R6). Mục `qwen` gọi thẳng Groq nên không khai `platform`.
 
-- `TODO:` tên model Gemini trên freellmapi và giới hạn chờ của mục 4: tổng của ba mục đầu đã là 7,5 s trên trần 8 s, nên mục 4 chỉ còn
-  0,5 s nếu giữ nguyên ba giới hạn kia. Chốt khi benchmark Gemini đạt (có thể phải hạ giới hạn mục 1 hoặc chấp nhận bỏ mục 4).
+- Mục Gemini qua freellmapi (mục 4 cũ) đã chốt ở ADR-073 thành gọi thẳng Google, 2,0 s.
 - `TODO:` xác nhận ba tên model bằng `GET /v1/models` (research R2); lần kiểm lúc khởi động (§4) cũng báo sai ngay.
 
 ## 3. Lỗi cấu hình lúc khởi động (FR-004)

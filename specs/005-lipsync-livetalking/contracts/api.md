@@ -58,6 +58,9 @@
  "ai_label": {"text": "AI", "position": "top-right"}}
 ```
 
+Thêm 2026-11-25 (ADR-092): `"subtitles": bool` = `HOST_SUBTITLES`, mặc định `false`. Trang host chỉ hiện chữ câu đang nói khi
+giá trị là `true`; tin `subtitle`/`subtitle_clear` và ack vẫn gửi như cũ.
+
 ## 4. `/ws/host`: tin mới và đổi
 
 Giữ toàn bộ tin của ADR-016. (006 thêm vai `?role=obs|host` và mã đóng `4001`: `specs/006-obs-output/contracts/api.md` §2.) Thêm:

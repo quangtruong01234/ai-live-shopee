@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from ai_live.core.models import Comment, Priority, QueuedComment, RenderTurnStats, SegmentRequest
 from ai_live.products.models import Product, ProductCatalog
@@ -194,3 +195,49 @@ class SceneSink(Protocol):
 
     def set_scene_layer(self, name: str, layer: SceneLayer | None) -> None: ...
     def add_scene_geometry_listener(self, callback: Callable[[FrameGeometry], None]) -> None: ...
+
+
+BackgroundMaskStatus = Literal["valid", "missing", "mismatch"]
+_MASK_STATUSES: tuple[BackgroundMaskStatus, ...] = ("valid", "missing", "mismatch")
+
+
+@dataclass(frozen=True)
+class ForkBackgroundStatus:
+    """The fork's `hello.background` block (014 fork-protocol §2): whether its host masks match the frames it plays."""
+
+    status: BackgroundMaskStatus
+    reason: str | None
+    frames: int
+    width: int
+    height: int
+    method: str | None
+    reviewed: bool | None
+
+    @classmethod
+    def from_hello(cls, raw: Any) -> ForkBackgroundStatus | None:
+        """None for an older fork (no block) or a block this app cannot read: both mean the fork cannot composite."""
+        if not isinstance(raw, dict) or raw.get("status") not in _MASK_STATUSES:
+            return None
+
+        def number(key: str) -> int:
+            value = raw.get(key)
+            return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+        reason, method, reviewed = raw.get("reason"), raw.get("method"), raw.get("reviewed")
+        return cls(
+            status=raw["status"],
+            reason=str(reason) if reason is not None else None,
+            frames=number("frames"),
+            width=number("width"),
+            height=number("height"),
+            method=str(method) if method is not None else None,
+            reviewed=reviewed if isinstance(reviewed, bool) else None,
+        )
+
+
+@runtime_checkable
+class BackgroundSink(Protocol):
+    """A renderer whose fork can composite a backdrop under the host (014 fork-protocol §3)."""
+
+    def set_scene_background(self, plate_png: bytes | None) -> None: ...
+    def add_background_status_listener(self, callback: Callable[[ForkBackgroundStatus | None], None]) -> None: ...

@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import pytest
 
+from ai_live.core.config import AI_LABEL_DEFAULT_POSITION, AI_LABEL_POSITIONS
 from ai_live.scene.fonts import SceneFontError, SceneFonts, load_fonts
 from ai_live.scene.layout import (
     ELLIPSIS,
     MAX_LINES,
+    art_fit,
     card_text,
     compute_layout,
     estimate_geometry,
     estimate_label_box,
+    label_lines,
     price_text,
     slot_order,
 )
 from ai_live.scene.models import FrameGeometry, LayoutParams, intersects
 from fixtures.scene_builder import catalog, demo_catalog, product
 
-POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
+POSITIONS = AI_LABEL_POSITIONS
 ART = (120, 240)
 
 
@@ -117,7 +120,8 @@ def test_no_room_for_art_shows_card_only() -> None:
     layout = compute_layout(products, {p.id: (600, 40) for p in products}, geometry, LayoutParams())
     assert layout.drawable
     assert all(s.art_box is None for s in layout.slots)
-    assert {i.code for i in layout.issues} == {"layout_keep_out"}
+    # The slot is too narrow, not the face too low: its own warning since 012 T071 (FR-004a).
+    assert {(i.level, i.code) for i in layout.issues} == {("warning", "art_too_wide")}
 
 
 def test_product_without_picture_has_card_only() -> None:
@@ -216,3 +220,111 @@ def test_character_desk_top_touching_the_face_still_blocks() -> None:
     layout = compute_layout(products, _sizes(products), geometry, LayoutParams(desk_top=0.76), desk_top=touching)
     assert not layout.drawable
     assert [i.code for i in layout.issues] == ["layout_keep_out"]
+
+
+# 012 T071 (FR-004a): a picture too wide for its slot is dropped with its own reason, and `art_fit` says so up front.
+WIDE = (1600, 300)  # 5.3:1, too flat even for the bigger highlighted slot
+FLAT = (600, 200)  # 3:1, fits only the highlighted slot
+
+
+def test_a_too_wide_picture_says_so_instead_of_blaming_the_face() -> None:
+    geometry = estimate_geometry("AI", "top-right")
+    products = demo_catalog().products
+    sizes = {**_sizes(products), "toner": WIDE}
+    layout = compute_layout(products, sizes, geometry, LayoutParams())
+    assert layout.slot("toner").art_box is None
+    toner = [i for i in layout.issues if i.product_id == "toner"]
+    assert [(i.level, i.code) for i in toner] == [("warning", "art_too_wide")]
+    assert "rộng" in toner[0].message and "vùng mặt" not in toner[0].message
+    assert all(i.code != "layout_keep_out" for i in layout.issues)
+
+
+@pytest.mark.parametrize(("size", "fit"), [(ART, "shown"), (FLAT, "highlight_only"), (WIDE, "card_only")])
+def test_art_fit_tells_when_a_picture_will_show(size, fit) -> None:
+    geometry = estimate_geometry("AI", "top-right")
+    products = demo_catalog().products
+    assert art_fit(products, "toner", size, geometry, LayoutParams()) == fit
+
+
+def test_art_fit_of_a_product_without_a_slot_is_shown() -> None:
+    products = [product("p", primary=True), *[product(f"s{i}") for i in range(6)]]
+    geometry = estimate_geometry("AI", "top-right")
+    assert art_fit(products, "s5", WIDE, geometry, LayoutParams()) == "shown"
+
+
+# ---------- 013 T010: the hands zone of the frame (data-model §3, research R2) ----------
+
+_HANDS = (0.27, 0.74, 0.73, 1.0)
+
+
+def test_hands_zone_fractions_become_pixels() -> None:
+    plain = FrameGeometry(width=832, height=832)
+    assert plain.hands_zone is None
+    geometry = plain.with_hands_zone(_HANDS)
+    assert geometry.hands_zone == (round(0.27 * 832), round(0.74 * 832), round(0.73 * 832), 832)
+    wide = FrameGeometry(width=1080, height=1920).with_hands_zone(_HANDS)
+    assert wide.hands_zone == (round(0.27 * 1080), round(0.74 * 1920), round(0.73 * 1080), 1920)
+    assert geometry.with_hands_zone(None).hands_zone is None
+
+
+def test_hands_zone_change_means_a_new_frame() -> None:
+    plain = FrameGeometry()
+    assert not plain.with_hands_zone(_HANDS).same_frame(plain)
+    assert not plain.with_hands_zone(_HANDS).same_frame(plain.with_hands_zone((0.2, 0.7, 0.8, 1.0)))
+    assert plain.with_hands_zone(_HANDS).same_frame(plain.with_hands_zone(_HANDS))
+
+
+def test_hands_zone_is_not_a_keep_out_and_is_not_punched() -> None:
+    from PIL import Image
+
+    from ai_live.scene.render import punch
+
+    geometry = FrameGeometry(width=400, height=400, face_bottom=100).with_hands_zone(_HANDS)
+    assert geometry.hands_zone is not None
+    assert geometry.hands_zone not in geometry.keep_out_boxes()
+    assert geometry.keep_out_boxes() == FrameGeometry(width=400, height=400, face_bottom=100).keep_out_boxes()
+    layer = Image.new("RGBA", (400, 400), (200, 100, 50, 255))
+    punch(layer, geometry)
+    x1, y1, x2, y2 = geometry.hands_zone
+    assert layer.getpixel(((x1 + x2) // 2, (y1 + y2) // 2))[3] == 255
+    assert layer.getpixel((x1, y2 - 1))[3] == 255
+
+
+# ---------- 014 T068: `shopee-top`, the label below the Shopee app's title band (ADR-085) ----------
+
+# Boxes the fork's `label_box` gives for the default label with Bahnschrift Bold Condensed (ADR-089, measured
+# 2026-11-25; Segoe UI Black gave (177, 104, 302, 150) on 480x832 before).
+FORK_SHOPEE_TOP = {
+    (480, 832): (183, 104, 297, 158),
+    (1080, 1920): (407, 240, 673, 369),
+    (360, 640): (135, 80, 224, 122),
+}
+
+
+def test_default_is_one_line_top_center_and_shopee_top_stays_selectable():
+    # ADR-090: the Meet demo uses one large line; `shopee-top` is for Shopee via OBS.
+    assert "shopee-top" in AI_LABEL_POSITIONS
+    assert AI_LABEL_DEFAULT_POSITION == "top-center"
+    lines, _ = label_lines(480, 832, "AI-GENERATED CONTENT", AI_LABEL_DEFAULT_POSITION)
+    assert lines == ("AI-GENERATED CONTENT",)
+
+
+@pytest.mark.parametrize("size", list(FORK_SHOPEE_TOP))
+def test_shopee_top_estimate_covers_what_the_fork_draws(size):
+    width, height = size
+    x1, y1, x2, y2 = estimate_label_box(width, height, "AI-GENERATED CONTENT", "shopee-top")
+    fx1, fy1, fx2, fy2 = FORK_SHOPEE_TOP[size]
+    assert x1 <= fx1 and y1 <= fy1 and x2 >= fx2 and y2 >= fy2
+    assert y1 == round(height * 0.125)
+    assert x2 - x1 <= round(width * 0.26) and abs((x1 + x2) - width) <= 1
+    assert y2 - fy2 <= 0.01 * height  # generous, not a different place
+    assert y2 <= round(height * 0.195)  # above the host's head (~19.6% of the frame height)
+
+
+def test_shopee_top_keeps_a_short_label_on_one_line():
+    lines, px = label_lines(480, 832, "AI", "shopee-top")
+    assert lines == ("AI",) and px == pytest.approx(832 * 0.031)
+    lines, _ = label_lines(480, 832, "AI-GENERATED CONTENT", "shopee-top")
+    assert lines == ("AI-GENERATED", "CONTENT")
+    lines, _ = label_lines(480, 832, "AI-GENERATED CONTENT", "top-center")
+    assert lines == ("AI-GENERATED CONTENT",)

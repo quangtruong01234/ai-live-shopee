@@ -96,10 +96,10 @@ def test_rules_grounding(needle):
     assert needle in SCRIPT_RULES
 
 
-def test_rules_faq_only_from_file():
-    # FR-014: FAQ segments use only the question-answer pairs of the file.
-    assert "cặp hỏi–đáp" in SCRIPT_RULES
-    assert "cặp hỏi–đáp" in topic_brief(Topic.FAQ)
+def test_rules_forbid_asking_and_answering_itself():
+    # ADR-088 (004 FR-014 note): the host never asks itself a question and answers it, but invites viewers to ask.
+    assert "Không tự đặt câu hỏi rồi tự trả lời" in SCRIPT_RULES
+    assert "mời người xem bình luận hỏi em" in SCRIPT_RULES
 
 
 @pytest.mark.parametrize("mechanic", ["giỏ hàng", "mã giảm giá", "ghim sản phẩm"])

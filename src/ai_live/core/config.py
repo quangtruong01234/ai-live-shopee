@@ -32,6 +32,19 @@ _LEGACY_OUTPUT_MODE = "webrtc"
 # LIVETALKING_URL: the fork has no auth, so the app only ever talks to one on this machine (data-model §1).
 _FORK_HOSTS = frozenset({"127.0.0.1", "localhost"})
 _CUSTOMER_ID_RE = re.compile(r"[a-z0-9_-]{1,64}")
+# Where the AI label may sit; the fork accepts the same names (vendor/livetalking/ailive_ext/label.py, ADR-076).
+# `top-center` is the Meet demo default: one large line (ADR-090). `shopee-top` (ADR-085) is for Shopee via OBS:
+# centred just below the band the Shopee app's title covers, wrapped into two lines.
+AI_LABEL_POSITIONS = (
+    "shopee-top",
+    "top-center",
+    "top-left",
+    "top-right",
+    "bottom-center",
+    "bottom-left",
+    "bottom-right",
+)
+AI_LABEL_DEFAULT_POSITION = "top-center"
 
 
 class ChainEntryConfig(BaseModel):
@@ -89,7 +102,8 @@ class ChainEntryConfig(BaseModel):
         return urlsplit(self.base_url).hostname in _LOOPBACK_HOSTS
 
 
-# contracts/config.md §2 (ADR-035 order, trimmed by ADR-040). `.env.example` carries the same chain as one-line JSON.
+# contracts/config.md §2 (ADR-035 order, trimmed by ADR-040, Gemini appended by ADR-073).
+# `.env.example` carries the same chain as one-line JSON.
 # ADR-040: gpt-oss-120b failed SC-001 at T055; SEA-LION waits 2.5 s so a timed-out opening stays within 5 s.
 DEFAULT_LLM_CHAIN: tuple[dict[str, Any], ...] = (
     {
@@ -107,6 +121,15 @@ DEFAULT_LLM_CHAIN: tuple[dict[str, Any], ...] = (
         "key_env": "GROQ_API_KEY",
         "first_sentence_timeout_s": 2.0,
         "params": {"reasoning_effort": "none"},
+    },
+    # ADR-073: last resort only, it is fast on average but stalls about one turn in ten.
+    {
+        "label": "gemini",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "model": "models/gemini-3.5-flash-lite",
+        "key_env": "GEMINI_API_KEY",
+        "first_sentence_timeout_s": 2.0,
+        "params": {"reasoning_effort": "low"},
     },
 )
 
@@ -175,7 +198,7 @@ class Settings(BaseSettings):
     tts_abbreviations_path: Path = Path("data/rules/tts_abbreviations.json")
 
     # ---------- Avatar / LiveTalking (feature 005, data-model §1) ----------
-    # The fork-only variables (LIVETALKING_BATCH_SIZE, _LIP_EVERY_N, _TRANSITION_S, _HOLD_S) are read by
+    # The fork-only variables (LIVETALKING_BATCH_SIZE, _LIP_EVERY_N, _TRANSITION_S, _HOLD_S, _WATERMARK) are read by
     # scripts/livetalking/run.ps1, not by the app, so they have no field here.
     customer_id: str = ""
     avatar_id: str = ""
@@ -197,7 +220,10 @@ class Settings(BaseSettings):
     livetalking_ultralight_teacher: Literal["musetalk", "infinitetalk"] = "musetalk"
     # Shopee's AI content rules give this banner as the example of a clear AI label (ADR-065).
     ai_label_text: str = "AI-GENERATED CONTENT"
-    ai_label_position: str = "top-right"
+    # Bold outlined text centred at the top (ADR-076); the host page falls back to the default on an unknown value.
+    ai_label_position: str = AI_LABEL_DEFAULT_POSITION
+    # The spoken sentence as text on the host page. Off by default (ADR-092): it covered the host and the products.
+    host_subtitles: bool = False
     renderer_ack_timeout_s: float = Field(3, gt=0)
 
     # ---------- Comment source ----------
@@ -205,10 +231,21 @@ class Settings(BaseSettings):
     comment_queue_max: int = Field(50, gt=0)
     comment_dedup_window_s: float = Field(60, ge=0)
     comment_max_chars: int = Field(300, gt=0)
+    # Per-viewer limits (001 FR-027, ADR-077): more than AUTHOR_MAX comments in AUTHOR_WINDOW_S mutes the viewer for
+    # AUTHOR_MUTE_S, so one fast account cannot take every reply turn.
+    comment_author_max: int = Field(3, ge=1)
+    comment_author_window_s: float = Field(30, gt=0)
+    comment_author_mute_s: float = Field(120, ge=0)
+    # A viewer is greeted back at most once in this window (001 FR-026); 0 greets every greeting.
+    comment_greeting_repeat_s: float = Field(600, ge=0)
     profanity_list_path: Path = Path("data/rules/profanity.txt")
     priority_rules_path: Path = Path("data/rules/priority_keywords.json")
+    greeting_rules_path: Path = Path("data/rules/greetings.json")
 
     # ---------- Scripted show (feature 004, plan "Biến môi trường mới") ----------
+    # What the host says while nobody comments when "Bắt đầu show" sends no source (ADR-088): `loop` repeats one fixed
+    # passage with invites to ask for advice; `script` is the LLM-written rotation; `verbatim` is the backup video.
+    show_content: Literal["script", "verbatim", "loop"] = "loop"  # same values as core.models.CONTENT_SOURCES
     script_segment_min_sentences: int = Field(3, ge=1)
     script_segment_max_sentences: int = Field(6, ge=1)
     script_primary_share: float = Field(0.5, ge=0.5, le=0.9)
@@ -231,6 +268,17 @@ class Settings(BaseSettings):
     scene_dir: Path = Path("assets/scenes/demo")
     scene_subtitles: bool = False
     scene_font_path: Path | None = None
+
+    # ---------- Background removal (feature 013, ADR-074) ----------
+    # None = no model: plain-background images are still cleaned, busy ones are reported as `failed`.
+    matting_model_path: Path | None = None
+    # False = no model run while a show is live, so lip-sync never competes for the CPU (research R7).
+    matting_during_show: bool = True
+
+    # ---------- Background behind the host (feature 014, ADR-083) ----------
+    # Empty = only the `plate` method; else the path to a hand-downloaded `.tflite` for
+    # `background-prepare --method mediapipe`.
+    background_segmenter_model: str = ""
 
     # ---------- Demo readiness (feature 007, ADR-057) ----------
     watchdog_enabled: bool = True
@@ -298,7 +346,7 @@ class Settings(BaseSettings):
     def _expand_model_cache(cls, value: Path) -> Path:
         return value.expanduser()
 
-    @field_validator("vieneu_ref_audio", "scene_font_path", mode="before")
+    @field_validator("vieneu_ref_audio", "scene_font_path", "matting_model_path", mode="before")
     @classmethod
     def _optional_ref_audio(cls, value: Any) -> Path | None:
         # `.env.example` ships `VIENEU_REF_AUDIO=` empty, meaning "use the preset voice as is".

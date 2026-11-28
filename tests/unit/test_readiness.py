@@ -51,6 +51,7 @@ def demo_day_items() -> list[r.ReadinessItem]:
         r.check_host(True, host(), "livetalking"),
         r.check_content(catalog(product("p1", primary=True))),
         r.check_scene(True, []),
+        check_bg(bg_status(None, reviewed=True)),  # 014, defined below
         r.check_ai_label("AI"),
         r.check_backup_video(sheet(), None, customer_id="shop", avatar_id="host_a", catalog_version="v1"),
         r.check_llm_chain("chain", {"entries": [{"label": "A", "status": "ready"}]}),
@@ -408,6 +409,7 @@ def test_every_problem_says_what_to_do_in_vietnamese():
         r.check_host(False, None, "static"),
         r.check_content(None),
         r.check_scene(True, [{"code": "placeholder", "product_id": "p1"}]),
+        check_bg(bg_status("not_prepared")),
         r.check_ai_label(""),
         r.check_backup_video(None, None, customer_id="a", avatar_id="b", catalog_version="v"),
         r.check_llm_chain("chain", {"entries": []}),
@@ -634,3 +636,292 @@ async def test_offline_ultralight_character_without_clips(tmp_path):
     assert "chưa kiểm fork" in items["lipsync_model"].message
     assert items["character"].status is OK
     assert "clip" not in items["character"].message
+
+
+# ---------- 013 T021: realistic desk products ----------
+
+HANDS_MISSING = {"code": "hands_zone_missing", "level": "warning", "product_id": None, "message": "chưa khai vùng tay"}
+
+
+def test_scene_realistic_without_hands_zone_warns():
+    item = r.check_scene(True, [HANDS_MISSING])
+    assert item.status is WARN
+    assert "vùng tay" in item.message
+    assert "--debug-zones" in item.action and "hands_zone" in item.action
+    # An error still wins: the operator sees the bigger problem first.
+    bad = {"code": "bad_layout", "level": "error", "product_id": None, "message": "layout.mode lạ"}
+    worse = r.check_scene(True, [HANDS_MISSING, bad])
+    assert worse.status is WARN and "layout.mode lạ" in worse.message
+
+
+def test_scene_bad_layout_is_an_error_like_009():
+    item = r.check_scene(True, [{"code": "bad_layout", "level": "error", "product_id": None, "message": "mode lạ"}])
+    assert item.status is WARN
+    assert "1 lỗi" in item.message and "mode lạ" in item.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("layout", "hands", "warned"),
+    [("realistic", None, True), ("realistic", [0.3, 0.77, 0.7, 1.0], False), ("rows", None, False)],
+)
+async def test_offline_scene_warns_only_realistic_without_hands_zone(tmp_path, layout, hands, warned):
+    from fixtures.character_builder import CHARACTER_ID, CUSTOMER_ID, make_character_dir
+    from fixtures.scene_builder import make_scene_dir
+
+    avatar_dir = make_character_dir(tmp_path, desk_in_image=True, desk_top=0.868, hands_zone=hands)
+    scene_dir = make_scene_dir(
+        tmp_path / "scenes" / "demo", [], customer_id=CUSTOMER_ID, scene={"layout": {"mode": layout}}
+    )
+    settings = _settings(
+        avatar_mode="livetalking",
+        avatar_dir=avatar_dir,
+        avatar_id=CHARACTER_ID,
+        customer_id=CUSTOMER_ID,
+        livetalking_url="http://127.0.0.1:9",
+        session_data_dir=tmp_path / "sessions",
+        backup_video_dir=tmp_path / "backup",
+        product_data_path=tmp_path / "none.docx",
+        scene_enabled=True,
+        scene_dir=scene_dir,
+    )
+    result = await r.run_offline(settings)
+    scene = next(item for item in result.items if item.id == "scene")
+    assert ("vùng tay" in scene.message) is warned, scene
+    if warned:
+        assert scene.status is WARN
+
+
+# ---------- 013 T036 (FR-018, research R10): a picture with its background, no matting model ----------
+
+ART_BG = {"code": "art_has_background", "level": "warning", "product_id": "p1", "message": "Ảnh của p1 còn nền"}
+NO_MATTING = {
+    "code": "matting_model_missing",
+    "level": "warning",
+    "product_id": None,
+    "message": "Chưa cài model tách nền",
+}
+
+
+def test_scene_picture_with_background_warns():
+    item = r.check_scene(True, [ART_BG])
+    assert item.status is WARN
+    assert "còn nền" in item.message
+    assert "Ảnh sản phẩm" in item.action
+
+
+def test_scene_without_matting_model_warns():
+    item = r.check_scene(True, [NO_MATTING])
+    assert item.status is WARN
+    assert "model tách nền" in item.message
+    assert "MATTING_MODEL_PATH" in item.action
+
+
+def test_scene_warnings_are_all_shown_together():
+    item = r.check_scene(True, [HANDS_MISSING, ART_BG, NO_MATTING])
+    assert item.status is WARN
+    assert "vùng tay" in item.message and "còn nền" in item.message and "model tách nền" in item.message
+    assert "hands_zone" in item.action and "Ảnh sản phẩm" in item.action and "MATTING_MODEL_PATH" in item.action
+
+
+def _opaque_kit(scene_dir: Path, pid: str) -> None:
+    from PIL import Image
+
+    Image.new("RGBA", (120, 160), (200, 60, 40, 255)).save(scene_dir / "products" / f"{pid}.png")
+
+
+def _scene_settings(tmp_path: Path, layout: str, **over):
+    from fixtures.scene_builder import CUSTOMER, make_scene_dir
+
+    scene_dir = make_scene_dir(
+        tmp_path / "scenes" / "demo", ["p1"], customer_id=CUSTOMER, scene={"layout": {"mode": layout}}
+    )
+    _opaque_kit(scene_dir, "p1")
+    values = {
+        "avatar_mode": "static",
+        "customer_id": CUSTOMER,
+        "session_data_dir": tmp_path / "sessions",
+        "backup_video_dir": tmp_path / "backup",
+        "product_data_path": tmp_path / "none.docx",
+        "scene_enabled": True,
+        "scene_dir": scene_dir,
+    }
+    values.update(over)
+    return _settings(**values)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("layout", "warned"), [("realistic", True), ("rows", False)])
+async def test_offline_scene_warns_about_a_picture_with_background_only_on_the_realistic_desk(
+    tmp_path, monkeypatch, layout, warned
+):
+    monkeypatch.setattr(r, "_offline_content", lambda settings: (catalog(product("p1", primary=True)), None))
+    model = tmp_path / "isnet-general-use.onnx"
+    model.write_bytes(b"onnx")
+    result = await r.run_offline(_scene_settings(tmp_path, layout, matting_model_path=model))
+    scene = next(item for item in result.items if item.id == "scene")
+    assert ("còn nền" in scene.message) is warned, scene
+    assert "model tách nền" not in scene.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("missing", ["unset", "no_file"])
+async def test_offline_scene_warns_without_a_matting_model(tmp_path, monkeypatch, missing):
+    monkeypatch.setattr(r, "_offline_content", lambda settings: (catalog(product("p1", primary=True)), None))
+    path = None if missing == "unset" else tmp_path / "models" / "nope.onnx"
+    result = await r.run_offline(_scene_settings(tmp_path, "rows", matting_model_path=path))
+    scene = next(item for item in result.items if item.id == "scene")
+    assert scene.status is WARN
+    assert "model tách nền" in scene.message
+
+
+# ---------- 014 T036 (contracts/api.md "Kiểm tra sẵn sàng"; FR-012, FR-015, SC-006): room behind the host ----------
+
+BG_ID = "demo_host_01"
+REVIEW = "assets/avatars/demo_host_01/background/review.jpg"
+EVERY_FALLBACK = [
+    "style_not_available",
+    "no_product_art",
+    "no_shop_photo",
+    "shop_photo_unconfirmed",
+    "plate_failed",
+    "avatar_static",
+    "fork_unsupported",
+    "not_prepared",
+    "mismatch:frame_not_prepared:3",
+    "mismatch:size_mismatch",
+    "mismatch:character_mismatch",
+    "mismatch:mask_unreadable:masks/0002.png",
+    "rejected:sai cỡ khung",
+    "failed:lỗi ghép",
+]
+
+
+def bg_status(reason, *, style="ke_hang", active=None, reviewed=False, mask_status=None):
+    from ai_live.scene.background import fallback_text
+
+    if reason is None:
+        message = None
+    else:
+        problem, fix = fallback_text(reason, BG_ID, style=style)
+        message = f"{problem}: {fix}"
+    if mask_status is None:
+        mask_status = (
+            "missing" if reason == "not_prepared" else "mismatch" if str(reason).startswith("mismatch") else "valid"
+        )
+    return {
+        "style": style,
+        "active": reason is None if active is None else active,
+        "mask_status": mask_status,
+        "fallback_reason": reason,
+        "fallback_message": message,
+        "reviewed": reviewed,
+        "items": ["p1"],
+        "changed_at": "2026-11-24T09:00:00+00:00",
+    }
+
+
+def check_bg(status, frames=81):
+    return r.check_background(status, character_id=BG_ID, frames=frames, review_path=REVIEW)
+
+
+def test_background_is_a_readiness_item_next_to_the_scene():
+    assert r.ITEM_IDS.index("background") == r.ITEM_IDS.index("scene") + 1
+    assert r.LABELS["background"] == "Nền sau host"
+
+
+def test_background_original_room_is_ok():
+    item = check_bg(bg_status("style_goc", style="goc", mask_status="unknown"))
+    assert (item.status, item.message) == (OK, "Nền: phòng gốc")
+
+
+def test_background_with_the_scene_off_is_ok():
+    from ai_live.scene.background import disabled_background_status
+
+    item = check_bg(disabled_background_status())
+    assert (item.status, item.message) == (OK, "Nền: phòng gốc")
+
+
+def test_background_not_prepared_warns_with_the_command():
+    item = check_bg(bg_status("not_prepared"))
+    assert item.status is WARN
+    assert "Nhân vật chưa có nền, live sẽ hiện phòng gốc" in item.message
+    assert f"uv run python -m ai_live.avatar background-prepare {BG_ID}" in item.action
+
+
+def test_background_mismatch_warns_with_the_reason_and_the_command():
+    item = check_bg(bg_status("mismatch:size_mismatch"))
+    assert item.status is WARN
+    assert "cỡ khung" in item.message
+    assert f"background-prepare {BG_ID}" in item.action
+
+
+def test_background_without_cut_out_products_warns():
+    item = check_bg(bg_status("no_product_art"))
+    assert item.status is WARN
+    assert "Chưa có ảnh sản phẩm đã bỏ nền cho kệ hàng" in item.message
+
+
+def test_background_valid_but_not_looked_at_warns_with_the_review_picture():
+    item = check_bg(bg_status(None, reviewed=False))
+    assert item.status is WARN
+    assert "Mặt nạ nền chưa được duyệt bằng mắt" in item.message
+    assert REVIEW in item.action and "--mark-reviewed" in item.action
+
+
+def test_background_valid_and_reviewed_is_ok():
+    item = check_bg(bg_status(None, reviewed=True))
+    assert (item.status, item.message) == (OK, "Nền: kệ hàng, đã chuẩn bị 81 khung")
+
+
+@pytest.mark.parametrize("reason", EVERY_FALLBACK)
+def test_background_never_fails_and_reuses_the_fallback_message(reason):
+    status = bg_status(reason)
+    item = check_bg(status)
+    assert item.status in (OK, WARN)
+    if item.status is WARN:
+        # One wording for the control page and readiness (T042): the status sentence, split into problem and fix.
+        assert f"{item.message}: {item.action}" == status["fallback_message"]
+
+
+def _bg_settings(tmp_path: Path, variant: str, *, reviewed: bool = False):
+    from fixtures.background_builder import make_background_dir
+    from fixtures.character_builder import CHARACTER_ID, CUSTOMER_ID, READY_PREPARE, make_character_dir
+    from fixtures.scene_builder import make_scene_dir
+
+    avatar_dir = make_character_dir(tmp_path / "avatars", prepare=READY_PREPARE)
+    make_background_dir(avatar_dir, variant, reviewed=reviewed)
+    scene_dir = make_scene_dir(
+        tmp_path / "scenes" / "demo", ["p1"], customer_id=CUSTOMER_ID, scene={"background": {"style": "ke_hang"}}
+    )
+    return _settings(
+        avatar_mode="livetalking",
+        avatar_dir=avatar_dir,
+        avatar_id=CHARACTER_ID,
+        customer_id=CUSTOMER_ID,
+        livetalking_url="http://127.0.0.1:9",
+        session_data_dir=tmp_path / "sessions",
+        backup_video_dir=tmp_path / "backup",
+        product_data_path=tmp_path / "none.docx",
+        scene_enabled=True,
+        scene_dir=scene_dir,
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("variant", "reviewed", "status", "needle"),
+    [
+        ("valid", False, WARN, "chưa được duyệt"),
+        ("valid", True, OK, "đã chuẩn bị 3 khung"),
+        ("missing", False, WARN, "chưa có nền"),
+        ("mismatch", False, WARN, "nhân vật khác"),
+    ],
+)
+async def test_offline_background_reads_the_masks_from_disk(tmp_path, monkeypatch, variant, reviewed, status, needle):
+    # The fork is down (port 9): only the manifest on disk can tell.
+    monkeypatch.setattr(r, "_offline_content", lambda settings: (catalog(product("p1", primary=True)), None))
+    result = await r.run_offline(_bg_settings(tmp_path, variant, reviewed=reviewed))
+    item = next(i for i in result.items if i.id == "background")
+    assert item.status is status, item
+    assert needle in item.message, item

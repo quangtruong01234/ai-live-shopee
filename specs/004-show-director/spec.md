@@ -201,7 +201,15 @@ dừng), xem host trả lời và quay lại kịch bản.
 - **FR-013**: Phân đoạn "kêu gọi mua" chỉ dùng thông tin có trong dữ liệu (khuyến mãi, phân loại); không nhắc cách mua trên một nền tảng
   cụ thể (giỏ hàng, mã giảm giá, ghim sản phẩm...) trừ khi file nội dung có ghi.
 - **FR-014**: Phân đoạn "câu hỏi thường gặp" chỉ dùng cặp hỏi–đáp có trong file; host có thể dẫn dắt ("nhiều anh chị hay hỏi...") nhưng câu
-  trả lời phải đúng nội dung đã ghi.
+  trả lời phải đúng nội dung đã ghi. *(Sửa 2026-11-25, ADR-088: chủ đề này rời vòng xoay tự động; host không tự hỏi rồi tự trả lời.
+  Cặp hỏi–đáp vẫn dùng để trả lời comment thật.)*
+- **FR-031** *(thêm 2026-11-25, ADR-088)*: Khi không ai comment, mặc định (`SHOW_CONTENT=loop`) host lặp lại một đoạn cố định dựng từ file:
+  lời chào và danh sách sản phẩm một lần lúc mở show, rồi mỗi sản phẩm (xoay chính, phụ) đọc giới thiệu, mô tả, giá, khuyến mãi và một câu
+  mời bình luận hỏi tư vấn (ngân sách; thành phần nếu file có; so sánh nếu có hơn một món; giá, khuyến mãi, bảo quản), câu mời đổi lần
+  lượt. *(sửa 2026-11-28: file không có khuyến mãi nào thì câu mời chung nói "giá, quy cách hay cách bảo quản", không mời hỏi khuyến mãi; ADR-088)* *(sửa 2026-11-28, người dùng: "viết lại cho khác kịch bản không bị lặp nhiều", ADR-088: mục
+  "Bài giới thiệu" và "Mô tả" viết được nhiều đoạn, mỗi đoạn một dòng; mỗi lượt của một món chỉ đọc một đoạn giới thiệu và một đoạn mô tả,
+  lần lượt từng đoạn rồi quay vòng, mỗi món có thứ tự riêng; câu giá đổi lần lượt giữa 3 mẫu câu cố định, tên và giá vẫn lấy từ file. Món
+  chỉ có một đoạn thì đọc như cũ.)* Không gọi engine; comment vẫn được trả lời bằng LLM. Nguồn `script` (LLM viết) vẫn chọn được.
 
 **Điều khiển**
 - **FR-015**: Người vận hành PHẢI có thể tạm dừng và tiếp tục. Tạm dừng: host nói hết câu đang nói rồi im, không bắt đầu câu mới. Tiếp tục:
@@ -340,6 +348,11 @@ dừng), xem host trả lời và quay lại kịch bản.
   trường hợp biên.
 - Q: Tiêu chí demo nào thay cho `docs/PRD.md` §3 số 2–3? → A: Số 2 = SC-009 (≥ 8/10 phân đoạn nghe tự nhiên) cùng SC-003 (0 câu bịa giá,
   khẳng định cấm, link); số 3 = SC-002 (khoảng lặng p95 ≤ 1,5 giây, tối đa 5 giây). Sửa: SC-002, SC-009, Ngoài phạm vi, `docs/PRD.md` §3.
+
+### Phiên 2026-11-25 (người dùng yêu cầu, ADR-088)
+
+- Yêu cầu: "Bỏ cái tự hỏi tự trả lời trong bộ content đi. Nếu không ai hỏi thì AI chỉ nói lập đi lập lại 1 đoạn content và luôn có các
+  câu để được tư vấn thì nên hỏi AI gì gì đó" → Sửa FR-014 (FAQ rời vòng xoay), thêm FR-031 (nguồn `loop`, mặc định).
 
 ## Checklist chất lượng spec
 

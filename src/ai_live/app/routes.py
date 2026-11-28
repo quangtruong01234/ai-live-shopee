@@ -26,6 +26,7 @@ from ai_live.app.errors import (
     TOPIC_UNAVAILABLE_MESSAGE,
     ApiError,
 )
+from ai_live.core.config import AI_LABEL_DEFAULT_POSITION, AI_LABEL_POSITIONS
 from ai_live.core.events import lipsync_health_event
 from ai_live.core.logging import log_event
 from ai_live.core.models import AvatarModeState, ContentSource, LipsyncHealth, Topic
@@ -43,12 +44,12 @@ from ai_live.director.show_director import (
 )
 from ai_live.ops.readiness import run_readiness
 from ai_live.products.models import ContentLoadError, ProductCatalog
+from ai_live.scene.background import disabled_background_status, fallback_message
 from ai_live.scene.controller import DISABLED_HOST_CONFIG, disabled_status
 
 logger = logging.getLogger("ai_live.app")
 
 STATIC_DIR = Path(__file__).parent / "static"
-LABEL_POSITIONS = ("top-right", "top-left", "bottom-right", "bottom-left")
 DEBUG_TEXT_MAX = 300
 # How long `/host` waits for the first scene draw (009 contracts/api.md §4).
 HOST_SCENE_WAIT_S = 2.0
@@ -72,6 +73,18 @@ class CommentIn(BaseModel):
     text: str
 
 
+class ViewerBlockIn(BaseModel):
+    """`POST /api/viewers/block` (001 FR-029): `minutes` null blocks for the whole session."""
+
+    author_key: str = Field(min_length=1, max_length=200)
+    author: str | None = Field(default=None, max_length=200)
+    minutes: int | None = Field(ge=1, le=240)
+
+
+class ViewerKeyIn(BaseModel):
+    author_key: str = Field(min_length=1, max_length=200)
+
+
 class SpeakIn(BaseModel):
     text: str = Field(min_length=1, max_length=DEBUG_TEXT_MAX)
 
@@ -81,7 +94,9 @@ class ShowStartIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    content: ContentSource = "script"
+    # Left out: SHOW_CONTENT (ADR-088). An explicit null stays a 422 (007 contracts/api.md §2), so the default is not
+    # validated rather than typed optional.
+    content: ContentSource = Field(default=None, validate_default=False)  # type: ignore[assignment]
 
 
 class NextIn(BaseModel):
@@ -153,9 +168,9 @@ async def obs_page(request: Request) -> HTMLResponse:
 async def _render_host_page(request: Request, *, body_class: str) -> HTMLResponse:
     settings = _ctx(request).settings
     position = settings.ai_label_position
-    if position not in LABEL_POSITIONS:
-        log_event(logger, "ai_label_position_invalid", logging.WARNING, value=position, used="top-right")
-        position = "top-right"
+    if position not in AI_LABEL_POSITIONS:
+        log_event(logger, "ai_label_position_invalid", logging.WARNING, value=position, used=AI_LABEL_DEFAULT_POSITION)
+        position = AI_LABEL_DEFAULT_POSITION
     avatar_src = "/avatar-image" if _avatar_image(_ctx(request)).is_file() else "/static/avatar-placeholder.svg"
     scene = _ctx(request).scene
     if scene is not None:
@@ -220,6 +235,21 @@ async def post_comment(body: CommentIn, request: Request) -> dict:
     return result.to_json()
 
 
+@router.post("/api/viewers/block")
+async def block_viewer(body: ViewerBlockIn, request: Request) -> dict:
+    """Block one viewer and drop their waiting comments; the turn speaking now goes on (ADR-078)."""
+    intake = _ctx(request).intake
+    removed = intake.block(body.author_key, body.minutes, body.author)
+    return {"viewers": intake.viewers(), "removed": removed}
+
+
+@router.post("/api/viewers/unblock")
+async def unblock_viewer(body: ViewerKeyIn, request: Request) -> dict:
+    intake = _ctx(request).intake
+    intake.unblock(body.author_key)
+    return {"viewers": intake.viewers()}
+
+
 def _control_command(command: str) -> float:
     """Log the moment a control command arrives; `control_applied` measures its latency from here (SC-007)."""
     t_mono = time.monotonic()
@@ -267,7 +297,7 @@ async def show_end(request: Request) -> dict:
 async def show_start(request: Request, body: ShowStartIn | None = None) -> dict:
     """Start the scripted show; a second press returns the running show (`already_running`), source unchanged."""
     director = _ctx(request).director
-    content = body.content if body is not None else "script"
+    content = body.content if body is not None and body.content is not None else _ctx(request).settings.show_content
     try:
         show, already_running = await director.start_show(_control_command("show_start"), content=content)
     except HostUnavailable as exc:
@@ -368,6 +398,7 @@ async def host_config(request: Request) -> dict:
         "active": mode.active if mode is not None else settings.avatar_mode,
         "livetalking_url": settings.livetalking_url,
         "ai_label": {"text": settings.ai_label_text, "position": settings.ai_label_position},
+        "subtitles": settings.host_subtitles,
         "scene": ctx.scene.host_config() if ctx.scene is not None else DISABLED_HOST_CONFIG,
         "output_mode": settings.output_mode,
     }
@@ -376,8 +407,38 @@ async def host_config(request: Request) -> dict:
 @router.get("/api/scene")
 async def get_scene(request: Request) -> dict:
     """Scene state for the control page and the operator (009 contracts/api.md §1)."""
-    scene = _ctx(request).scene
-    return scene.status() if scene is not None else disabled_status()
+    ctx = _ctx(request)
+    scene = ctx.scene
+    body = scene.status() if scene is not None else disabled_status()
+    return {**body, "background": _background_status(ctx)}  # a copy: never touch a shared status dict
+
+
+def _background_status(ctx: AppContext) -> dict[str, Any]:
+    return ctx.background.status() if ctx.background is not None else disabled_background_status()
+
+
+@router.get("/api/scene/background")
+async def get_scene_background(request: Request) -> dict:
+    """The room behind the host (014 contracts/api.md). Read-only: it changes only with the scene set."""
+    return _background_status(_ctx(request))
+
+
+@router.get("/api/scene/background/preview.png")
+async def get_scene_background_preview(request: Request) -> Response:
+    """A sample live frame with the new room and the AI label, drawn here like the fork does (research R13)."""
+    ctx = _ctx(request)
+    background, scene = ctx.background, ctx.scene
+    if background is None or scene is None:
+        raise ApiError(404, "scene_disabled", fallback_message("scene_disabled", "<character_id>") or "")
+    settings = ctx.settings
+    png, reason = await asyncio.to_thread(
+        background.preview_png, scene.base_layer, scene.fonts, settings.ai_label_text, settings.ai_label_position
+    )
+    if png is None:
+        reason = reason or "plate_failed"
+        message = fallback_message(reason, background.character_id, style=background.status().get("style"))
+        raise ApiError(404, reason, message or reason)
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 def _avatar_mode(ctx: AppContext) -> AvatarModeState:

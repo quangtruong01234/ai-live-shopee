@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_live.scene.limits import ART_MAX_SIDE
 from ai_live.scene.loader import load_scene_set
 from ai_live.scene.uploads import validate_and_normalize
 from fixtures.scene_builder import CUSTOMER, image_bytes, make_scene_dir, write_manifest
@@ -65,7 +66,7 @@ def test_kit_entry_keeps_the_009_image(tmp_path: Path) -> None:
 
 def test_confirmed_upload_replaces_the_kit_image_without_provenance(tmp_path: Path) -> None:
     root = make_scene_dir(tmp_path / "demo", IDS)
-    vid = _upload(root, "toner", size=(600, 1000))
+    vid = _upload(root, "toner", size=(600, 1600))
     write_manifest(root, _manifest({"toner": _entry(vid, {vid: _version()})}))
     # Drop provenance for this product entirely: uploads do not need it (ADR-071).
     prov_path = root / "provenance.json"
@@ -78,8 +79,8 @@ def test_confirmed_upload_replaces_the_kit_image_without_provenance(tmp_path: Pa
     assert art.source == "upload"
     assert art.version_id == vid
     assert art.path == root / "uploads" / "toner" / f"{vid}.png"
-    # Cropped and shrunk like 009 art: long side ≤ 640.
-    assert max(art.image.size) == 640
+    # Cropped and shrunk like 009 art: long side ≤ ART_MAX_SIDE.
+    assert max(art.image.size) == ART_MAX_SIDE
     assert not _codes(scene, "toner")
     assert "orphan_image" not in _codes(scene)
     assert not scene.has_errors

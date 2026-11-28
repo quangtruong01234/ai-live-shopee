@@ -21,6 +21,8 @@ class EventType(StrEnum):
     COMMENT_ACCEPTED = "comment_accepted"
     COMMENT_DROPPED = "comment_dropped"
     QUEUE_CHANGED = "queue_changed"
+    # 001 FR-029: blocked and muted viewers changed (payload `{viewers: [ViewerBlock]}`)
+    VIEWERS_CHANGED = "viewers_changed"
     TURN_STARTED = "turn_started"
     SENTENCE = "sentence"
     GUARD_BLOCKED = "guard_blocked"
@@ -139,7 +141,14 @@ def comment_dropped_event(comment: Comment, reason: DropReason, *, show_id: str 
 
     `show_id` is added only when given (a `show_ended` drop), so a 001 drop keeps exactly its old payload.
     """
-    payload = {"comment_id": comment.id, "author": comment.author, "text": comment.text, "reason": reason.value}
+    payload = {
+        "comment_id": comment.id,
+        "author": comment.author,
+        # 001 FR-029: the control page blocks a viewer by this key.
+        "author_key": comment.author_key,
+        "text": comment.text,
+        "reason": reason.value,
+    }
     if show_id is not None:
         payload["show_id"] = show_id
     return Event(EventType.COMMENT_DROPPED, payload)

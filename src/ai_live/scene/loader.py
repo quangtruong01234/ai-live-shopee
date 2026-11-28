@@ -7,12 +7,16 @@ Loading never raises: a live session must not stop because of a scene file (FR-0
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
 
+from ai_live.core.logging import log_event
+from ai_live.scene.limits import ART_MAX_SIDE
+from ai_live.scene.merchandise import with_stock
 from ai_live.scene.models import (
     ALLOWED_EDITS,
     DEFAULT_ACCENT_COLOR,
@@ -20,6 +24,7 @@ from ai_live.scene.models import (
     DESK_SOURCES,
     MAX_IMAGE_BYTES,
     MAX_IMAGE_SIDE,
+    BackgroundConfig,
     LayoutParams,
     ProductArt,
     Provenance,
@@ -27,6 +32,7 @@ from ai_live.scene.models import (
     SceneIssue,
     SceneSet,
 )
+from ai_live.scene.shop_photo import load_shop_photo
 from ai_live.scene.uploads import (
     KIT,
     MANIFEST_NAME,
@@ -38,9 +44,6 @@ from ai_live.scene.uploads import (
     version_path,
 )
 
-# Art is drawn at most ~0.27·H tall (primary × highlight scale); keeping a bigger copy only costs memory and resample
-# time on every redraw.
-ART_MAX_SIDE = 640
 DESK_MAX_WIDTH = 1080
 _PRODUCT_SUFFIXES = (".png", ".webp")
 _IMAGE_SUFFIXES = (".png", ".webp", ".jpg", ".jpeg")
@@ -55,13 +58,37 @@ _SCENE_KEYS = frozenset(
         "products_dir",
         "provenance",
         "layout",
+        "background",
     }
 )
+# Values outside these are refused (009 rule: `bad_scene_json`, then the default).
 _LAYOUT_LIMITS: dict[str, tuple[float, float]] = {
     "desk_top": (0.55, 0.92),
     "max_slots": (1, 7),
-    "highlight_scale": (1.0, 1.6),
 }
+# Values outside these are clamped with `layout_clamped` (013 data-model §1).
+_HIGHLIGHT_RANGE: dict[str, tuple[float, float]] = {
+    "rows": (1.0, 1.6),
+    "realistic": (1.0, 1.1),
+    "showcase": (1.0, 1.1),
+}
+_HIGHLIGHT_DEFAULT = {"rows": 1.3, "realistic": 1.08, "showcase": 1.08}
+_BRIGHTNESS_RANGE = (0.85, 1.1)
+# The most products each desk layout places; `rows` keeps the 009 limit of `_LAYOUT_LIMITS`.
+_MODE_MAX_SLOTS = {"realistic": 5, "showcase": 4}
+_MODES = ("rows", "realistic", "showcase")
+_CARDS = ("none", "one", "all")
+# 013 FR-026, FR-027; 014 ADR-087; 013 FR-030 to FR-032 (ADR-095)
+_FLAGS = ("riser", "sticker", "avoid_app_overlay", "stock", "price_tags", "promo_banner")
+# 014 data-model §1: background block styles and number ranges (clamped with `background_clamped`).
+_BACKGROUND_STYLES = ("goc", "ke_hang", "bang_shop", "anh_shop")
+_BACKGROUND_RANGES: dict[str, tuple[float, float]] = {
+    "softness_px": (0.0, 8.0),
+    "brightness": (0.8, 1.1),
+    "max_items": (1, 24),
+}
+_logger = logging.getLogger("ai_live.scene")
+_KNOWN_LAYOUT_KEYS = {*_LAYOUT_LIMITS, *_FLAGS, "highlight_scale", "show_promotion", "mode", "cards", "brightness"}
 
 
 class _Issues:
@@ -96,6 +123,70 @@ def _color(value: Any, default: tuple[int, int, int], key: str, issues: _Issues)
     return default
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _clamped(key: str, value: Any, low: float, high: float, default: float, issues: _Issues) -> float:
+    """A number kept inside [low, high]: out of range is clamped and warned, not a number falls back to the default."""
+    if not _is_number(value):
+        issues.add("bad_scene_json", f"scene.json: layout.{key} = {value!r} không phải số, dùng {default}")
+        return default
+    used = min(max(float(value), low), high)
+    if used != value:
+        issues.add("layout_clamped", f"layout.{key} ngoài giới hạn, đã dùng {used:g}")
+    return used
+
+
+def _background(raw: Any, issues: _Issues) -> BackgroundConfig:
+    """The optional `background` block; anything unusable keeps the original room (`goc`) so old scenes never change."""
+    default = BackgroundConfig()
+    if raw is None:
+        return default
+    if not isinstance(raw, dict):
+        issues.add("bad_scene_json", "scene.json: background phải là object, dùng phòng gốc")
+        return default
+    style = raw.get("style", default.style)
+    if style not in _BACKGROUND_STYLES:
+        issues.add("bad_scene_json", f"scene.json: background.style {style!r} không hỗ trợ, dùng phòng gốc")
+        style = default.style
+    values: dict[str, float] = {}
+    for key, (low, high) in _BACKGROUND_RANGES.items():
+        fallback = getattr(default, key)
+        value = raw.get(key, fallback)
+        if not _is_number(value):
+            issues.add("bad_scene_json", f"scene.json: background.{key} = {value!r} không phải số, dùng {fallback}")
+            values[key] = fallback
+            continue
+        used = min(max(float(value), low), high)
+        if key == "max_items":
+            used = int(used)
+        if used != value:
+            issues.add("background_clamped", f"background.{key} ngoài giới hạn, đã dùng {used:g}")
+            log_event(_logger, "background_clamped", field=key, value=value, clamped_to=used)
+        values[key] = used
+    as_is = raw.get("as_is", default.as_is)
+    if not isinstance(as_is, bool):
+        issues.add("bad_scene_json", f"scene.json: background.as_is = {as_is!r} không phải true/false, dùng false")
+        as_is = default.as_is
+    if as_is and style == "anh_shop":
+        issues.add(
+            "background_as_is",
+            "Ảnh nền giữ nguyên, không làm mờ, không chỉnh sáng: chỉ cho demo qua OBS (ADR-102), không dùng cho Shopee",
+        )
+        log_event(_logger, "background_as_is", style=style)
+    for key in sorted(set(raw) - {"style", "as_is", *_BACKGROUND_RANGES}):
+        issues.add("background_unknown_key", f"scene.json: bỏ qua khóa lạ background.{key}")
+        log_event(_logger, "background_unknown_key", key=key)
+    return BackgroundConfig(
+        style=style,
+        softness_px=values["softness_px"],
+        brightness=values["brightness"],
+        max_items=int(values["max_items"]),
+        as_is=as_is,
+    )
+
+
 def _layout(raw: Any, issues: _Issues) -> LayoutParams:
     default = LayoutParams()
     if raw is None:
@@ -104,11 +195,19 @@ def _layout(raw: Any, issues: _Issues) -> LayoutParams:
         issues.add("bad_scene_json", "scene.json: layout phải là object, dùng bố cục mặc định")
         return default
     values: dict[str, Any] = {}
+    mode = raw.get("mode", "rows")
+    if mode not in _MODES:
+        # Still drawable: the scene falls back to the 009 rows (data-model §1).
+        issues.add(
+            "bad_layout", f"scene.json: layout.mode = {mode!r} không hợp lệ (rows | realistic | showcase), dùng rows"
+        )
+        mode = "rows"
+    values["mode"] = mode
     for key, (low, high) in _LAYOUT_LIMITS.items():
         if key not in raw:
             continue
         value = raw[key]
-        ok = isinstance(value, int | float) and not isinstance(value, bool) and low <= value <= high
+        ok = _is_number(value) and low <= value <= high
         if key == "max_slots":
             ok = ok and float(value).is_integer()
         if ok:
@@ -118,14 +217,52 @@ def _layout(raw: Any, issues: _Issues) -> LayoutParams:
             issues.add(
                 "bad_scene_json", f"scene.json: layout.{key} = {value!r} ngoài [{low}, {high}], dùng {default_value}"
             )
+    mode_max = _MODE_MAX_SLOTS.get(mode)
+    if mode_max is not None and values.get("max_slots", default.max_slots) > mode_max:
+        values["max_slots"] = mode_max
+        # Only a value the file wrote is worth a warning; the default 5 is simply the most the mode places.
+        if "max_slots" in raw:
+            issues.add("layout_clamped", f"layout.max_slots ngoài giới hạn, đã dùng {mode_max}")
+    highlight_default = _HIGHLIGHT_DEFAULT[mode]
+    values["highlight_scale"] = (
+        _clamped("highlight_scale", raw["highlight_scale"], *_HIGHLIGHT_RANGE[mode], highlight_default, issues)
+        if "highlight_scale" in raw
+        else highlight_default
+    )
+    if "brightness" in raw:
+        values["brightness"] = _clamped("brightness", raw["brightness"], *_BRIGHTNESS_RANGE, default.brightness, issues)
+    values["cards"] = _cards(raw, mode, issues)
     if "show_promotion" in raw:
         if isinstance(raw["show_promotion"], bool):
             values["show_promotion"] = raw["show_promotion"]
         else:
             issues.add("bad_scene_json", "scene.json: layout.show_promotion phải là true/false")
-    for key in sorted(set(raw) - set(_LAYOUT_LIMITS) - {"show_promotion"}):
+    for key in _FLAGS:
+        if key not in raw:
+            continue
+        if isinstance(raw[key], bool):
+            values[key] = raw[key]
+        else:
+            issues.add("layout_clamped", f"scene.json: layout.{key} phải là true/false, dùng false")
+    for key in sorted(set(raw) - _KNOWN_LAYOUT_KEYS):
         issues.add("unknown_key", f"scene.json: bỏ qua khóa lạ layout.{key}")
     return LayoutParams(**{**default.__dict__, **values})
+
+
+def _cards(raw: dict[str, Any], mode: str, issues: _Issues) -> str:
+    mode_default = "none" if mode in ("realistic", "showcase") else "all"
+    if "cards" not in raw:
+        return mode_default
+    cards = raw["cards"]
+    if cards not in _CARDS:
+        issues.add(
+            "bad_layout", f"scene.json: layout.cards = {cards!r} không hợp lệ (none | one | all), dùng {mode_default}"
+        )
+        return mode_default
+    if mode == "rows" and cards != "all":
+        issues.add("cards_ignored", "Cách bày hàng luôn có thẻ; bỏ qua layout.cards")
+        return "all"
+    return str(cards)
 
 
 def _read_json(path: Path, issues: _Issues, code: str) -> dict[str, Any] | None:
@@ -170,7 +307,9 @@ def _shrink(im: Image.Image, max_side: int) -> Image.Image:
     return im.resize((max(1, round(im.width * ratio)), max(1, round(im.height * ratio))), Image.Resampling.LANCZOS)
 
 
-def _load_art(path: Path, product_id: str, issues: _Issues) -> Image.Image | None:
+def _load_art(path: Path, product_id: str, issues: _Issues) -> tuple[Image.Image, bool] | None:
+    """(art cropped to its alpha, opaque): opaque means not one transparent pixel, so the picture keeps its
+    background (013 FR-018) even though the file has an alpha channel."""
     im = _open_image(path, issues, product_id)
     if im is None:
         return None
@@ -183,7 +322,8 @@ def _load_art(path: Path, product_id: str, issues: _Issues) -> Image.Image | Non
     if bbox is None:
         issues.add("bad_image", f"{path.name} trong suốt hoàn toàn, không có gì để vẽ", product_id)
         return None
-    return _shrink(rgba.crop(bbox), ART_MAX_SIDE)
+    opaque = rgba.getchannel("A").getextrema()[0] == 255
+    return _shrink(rgba.crop(bbox), ART_MAX_SIDE), opaque
 
 
 def _product_files(products_dir: Path) -> dict[str, list[Path]]:
@@ -301,11 +441,12 @@ def _load_upload(root: Path, pid: str, entry: Any, issues: _Issues) -> ProductAr
         return None
     path = root / UPLOADS_DIR / pid / f"{active}.png"
     scratch = _Issues()
-    image = _load_art(path, pid, scratch)
-    if image is None:
+    loaded = _load_art(path, pid, scratch)
+    if loaded is None:
         issues.add("bad_uploads", unreadable, pid)
         return None
-    return ProductArt(pid, path, image, source="upload", version_id=active)
+    image, opaque = loaded
+    return ProductArt(pid, path, image, source="upload", version_id=active, opaque=opaque)
 
 
 def _managed(pid: str, entry: Any, issues: _Issues) -> bool:
@@ -345,8 +486,8 @@ def kit_art_path(root: Path, product_id: str) -> Path | None:
 def load_kit_art(root: Path, product_id: str) -> ProductArt | None:
     """The kit art as the scene draws it (cropped, ≤ `ART_MAX_SIDE`), for thumbnails; None when unusable."""
     path = kit_art_path(root, product_id)
-    image = _load_art(path, product_id, _Issues()) if path is not None else None
-    return ProductArt(product_id, path, image) if path is not None and image is not None else None
+    loaded = _load_art(path, product_id, _Issues()) if path is not None else None
+    return ProductArt(product_id, path, loaded[0], opaque=loaded[1]) if path is not None and loaded else None
 
 
 def load_version_art(root: Path, product_id: str, version_id: str) -> ProductArt | None:
@@ -354,8 +495,10 @@ def load_version_art(root: Path, product_id: str, version_id: str) -> ProductArt
     path = version_path(root / UPLOADS_DIR, product_id, version_id)
     if not path.is_file():
         return None
-    image = _load_art(path, product_id, _Issues())
-    return ProductArt(product_id, path, image, source="upload", version_id=version_id) if image is not None else None
+    loaded = _load_art(path, product_id, _Issues())
+    if loaded is None:
+        return None
+    return ProductArt(product_id, path, loaded[0], source="upload", version_id=version_id, opaque=loaded[1])
 
 
 def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: str = "") -> SceneSet:
@@ -414,9 +557,9 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
             names = ", ".join(p.name for p in candidates)
             issues.add("no_alpha", f"{names}: cần PNG/WebP nền trong suốt cho sản phẩm {pid}", pid)
             continue
-        image = _load_art(usable[0], pid, issues)
-        if image is not None:
-            art[pid] = ProductArt(pid, usable[0], image)
+        loaded = _load_art(usable[0], pid, issues)
+        if loaded is not None:
+            art[pid] = ProductArt(pid, usable[0], loaded[0], opaque=loaded[1])
     for stem in sorted(set(files) - set(ids)):
         issues.add(
             "orphan_image", f"Ảnh {files[stem][0].name} không khớp mã sản phẩm nào trong file dữ liệu: không hiện"
@@ -436,6 +579,11 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
             if item.source == "kit" and record is not None and record.placeholder:
                 art[pid] = ProductArt(pid, item.path, item.image, placeholder=True)
 
+    layout = _layout(data.get("layout"), issues)
+    art = with_stock(art, layout)  # 013 FR-030 (ADR-095)
+    background = _background(data.get("background"), issues)
+    shop_photo = load_shop_photo(root) if background.style == "anh_shop" else None
+
     return SceneSet(
         root=root,
         scene_id=str(data.get("scene_id") or root.name),
@@ -443,7 +591,9 @@ def load_scene_set(root: Path, product_ids: Iterable[str] = (), *, customer_id: 
         desk=desk,
         desk_color=_color(data.get("desk_color"), DEFAULT_DESK_COLOR, "desk_color", issues),
         accent_color=_color(data.get("accent_color"), DEFAULT_ACCENT_COLOR, "accent_color", issues),
-        layout=_layout(data.get("layout"), issues),
+        layout=layout,
+        background=background,
+        shop_photo=shop_photo,
         art=art,
         provenance=provenance,
         issues=tuple(issues.items),

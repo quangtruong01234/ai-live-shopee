@@ -55,6 +55,8 @@ Ràng buộc: PNG/WebP có kênh alpha (JPEG → issue "cần nền trong suốt
 
 `missing_image`, `overflow`, `missing_desk` và `placeholder` là `warning`; các mã khác là `error`. Sản phẩm thiếu ảnh vẫn có thẻ (US1 #4).
 
+> Bổ sung bởi 012 T071 (2026-11-20, FR-004a): mã `art_too_wide` (`warning`) khi ảnh quá rộng so với ô nên thu vừa ô thì thấp hơn `MIN_ART_HEIGHT` và chỉ còn thẻ; `layout_keep_out` giờ chỉ dùng khi không đủ chỗ dưới vùng mặt.
+
 ## FrameGeometry
 
 | Trường | Kiểu | Ghi chú |

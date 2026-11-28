@@ -112,6 +112,10 @@ cả 10 câu, chấm đúng/sai từng câu và ra tổng điểm. Mỗi lần s
 - **Không có comment:** host im lặng, vẫn hiện ảnh tĩnh và nhãn "AI". Kịch bản nói khi rảnh thuộc feature 004.
 - **Comment dồn dập** (ví dụ 20 comment trong 10 giây): hàng đợi giữ tối đa một số lượng giới hạn; khi đầy thì comment ưu tiên thấp
   nhất bị bỏ trước, kèm lý do "hàng đợi đầy".
+- **Một tài khoản spam nhiều và nhanh** (ví dụ 10 comment trong 5 giây): chỉ 3 comment đầu được xét, từ comment thứ 4 người đó bị tạm bỏ
+  qua 2 phút (FR-027); trong hàng đợi người đó chỉ giữ một comment (FR-028), nên không chiếm lượt của người xem khác.
+- **Nhiều người cùng chào** ("hi shop", "chào em"): mỗi người được chào lại bằng câu mẫu ngắn, ưu tiên thấp nên câu hỏi về giá, mua hàng
+  vẫn được trả lời trước (FR-026). Lời chào lẫn câu hỏi ("chào shop, giá bao nhiêu?") được trả lời như câu hỏi thường.
 - **Comment rỗng, chỉ có emoji hoặc quá ngắn:** bỏ, lý do "không có nội dung".
 - **Tên người xem chứa từ tục tĩu hoặc link:** comment vẫn được xét như thường nhưng host không đọc tên đó, coi như người xem không có tên.
 - **Comment quá dài:** chỉ xét phần đầu đến một độ dài tối đa; không đọc lại nguyên văn comment.
@@ -136,6 +140,20 @@ cả 10 câu, chấm đúng/sai từng câu và ra tổng điểm. Mỗi lần s
 - **FR-004**: Hệ thống PHẢI trả lời comment có ưu tiên cao nhất trước; cùng mức thì comment đến trước được trả lời trước.
 - **FR-005**: Hệ thống PHẢI bỏ comment đã chờ lâu hơn thời gian tối đa cấu hình được (mặc định 30 giây), kiểm tra ngay trước khi trả lời.
 - **FR-006**: Tại mỗi thời điểm host chỉ nói một lượt; các comment khác chờ trong hàng đợi có giới hạn số lượng.
+- **FR-026** *(thêm 2026-11-23, ADR-077)*: Comment chỉ là lời chào (có từ chào như "hello", "hi", "chào", "xin chào", "alo" và không có
+  câu hỏi hay từ khóa ưu tiên nào) PHẢI được host chào lại bằng câu chào mẫu soạn sẵn, gọi tên người xem, không cần sinh câu trả lời
+  bằng mô hình ngôn ngữ. Khi có dữ liệu sản phẩm thì câu chào nhắc tên sản phẩm chính (lấy đúng tên trong file nội dung). Cùng một người
+  xem chỉ được chào lại một lần trong khoảng thời gian cấu hình được (mặc định 10 phút); lời chào lặp lại bị bỏ với lý do "đã chào rồi".
+- **FR-027** *(thêm 2026-11-23, ADR-077)*: Hệ thống PHẢI giới hạn số comment của mỗi người xem: quá số comment tối đa trong một khoảng
+  thời gian (mặc định 3 comment trong 30 giây) thì comment vượt bị bỏ với lý do "gửi quá nhanh", và người đó bị tạm bỏ qua mọi comment
+  trong một khoảng cấu hình được (mặc định 2 phút). Mọi comment của người đó đều được tính, kể cả comment bị lọc vì trùng hay có link.
+- **FR-028** *(thêm 2026-11-23, ADR-077)*: Trong hàng đợi, mỗi người xem có tối đa một comment đang chờ. Comment mới của cùng người thay
+  comment cũ nếu có mức ưu tiên cao hơn hoặc bằng; nếu thấp hơn thì comment mới bị bỏ. Comment bị thay hoặc bị bỏ có lý do
+  "đã có comment khác của cùng người".
+- **FR-029** *(thêm 2026-11-23, ADR-078)*: Người vận hành PHẢI chặn được một người xem ngay trên trang điều khiển, từ comment của
+  người đó trong hàng đợi, trong danh sách comment bị loại hoặc ở lượt đang nói, trong 5 phút, 30 phút hoặc cả phiên. Comment của
+  người bị chặn bị bỏ với lý do "người vận hành đã chặn", kể cả comment đang chờ lúc bấm chặn; lượt đang nói không bị cắt. Trang
+  điều khiển liệt kê người đang bị chặn và người đang bị tạm bỏ qua tự động (FR-027) kèm thời gian còn lại, và cho bỏ chặn.
 
 **Trả lời có căn cứ**
 - **FR-007**: Hệ thống PHẢI nạp nội dung sản phẩm của phiên (1 sản phẩm chính, 2–3 sản phẩm phụ) từ một **file nội dung sản phẩm
@@ -152,6 +170,17 @@ cả 10 câu, chấm đúng/sai từng câu và ra tổng điểm. Mỗi lần s
 - **FR-011**: Nội dung comment KHÔNG ĐƯỢC làm thay đổi quy tắc trả lời của host (chống comment ép host nói sai).
 - **FR-012**: Câu trả lời PHẢI bằng tiếng Việt, dài 1–3 câu (nói trong khoảng 15 giây), theo phong cách: host xưng "em"; gọi người hỏi là "bạn {tên}"
   (không đoán anh/chị theo tên); khi nói chung với người xem thì gọi "anh chị"; dùng từ ngữ miền Nam ("dạ", "nha").
+  *(Sửa 2026-11-25, ADR-088: khi tư vấn chọn sản phẩm theo ngân sách hay thành phần thì tối đa 4 câu.)*
+- **FR-030** *(thêm 2026-11-25, ADR-088)*: Người xem nói ngân sách ("có 100k mua gì được") thì host gợi ý món vừa túi tiền kèm giá trong file;
+  được tính tổng tiền khi mua nhiều (số lượng × giá, trừ khuyến mãi giảm tiền đã ghi) và được nhắc lại số tiền người xem nói nhưng chỉ trong
+  cùng câu có giá lấy từ file. Không tính tiền thừa, phí ship, không cộng dồn khuyến mãi. Không món nào vừa thì nói giá thấp nhất. Bộ chặn
+  cho qua tổng tính được từ giá trong file và số tiền của chính comment đó; số khác vẫn bị chặn.
+- **FR-031** *(thêm 2026-11-25, ADR-088)*: Hỏi thành phần, hay hỏi có hợp thể trạng (tiểu đường, bà bầu, trẻ em, dị ứng...) thì host chỉ đọc
+  đúng mục "Thành phần" và "Lưu ý" trong file, nêu thành phần liên quan, không kết luận an toàn hay không an toàn, khuyên hỏi bác sĩ khi có
+  bệnh hay đang mang thai. Các câu như "an toàn cho bà bầu", "uống thoải mái" nằm trong danh sách khẳng định bị cấm.
+- **FR-032** *(thêm 2026-11-25, ADR-088)*: Câu hỏi hay gặp trên live: giá, khuyến mãi, quy cách, cách dùng, bảo quản, hạn dùng, xuất xứ lấy
+  từ file; so sánh, chọn giúp thì so theo dữ liệu từng món; ship, giao hàng, đổi trả, hàng thật, thanh toán, cách đặt mà file không ghi thì
+  nói chưa có thông tin và mời hỏi shop; lời khen, chào thì đáp một câu thân thiện và mời hỏi tiếp.
 
 **Phát ra**
 - **FR-013**: Câu trả lời PHẢI được phát theo từng câu: câu đầu tiên bắt đầu phát trước khi cả câu trả lời được sinh xong.
@@ -274,6 +303,20 @@ cả 10 câu, chấm đúng/sai từng câu và ra tổng điểm. Mỗi lần s
   → Sửa FR-017, SC-007 (nêu rõ mốc đo của từng lệnh).
 - Q: Tổng hợp độ trễ có phải lưu ra file không? → A: Có, ghi khi kết thúc phiên. → Sửa FR-019.
 - Q: Tên người xem có từ tục hoặc link thì sao? → A: Vẫn xét comment, không đọc tên (research R6, rủi ro Q5). → Thêm trường hợp biên.
+
+### Phiên 2026-11-23 (người dùng yêu cầu, ADR-077)
+- Yêu cầu: "nếu có user gửi comment có mấy key thì trả lời họ ví dụ hello, hi,..." → Thêm FR-026: lời chào được chào lại bằng câu mẫu,
+  mỗi người một lần trong 10 phút.
+- Yêu cầu: "check 1 tài khoản mà spam nhiều và nhanh thì coi nên giải quyết như nào" → Thêm FR-027 (giới hạn 3 comment/30 giây mỗi
+  người, vượt thì tạm bỏ qua 2 phút) và FR-028 (mỗi người tối đa một comment chờ). Chặn tay một người từ trang điều khiển chưa làm
+  (đề xuất, chờ người dùng quyết).
+- Người dùng đồng ý đề xuất chặn tay ("ok triển khai cả 2 đi") → Thêm FR-029 (ADR-078): chặn 5 phút / 30 phút / cả phiên, bỏ comment
+  đang chờ của người đó, không cắt lượt đang nói, có danh sách và nút bỏ chặn.
+
+### Phiên 2026-11-25 (người dùng yêu cầu, ADR-088)
+- Yêu cầu: "bên reply cần trả lời về giá tiền user hiện có và cần tư vấn, thành phần trong sản phẩm để phù hợp với thể trạng từng người,...
+  Và còn nhiều tình huống mà user hay hỏi ở các buổi live stream real" → Thêm FR-030 (tư vấn theo ngân sách), FR-031 (thành phần và thể
+  trạng), FR-032 (câu hỏi hay gặp); FR-012 cho phép 4 câu khi tư vấn.
 
 ## Checklist chất lượng spec
 

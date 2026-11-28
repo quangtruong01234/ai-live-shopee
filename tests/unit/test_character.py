@@ -521,3 +521,103 @@ def test_broken_install_record_gives_a_reason(tmp_path: Path, raw: str) -> None:
     (evidence / "ultralight_install.json").write_text(raw, encoding="utf-8")
     install, reason = read_ultralight_install(avatar_dir, "musetalk")
     assert install is None and reason is not None
+
+
+# ---------- 013 T008: scene.hands_zone (contracts/scene-set.md §2, FR-003) ----------
+
+
+def test_hands_zone_is_read(tmp_path: Path) -> None:
+    avatar_dir = make_character_dir(
+        tmp_path, character=_ULTRALIGHT_ONLY, desk_in_image=True, desk_top=0.868, hands_zone=[0.27, 0.74, 0.73, 1.0]
+    )
+    character = load_character(avatar_dir)
+    assert character.hands_zone == pytest.approx((0.27, 0.74, 0.73, 1.0))
+    assert isinstance(character.hands_zone, tuple)
+
+
+def test_missing_hands_zone_is_none(tmp_path: Path) -> None:
+    character = load_character(
+        make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY, desk_in_image=True, desk_top=0.8)
+    )
+    assert character.hands_zone is None
+    assert load_character(make_character_dir(tmp_path / "plain", prepare=READY_PREPARE)).hands_zone is None
+
+
+@pytest.mark.parametrize(
+    "zone",
+    [
+        [0.2, 0.7, 0.8, 1.2],
+        [-0.1, 0.7, 0.8, 1.0],
+        [0.8, 0.7, 0.2, 1.0],
+        [0.5, 0.7, 0.5, 1.0],
+        [0.2, 0.9, 0.8, 0.7],
+        [0.2, 0.7, 0.8],
+        [0.2, 0.7, 0.8, 1.0, 0.0],
+        [0.2, "0.7", 0.8, 1.0],
+        [0.2, True, 0.8, 1.0],
+        "0.2,0.7,0.8,1.0",
+    ],
+    ids=[
+        "above_one",
+        "below_zero",
+        "x_reversed",
+        "x_equal",
+        "y_reversed",
+        "short",
+        "long",
+        "string_item",
+        "bool",
+        "string",
+    ],
+)
+def test_bad_hands_zone_is_rejected(tmp_path: Path, zone: object) -> None:
+    with pytest.raises(CharacterError) as info:
+        load_character(make_character_dir(tmp_path, character=_ULTRALIGHT_ONLY, desk_in_image=False, hands_zone=zone))
+    assert "bad_character" in _codes(info.value)
+    assert any("hands_zone" in e.message for e in info.value.errors)
+
+
+# ---------- the still picture matches the frames the fork plays ----------
+
+
+def _fork_frames(fork_dir: Path, name: str, count: int = 2) -> Path:
+    full = fork_dir / "data" / "avatars" / name / "full_imgs"
+    full.mkdir(parents=True)
+    for i in range(count):
+        (full / f"{i:08d}.png").write_bytes(b"png")
+    return full
+
+
+def test_ultralight_still_is_the_first_frame_the_fork_plays(tmp_path: Path, session_settings: Settings) -> None:
+    from ai_live.avatar.factory import avatar_image_path
+
+    avatar_dir = make_character_dir(tmp_path / "repo", character=_ULTRALIGHT_ONLY)
+    _install(avatar_dir, avatars={"ultralight": f"{CHARACTER_ID}__ultralight_musetalk"})
+    full = _fork_frames(tmp_path / "fork", f"{CHARACTER_ID}__ultralight_musetalk")
+    settings = session_settings.model_copy(
+        update={"avatar_mode": "livetalking", "livetalking_model": "ultralight", "avatar_dir": avatar_dir}
+    )
+    character = load_character(avatar_dir)
+    # face.png is the picture the training clip started from, not what the viewer sees: the fallback must not
+    # swap the host for a different-looking one (005 FR-022).
+    assert avatar_image_path(settings, character, fork_dir=tmp_path / "fork") == full / "00000000.png"
+
+
+@pytest.mark.parametrize("case", ["no_record", "no_avatars", "no_frames", "bad_name", "wav2lip"])
+def test_still_falls_back_to_the_face(tmp_path: Path, session_settings: Settings, case: str) -> None:
+    from ai_live.avatar.factory import avatar_image_path
+
+    avatar_dir = make_character_dir(tmp_path / "repo", character=_ULTRALIGHT_ONLY)
+    name = f"{CHARACTER_ID}__ultralight_musetalk"
+    if case != "no_record":
+        avatars = {} if case == "no_avatars" else {"ultralight": "../escape" if case == "bad_name" else name}
+        _install(avatar_dir, avatars=avatars)
+    if case != "no_frames":
+        _fork_frames(tmp_path / "fork", name)
+        _fork_frames(tmp_path / "fork" / "data", "escape")
+    model = "wav2lip" if case == "wav2lip" else "ultralight"
+    settings = session_settings.model_copy(
+        update={"avatar_mode": "livetalking", "livetalking_model": model, "avatar_dir": avatar_dir}
+    )
+    character = load_character(avatar_dir)
+    assert avatar_image_path(settings, character, fork_dir=tmp_path / "fork") == character.face

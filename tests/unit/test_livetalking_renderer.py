@@ -4,6 +4,7 @@ fork-protocol.md §1–§3."""
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import time
@@ -14,9 +15,11 @@ import anyio
 import pytest
 
 from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
+from ai_live.avatar.static_renderer import StaticRenderer
+from ai_live.avatar.switching_renderer import SwitchingRenderer
 from ai_live.core.events import EventBus, EventType
 from ai_live.core.models import TurnOutcome
-from ai_live.core.protocols import RendererError, RendererUnavailable
+from ai_live.core.protocols import BackgroundSink, ForkBackgroundStatus, RendererError, RendererUnavailable
 from ai_live.director.latency import LatencyTracker
 from fixtures.fake_fork import FakeFork
 
@@ -182,6 +185,48 @@ async def test_subtitle_waits_for_playback_started(fork: FakeFork, make_renderer
         {"type": "subtitle", "utterance_id": "u1", "seq": 0, "text": "Chào cả nhà."},
         {"type": "subtitle_clear", "utterance_id": "u1", "seq": 0},
     ]
+
+
+async def test_subtitle_follows_the_voice_while_tts_is_still_streaming(
+    fork: FakeFork, make_renderer: MakeRenderer
+) -> None:
+    """The fork plays chunks as they land: the subtitle and "heard" must not wait for the sentence's last TTS chunk.
+
+    On CPU TTS a long sentence takes seconds to synthesize; waiting for it put the subtitle seconds behind the voice
+    and made the watchdog report missing audio.
+    """
+    fork.start_on_audio = True
+    renderer, host = await make_renderer()
+    heard: list[tuple[str, int, str]] = []
+
+    class Listener:
+        def playback_started(self, utterance_id: str, seq: int, text: str) -> None:
+            heard.append((utterance_id, seq, text))
+
+        def playback_ended(self, utterance_id: str, seq: int) -> None:
+            pass
+
+        def playback_stopped(self) -> None:
+            pass
+
+    renderer.add_playback_listener(Listener())
+    gate = asyncio.Event()
+
+    async def slow_tts() -> AsyncIterator[bytes]:
+        yield pcm(0.2)
+        await gate.wait()
+        yield pcm(0.2)
+
+    task = asyncio.create_task(renderer.speak("u1", "Chào cả nhà.", slow_tts(), SAMPLE_RATE))
+    await until(lambda: "subtitle" in host.kinds())
+    assert heard == [("u1", 0, "Chào cả nhà.")]
+    gate.set()
+    await task
+    assert host.sent == [
+        {"type": "subtitle", "utterance_id": "u1", "seq": 0, "text": "Chào cả nhà."},
+        {"type": "subtitle_clear", "utterance_id": "u1", "seq": 0},
+    ]
+    assert heard == [("u1", 0, "Chào cả nhà.")]
 
 
 async def test_speak_returns_after_sentence_played(fork: FakeFork, make_renderer: MakeRenderer) -> None:
@@ -557,3 +602,115 @@ async def test_without_expectation_nothing_is_compared(fork: FakeFork, make_rend
     fork.lipsync = FakeFork.lipsync_block("ultralight", teacher="musetalk", character_id="demo_host_02")
     renderer, _ = await make_renderer()
     assert renderer.health.lipsync == fork.lipsync and renderer.health.model_mismatch is False
+
+
+# ---------- BackgroundSink (014 T015; adapters.md §1, fork-protocol §2-§4, events.md) ----------
+
+
+def _png(size: int = 64) -> bytes:
+    return b"\x89PNG" + b"\x00" * (size - 4)  # the fake fork does not decode it
+
+
+async def test_hello_background_reaches_the_listener(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    fork.background = FakeFork.background_block(reviewed=True)
+    seen: list[ForkBackgroundStatus | None] = []
+    renderer, _ = await make_renderer(wait_ready=False)
+    renderer.add_background_status_listener(seen.append)
+    await until(lambda: len(seen) == 1)
+    assert seen == [ForkBackgroundStatus("valid", None, 81, 480, 832, "plate", True)]
+    assert isinstance(renderer, BackgroundSink)
+
+
+async def test_old_fork_without_background_reports_none(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    seen: list[ForkBackgroundStatus | None] = []
+    renderer, _ = await make_renderer(wait_ready=False)
+    renderer.add_background_status_listener(seen.append)
+    await until(lambda: len(seen) == 1)
+    assert seen == [None]
+    renderer.set_scene_background(_png())
+    await renderer.speak("u1", "Dạ.", audio(pcm(0.1)), SAMPLE_RATE)
+    assert fork.scene_backgrounds == []  # nothing is sent to a fork that cannot composite
+
+
+async def test_set_scene_background_sends_the_plate_and_logs_its_size(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.background = FakeFork.background_block()
+    renderer, _ = await make_renderer()
+    plate = _png(100)
+    renderer.set_scene_background(plate)
+    await until(lambda: len(fork.scene_backgrounds) == 1)
+    assert fork.scene_backgrounds[0] == {"type": "scene_background", "png_b64": base64.b64encode(plate).decode()}
+    renderer.set_scene_background(None)
+    await until(lambda: len(fork.scene_backgrounds) == 2)
+    assert fork.scene_backgrounds[1] == {"type": "scene_background", "png_b64": None}
+    assert [f["plate_bytes"] for f in records(caplog, "scene_background_sent")] == [100, 0]
+
+
+async def test_last_plate_is_sent_again_after_a_new_hello(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    fork.background = FakeFork.background_block()
+    renderer, _ = await make_renderer(reconnect_max_s=0.2)
+    plate = _png()
+    renderer.set_scene_background(plate)
+    await until(lambda: len(fork.scene_backgrounds) == 1)
+    await fork.restart()  # a restarted fork has no plate: the app sends it again
+    await until(lambda: len(fork.scene_backgrounds) == 2)
+    assert fork.scene_backgrounds[1]["png_b64"] == base64.b64encode(plate).decode()
+
+
+async def test_plate_set_before_the_link_is_sent_on_hello(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    fork.background = FakeFork.background_block()
+    host = FakeHostLink(session=None)
+    renderer, _ = await make_renderer(host=host, wait_ready=False)
+    renderer.set_scene_background(_png())
+    host.set_session("sess-1")
+    await until(lambda: len(fork.scene_backgrounds) == 1)
+
+
+async def test_background_rejected_reaches_the_listener_and_the_log(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.background = FakeFork.background_block()
+    fork.reject_background = True
+    seen: list[ForkBackgroundStatus | None] = []
+    renderer, _ = await make_renderer()
+    renderer.add_background_status_listener(seen.append)
+    renderer.set_scene_background(_png())
+    await until(lambda: len(seen) == 1)
+    assert seen[0] is not None and (seen[0].status, seen[0].reason) == ("valid", "rejected:sai cỡ khung")
+    assert records(caplog, "scene_background_rejected") == [{"message": "sai cỡ khung"}]
+
+
+async def test_background_failed_does_not_fail_the_turn(
+    fork: FakeFork, make_renderer: MakeRenderer, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    fork.background = FakeFork.background_block()
+    fork.ack_delay_s = 0.3
+    seen: list[ForkBackgroundStatus | None] = []
+    renderer, _ = await make_renderer()
+    renderer.add_background_status_listener(seen.append)
+    speaking = asyncio.ensure_future(renderer.speak("u1", "Dạ.", audio(pcm(0.3)), SAMPLE_RATE))
+    await anyio.sleep(0.1)  # the sentence is waiting for its acks
+    await fork.fail_background("lỗi ghép")
+    await speaking  # a compositing error never fails the sentence: the fork already went back to the room (FR-010)
+    await until(lambda: len(seen) == 1)
+    assert seen[0] is not None and seen[0].reason == "failed:lỗi ghép"
+    assert records(caplog, "scene_background_failed") == [{"message": "lỗi ghép"}]
+    assert renderer.health.last_error is None
+
+
+async def test_switching_renderer_forwards_the_background(fork: FakeFork, make_renderer: MakeRenderer) -> None:
+    fork.background = FakeFork.background_block()
+    renderer, _ = await make_renderer()
+    switching = SwitchingRenderer(renderer, StaticRenderer())
+    assert isinstance(switching, BackgroundSink)
+    seen: list[ForkBackgroundStatus | None] = []
+    switching.add_background_status_listener(seen.append)
+    switching.set_scene_background(_png())
+    await until(lambda: len(fork.scene_backgrounds) == 1)
+    await fork.restart()
+    await until(lambda: len(seen) == 1)
+    assert seen[0] is not None and seen[0].status == "valid"

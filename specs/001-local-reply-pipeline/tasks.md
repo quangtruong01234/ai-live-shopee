@@ -127,9 +127,10 @@
   `PRODUCT_DATA_PATH` là file lỗi (trường hợp biên); `/health`, `/api/state` và `/ws/control` (gửi `state` khi kết nối) không chứa giá trị
   `GEMINI_API_KEY` (FR-021); `POST /api/debug/speak` trả 200 kèm `utterance_id` khi `APP_ENV=dev` và host giả đã `ready`, 409 khi đang có
   lượt nói, 404 khi `APP_ENV` khác `dev` (contracts/api.md §2)
-- [ ] T038 [P] [US1] Test Gemini thật có marker `live_llm` trong `tests/live/test_gemini_engine.py`, dùng `data/products/demo.docx`:
+- [x] T038 [P] [US1] Test Gemini thật có marker `live_llm` trong `tests/live/test_gemini_engine.py`, dùng `data/products/demo.docx`:
   US1 #1 giá đúng và cách xưng hô (FR-012); US1 #2 hỏi bảo hành thì nói chưa có thông tin, không có con số; US1 #4 comment ép giá không làm
   xuất hiện số tiền lạ (FR-011)
+  *(2026-11-20: 4 test `live_llm` của `tests/live/test_gemini_engine.py` đạt với `LLM_MODEL=gemini-3.5-flash-lite` đặt qua biến môi trường; `gemini-3.8-flash` trong `.env` bị Google báo quá tải (HTTP 503, treo hơn 30 s) cùng ngày)*
 - [x] T039 [P] [US1] Test CLI từng khâu trong `tests/unit/test_cli.py` (Điều IV): `python -m ai_live.brain ask` với `REPLY_ENGINE=fake` in từng
   câu kèm thời gian từ lúc gửi, mã thoát 0, câu bị guard chặn thì in lý do; `python -m ai_live.tts say ... --out <tmp>.wav` ghi file đọc được
   bằng module `wave` (mono, PCM16, 16 kHz)
@@ -315,8 +316,9 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
   docx trả 415; `X-Filename` không được dùng làm đường dẫn ghi file (FR-022, contracts/api.md §2)
 - [x] T082 [P] [US5] Test thay nội dung giữa lượt trong `tests/integration/test_show_director.py`: lượt đang chạy dùng catalog cũ, lượt sau dùng
   catalog mới (FR-022, trường hợp biên)
-- [ ] T083 [P] [US5] Thêm test có marker `live_llm` vào `tests/live/test_gemini_engine.py`: chạy runner chấm một lần với `GeminiReplyEngine`
+- [x] T083 [P] [US5] Thêm test có marker `live_llm` vào `tests/live/test_gemini_engine.py`: chạy runner chấm một lần với `GeminiReplyEngine`
   trên `data/eval/demo_questions.json` và kiểm tra tạo được báo cáo (research R13)
+  *(2026-11-20: 4 test `live_llm` của `tests/live/test_gemini_engine.py` đạt với `LLM_MODEL=gemini-3.5-flash-lite` đặt qua biến môi trường; `gemini-3.8-flash` trong `.env` bị Google báo quá tải (HTTP 503, treo hơn 30 s) cùng ngày)*
 
 ### Implement US5
 
@@ -380,18 +382,22 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
   `data/eval/adversarial_questions.json`, cùng định dạng `contracts/content-template.md` §2 (phục vụ SC-002)
 - [~] T100 Chạy `quickstart.md` từ mục 0 tới US5 (kể cả "Chạy riêng từng khâu") trên laptop, lần đầu với `REPLY_ENGINE=fake`, lần hai với
   `REPLY_ENGINE=gemini`; sửa `quickstart.md` chỗ nào không khớp thực tế
-  *(2026-11-13: lần `fake` xong, đã sửa US2 #2 và US5 #1; lần với LLM thật còn chờ, engine mặc định nay là `chain`, ADR-035/040)*
-- [ ] T101 So sánh `gemini-3.8-flash` và `gemini-3.5-flash-lite` theo research R5 (độ trễ câu đầu theo quy trình US3 và điểm bộ câu hỏi mẫu),
+  *(2026-11-13: lần `fake` xong, đã sửa US2 #2 và US5 #1. 2026-11-20: lần hai với `REPLY_ENGINE=chain` (engine mặc định, ADR-035/040)
+  qua Chrome DevTools: US1 và US3 khớp quickstart; câu trả lời bịa tìm thấy được sửa ở T103)*
+- [-] T101 *(BỎ 2026-11-20, người dùng đồng ý: việc chọn model đã làm qua benchmark 2026-11-03 và ADR-035/040, engine là `chain` SEA-LION → Qwen; T102 và T104 đã đo với chuỗi này. `[-]` = bỏ, không tính vào tổng task)* So sánh `gemini-3.8-flash` và `gemini-3.5-flash-lite` theo research R5 (độ trễ câu đầu theo quy trình US3 và điểm bộ câu hỏi mẫu),
   ghi kết quả và model chọn vào ADR-018 trong `docs/DECISIONS.md`, cập nhật `LLM_MODEL` trong `.env.example`. Chỉ chọn model mới khi điểm bộ
   câu hỏi mẫu không thấp hơn model đang dùng (Điều III). Chạy trên free tier, không chạy ngay trước buổi demo (rủi ro Q11)
-- [ ] T102 Đo SC-001 theo quickstart US3: 20 comment, mỗi comment gửi sau khi lượt trước nói xong, p95 `total` ≤ 3,5 s; so thêm p95 bước `llm`
+- [x] T102 Đo SC-001 theo quickstart US3: 20 comment, mỗi comment gửi sau khi lượt trước nói xong, p95 `total` ≤ 3,5 s; so thêm p95 bước `llm`
   với ngân sách 1,5 s ở bảng ảnh hưởng độ trễ của `plan.md`; ghi số liệu (kèm `queue_wait` p95) vào mục "Kết quả kiểm chứng" cuối
   `specs/001-local-reply-pipeline/quickstart.md`
-- [ ] T103 Kiểm SC-002: chạy `python -m ai_live.qa_eval run --content data/products/demo.docx --questions data/eval/adversarial_questions.json`,
+- [~] T103 Kiểm SC-002: chạy `python -m ai_live.qa_eval run --content data/products/demo.docx --questions data/eval/adversarial_questions.json`,
   người vận hành đọc từng câu trả lời, yêu cầu 0 câu bịa; ghi kết quả vào mục "Kết quả kiểm chứng" của `quickstart.md`
-- [ ] T104 Kiểm SC-008 và SC-009: chạy `qa_eval run` với `data/eval/demo_questions.json --repeat 3` (cả 3 lần ≥ 8/10), người vận hành điền cột
+  *(2026-11-20: lần 1 11/12, a08 bịa "còn hàng"; đã sửa prompt + `claim_phrases.txt`; Qwen 11/12 sau sửa, câu sai a02 nay bị guard chặn;
+  chờ chạy lại bằng SEA-LION khi hạn mức reset và người vận hành đọc từng câu)*
+- [x] T104 Kiểm SC-008 và SC-009: chạy `qa_eval run` với `data/eval/demo_questions.json --repeat 3` (cả 3 lần ≥ 8/10), người vận hành điền cột
   "Chấm tay" trong báo cáo `.md` và đối chiếu (≥ 9/10 câu khớp); ghi kết quả vào mục "Kết quả kiểm chứng" của `quickstart.md`, điểm này là mốc
   hồi quy cho Điều III
+  *(2026-11-20: SC-008 đạt 10/10 × 3 với engine `chain`; SC-009 đạt: chấm tay báo cáo `20261120-114753` khớp 10/10, Claude chấm theo yêu cầu người dùng, người dùng quan sát)*
 - [x] T105 Kiểm SC-005 và SC-006: chạy liên tục 30 phút, khoảng 1 comment mỗi 30 s, giả lập ≥ 3 lỗi ở bước `llm` hoặc `tts` qua
   `/api/debug/fault`, phiên không dừng; chụp ≥ 10 ảnh màn hình host vào thời điểm ngẫu nhiên, nhãn AI có trong mọi ảnh (ảnh không commit);
   ghi kết quả vào mục "Kết quả kiểm chứng" của `quickstart.md`
@@ -404,9 +410,37 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
 - [ ] T108 Hồi quy Điều III: sau lần sửa cuối cùng của `brain/prompt.py`, `brain/guard.py`, `brain/gemini_engine.py` hoặc `LLM_MODEL` trong
   pha này, chạy lệnh ở mục "Hồi quy khi đổi prompt, engine hoặc model" của `quickstart.md`; điểm không thấp hơn mốc T104, thấp hơn thì hoàn
   lại thay đổi hoặc hỏi người dùng; ghi kết quả vào "Kết quả kiểm chứng" (phụ thuộc T104)
+  *(2026-11-20: cần chạy sau lần sửa prompt + claim phrases hôm nay; SEA-LION hết hạn mức ngày, chạy sáng 2026-11-21)*
 - [x] T109 `uv run pytest` và `uv run ruff check . && uv run ruff format --check .` đều sạch
   *(2026-11-13: pytest 2461 passed, 11 xfailed; ruff check và format sạch sau khi sửa hai file test của 006/007)*
 - [ ] T110 Chạy `/update-context`
+
+## Phase 9: Lời chào và chống spam theo người xem (ADR-077, thêm 2026-11-23)
+
+- [x] T111 [P] Test trong `tests/unit/test_greetings.py` (nhận diện lời chào giữ dấu, không nhận "cháo", "hì", câu dài, câu hỏi; chào lặp
+  trong 600 s; câu mẫu xoay vòng, có tên người xem và tên sản phẩm chính) và `tests/unit/test_author_limits.py` (quá 3 comment/30 s thì
+  tạm bỏ qua 120 s, không tự kéo dài, `author_key` từ nguồn thắng tên)
+- [x] T112 [P] Test trong `tests/unit/test_memory_queue.py`: mỗi người một comment chờ, comment mới ưu tiên cao hơn hoặc bằng thì thay,
+  thấp hơn thì bị bỏ `superseded`
+- [x] T113 `comments/greetings.py`, `data/rules/greetings.json`, `GreetingRules` trong `CommentIntake`, `GreetingReplier` trong
+  `ShowDirector._produce` (FR-026)
+- [x] T114 `comments/author_limits.py` chạy đầu tiên trong `CommentIntake`; `Comment.author_key`; `DropReason` `spam`, `greeted`,
+  `superseded` và nhãn trên trang điều khiển; supersede trong `InMemoryCommentQueue.put` (FR-027, FR-028)
+- [x] T115 Cấu hình `COMMENT_AUTHOR_MAX`, `COMMENT_AUTHOR_WINDOW_S`, `COMMENT_AUTHOR_MUTE_S`, `COMMENT_GREETING_REPEAT_S`,
+  `GREETING_RULES_PATH` trong `core/config.py`, `.env.example`, `plan.md`; test tích hợp `test_077_*` trong
+  `tests/integration/test_pipeline_fake.py`
+
+## Phase 10: Người vận hành chặn người xem (ADR-078, thêm 2026-11-23)
+
+- [x] T116 [P] Test trong `tests/unit/test_author_limits.py` (chặn 5 phút hết hạn, chặn cả phiên, chặn tay không tính vào giới hạn tốc
+  độ, bỏ chặn gỡ cả tạm bỏ qua tự động, `viewers()` liệt kê manual trước và không trùng) và `tests/unit/test_memory_queue.py`
+  (`remove_author` bỏ comment đang chờ với lý do `blocked`)
+- [x] T117 `AuthorLimiter.block/unblock/blocked/viewers`, `DropReason.BLOCKED`, `CommentIntake.block/unblock/viewers`, sự kiện
+  `viewers_changed`, `author_key` trong payload `comment_accepted`, `comment_dropped`, `turn_started` và phần tử hàng đợi (FR-029)
+- [x] T118 `POST /api/viewers/block`, `POST /api/viewers/unblock`, `viewers` trong `GET /api/state`; test trong `tests/unit/test_api.py`
+- [x] T119 Trang điều khiển: nút "Chặn" (5 phút / 30 phút / cả phiên) cạnh comment trong hàng đợi, comment bị loại và lượt đang nói; ô
+  "Người xem bị chặn" có thời gian còn lại và nút "Bỏ chặn"
+- [ ] T120 Người dùng thử tay trên trang điều khiển với nguồn giả (chặn, xem comment bị loại `blocked`, bỏ chặn)
 
 ## Phụ thuộc và thứ tự
 
@@ -416,7 +450,7 @@ research R8 / contracts/adapters.md) hoặc chuyển cho agent sở hữu; khôn
 - US2, US3, US5 và US4 đều sửa lại `show_director.py`, `routes.py`, `control.html`/`control.js` của US1, nên làm tuần tự theo thứ tự trên,
   không làm song song giữa các story.
 - US4 dựa vào hàng đợi của US2 (tiếp tục thì lấy comment ưu tiên cao nhất) và `errors.jsonl` của US3.
-- T101 (chọn model) làm trước T102–T105, vì các phép đo đó dùng model đã chọn.
+- T101 (chọn model) làm trước T102–T105, vì các phép đo đó dùng model đã chọn. *(T101 bỏ 2026-11-20: model đã chọn theo ADR-035/040)*
 - T103 cần T099; T104 cần T086; T108 cần T104.
 
 ## Chạy song song
@@ -469,6 +503,10 @@ Không có. Toàn bộ feature 001 chạy trên laptop với `AVATAR_MODE=static
 | FR-023 | T080, T083, T085 |
 | FR-024 | T080, T085 |
 | FR-025 | T010, T024, T030, T040 |
+| FR-026 | T111, T113, T115 |
+| FR-027 | T111, T114, T115 |
+| FR-028 | T112, T114 |
+| FR-029 | T116, T117, T118, T119, T120 |
 | SC-001 | T071, T102 |
 | SC-002 | T099, T103 |
 | SC-003 | T061 |
@@ -478,7 +516,7 @@ Không có. Toàn bộ feature 001 chạy trên laptop với `AVATAR_MODE=static
 | SC-007 | T089, T090, T091, T094, T096, T106 |
 | SC-008 | T080, T104 |
 | SC-009 | T080, T104 |
-| Điều III (hồi quy) | T101, T104, T108 |
+| Điều III (hồi quy) | T104, T108 (T101 bỏ) |
 | Điều IV (chạy riêng từng khâu) | T026, T037, T039, T048, T049, T057, T063, T069 |
 | Điều IV (adapter mới không đổi lõi; contract test) | T112, T113, T114, T115, T116 |
 | Rủi ro Q7 (file Word nhiều ứng dụng) | T107 |
@@ -533,3 +571,4 @@ Không có. Toàn bộ feature 001 chạy trên laptop với `AVATAR_MODE=static
 | 2026-10-31 | T095 | Ghi chú | `LLM_TIMEOUT_S` tính cộng dồn thời gian chờ LLM (câu đầu và cả luồng), không tính thời gian chờ phát. Lỗi giả lập `render` + `timeout` chờ `ack_timeout_s` rồi báo hết giờ. `/api/debug/fault` kiểm tra đầu vào (422 khi sai `step`/`mode` hoặc `count` < 1), chỉ có khi `APP_ENV=dev` | — |
 | 2026-10-31 | T093 | Ghi chú | `host.js` đã xử lý `stop` từ US1 (`stopAll()` dừng nguồn âm, xóa hàng chờ và phụ đề), không cần sửa | — |
 | 2026-10-31 | US4 | Checkpoint | Test tự động xanh. Chưa chạy tay quickstart US4 bước 1–4; chạy được trên laptop, kèm US2 bước 1 và 3 (cần nút Tạm dừng) | **TODO:** người dùng chạy tay rồi ghi kết quả |
+| 2026-11-23 | T111–T115 | Ghi chú | Luật một comment chờ mỗi người làm vỡ test cũ gửi nhiều comment cùng tên "Lan" | Helper `make_comment` trong `test_memory_queue.py` gán `author_key` riêng cho mỗi câu; test lỗi engine dùng người thứ hai "Mai" |

@@ -5,12 +5,14 @@ Coordinates are pixels in the output frame; boxes are `(x1, y1, x2, y2)` with x2
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from PIL.Image import Image
+
+    from ai_live.scene.shop_photo import ShopPhoto
 
 Box = tuple[int, int, int, int]
 IssueLevel = Literal["error", "warning"]
@@ -55,10 +57,34 @@ WARNING_CODES = frozenset(
         "placeholder",
         "orphan_image",
         "layout_keep_out",
+        "art_too_wide",  # 012 T071, FR-004a
         "unknown_key",
         "missing_scene_json",
+        # 013 (data-model §10)
+        "hands_zone_missing",
+        "art_has_background",
+        "matting_model_missing",
+        "card_no_room",
+        "cards_ignored",
+        "layout_clamped",
+        "no_room",  # a product with no free place on its side of the desk (research R1)
+        "bad_derived_from",  # an upload version whose `derived_from` names no version (contracts/scene-set.md §3)
+        # 013 FR-027, FR-028 (ADR-079)
+        "art_low_resolution",
+        "sticker_no_price",
+        "sticker_no_room",
+        # 013 FR-031, FR-032 (ADR-095)
+        "price_tag_no_room",
+        "promo_banner_no_room",
+        # 014 data-model §1
+        "background_clamped",
+        "background_unknown_key",
+        "background_as_is",  # FR-009a exception, ADR-102
     }
 )
+LayoutMode = Literal["rows", "realistic", "showcase"]
+BackgroundStyle = Literal["goc", "ke_hang", "bang_shop", "anh_shop"]
+CardsMode = Literal["none", "one", "all"]
 
 
 def grow(box: Box, pad: int) -> Box:
@@ -98,6 +124,9 @@ class FrameGeometry:
     face_bottom: int = round(DEFAULT_HEIGHT * 0.45)
     keep_out: tuple[KeepOut, ...] = ()
     source: Literal["estimate", "fork"] = "estimate"
+    # Where the host's hands move (013 research R2). Products stay out of it, but it is never punched: only the
+    # realistic layout reads it.
+    hands_zone: Box | None = None
 
     @property
     def face_zone(self) -> Box:
@@ -109,15 +138,37 @@ class FrameGeometry:
 
     def same_frame(self, other: FrameGeometry) -> bool:
         """Equal for layout purposes (the source alone does not need a redraw)."""
-        return (self.width, self.height, self.face_bottom, self.keep_out) == (
+        return (self.width, self.height, self.face_bottom, self.keep_out, self.hands_zone) == (
             other.width,
             other.height,
             other.face_bottom,
             other.keep_out,
+            other.hands_zone,
         )
+
+    def with_hands_zone(self, fractions: tuple[float, float, float, float] | None) -> FrameGeometry:
+        """This frame with the hands zone given as frame fractions (the character's `scene.hands_zone`)."""
+        if fractions is None:
+            return replace(self, hands_zone=None)
+        x1, y1, x2, y2 = fractions
+        w, h = self.width, self.height
+        return replace(self, hands_zone=(round(x1 * w), round(y1 * h), round(x2 * w), round(y2 * h)))
 
     def to_json(self) -> dict[str, Any]:
         return {"width": self.width, "height": self.height, "face_bottom": self.face_bottom, "source": self.source}
+
+
+@dataclass(frozen=True)
+class BackgroundConfig:
+    """The `background` block of `scene.json` (014 data-model §1). `goc` keeps the original room behind the host."""
+
+    style: BackgroundStyle = "goc"
+    softness_px: float = 1.5
+    brightness: float = 0.95
+    max_items: int = 12
+    # FR-009a exception (ADR-102), `anh_shop` only: the OBS layer scene already shows this photo sharp under the
+    # host, so the fork gets it unblurred and ungraded; a blurred, brightened copy would not match the layer around it.
+    as_is: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,6 +177,19 @@ class LayoutParams:
     max_slots: int = 5
     highlight_scale: float = 1.3
     show_promotion: bool = True
+    # 013 data-model §1. The defaults are the 009 behaviour; the loader picks the realistic defaults.
+    mode: LayoutMode = "rows"
+    cards: CardsMode = "all"
+    brightness: float = 1.0
+    # 013 FR-026, FR-027: only the showcase layout reads these.
+    riser: bool = False
+    sticker: bool = False
+    # 014 FR-019, ADR-087: the showcase cluster stands clear of the Shopee app's comments and chat bar.
+    avoid_app_overlay: bool = False
+    # 013 FR-030 to FR-032 (ADR-095), showcase only: stock groups, a price tag per product, the promotions strip.
+    stock: bool = False
+    price_tags: bool = False
+    promo_banner: bool = False
 
 
 @dataclass(frozen=True)
@@ -151,6 +215,15 @@ class ProductArt:
     # 012: which file the live desk shows, so the control page can tell the operator (data-model §3).
     source: ArtSource = "kit"
     version_id: str | None = None
+    # 013 FR-018: no transparent pixel at all, so the picture still has its background and looks pasted on.
+    opaque: bool = False
+    # 013 FR-030 (ADR-095): the stock group the showcase desk shows instead of `image`; None = one unit.
+    stock: Image | None = None
+
+    @property
+    def desk_image(self) -> Image:
+        """The picture the desk shows: the stock group when there is one. Shelves and thumbnails keep `image`."""
+        return self.image if self.stock is None else self.stock
 
 
 @dataclass(frozen=True, eq=False)
@@ -165,6 +238,9 @@ class SceneSet:
     art: dict[str, ProductArt] = field(default_factory=dict)
     provenance: Provenance | None = None
     issues: tuple[SceneIssue, ...] = ()
+    background: BackgroundConfig = field(default_factory=BackgroundConfig)
+    # 014 FR-009: read only when the background style is `anh_shop`.
+    shop_photo: ShopPhoto | None = None
 
     @property
     def has_errors(self) -> bool:
@@ -196,9 +272,40 @@ class Slot:
     x_center: int
     width: int
     art_box: Box | None
-    card_box: Box
+    card_box: Box | None  # None = no card for this product (013: cards none/one, card_no_room)
     highlighted: bool = False
     primary: bool = False
+    station: str | None = None  # 013 realistic: the desk station name; None in rows
+    shadow_box: Box | None = None  # 013 realistic: the area the soft shadow covers; rows draws no shadow
+
+
+@dataclass(frozen=True)
+class Sticker:
+    """The round price sticker on the main product (013 FR-027). `text` is the catalog price, verbatim."""
+
+    box: Box
+    text: str
+    product_id: str
+
+
+@dataclass(frozen=True)
+class PriceTag:
+    """A small tag at a product's foot with its catalog price, verbatim (013 FR-031)."""
+
+    box: Box
+    text: str
+    product_id: str
+
+
+@dataclass(frozen=True)
+class PromoBanner:
+    """The strip on the desk front listing the placed products' promotions, verbatim and whole (013 FR-032).
+
+    `box` is the most room the strip may take; each line is (product name, one promotion).
+    """
+
+    box: Box
+    lines: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -208,6 +315,15 @@ class SceneLayout:
     desk_box: Box
     subtitle_box: Box
     issues: tuple[SceneIssue, ...] = ()
+    mode: LayoutMode = "rows"
+    # Product ids in paint order (realistic: far to near). Empty = slot order, the highlighted product last (009).
+    draw_order: tuple[str, ...] = ()
+    # 013 showcase (FR-026, FR-027): the white riser under the main product and the price sticker; None when off.
+    riser_box: Box | None = None
+    sticker: Sticker | None = None
+    # 013 FR-031, FR-032 (ADR-095): empty / None when off or when there is no room.
+    price_tags: tuple[PriceTag, ...] = ()
+    promo_banner: PromoBanner | None = None
 
     @property
     def drawable(self) -> bool:

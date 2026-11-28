@@ -5,9 +5,11 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -19,6 +21,7 @@ from ai_live.scene.uploads import (
     ImageStoreError,
     ProductImageStore,
     UploadRejected,
+    needs_bg_removal,
     validate_and_normalize,
     version_path,
 )
@@ -502,3 +505,265 @@ async def test_revert_and_remove_refuse_a_bad_product_id(tmp_path: Path) -> None
     for call in (store.revert, store.remove):
         with pytest.raises(ImageStoreError):
             await call("../x")
+
+
+# ---------- 013 T009: background-removal fields of a version (contracts/scene-set.md §3, data-model §8) ----------
+
+_UPLOADED = "3f9a0c1b2d4e"
+_CUTOUT = "a81c55d09e2f"
+_BG = {
+    "method": "flat",
+    "result": "removed",
+    "reason": None,
+    "ms": 182.4,
+    "model": None,
+    "at": "2026-11-22T10:15:03+07:00",
+}
+
+
+def _old_version(**extra: object) -> dict[str, object]:
+    return {
+        "uploaded_at": "2026-11-20T09:00:00.000Z",
+        "source_name": "thung coca.jpg",
+        "width": 320,
+        "height": 400,
+        "has_alpha": False,
+        "bytes": 1000,
+        "applied_at": None,
+        "rights_confirmed_at": None,
+        **extra,
+    }
+
+
+def _write_manifest(scene_dir: Path, versions: dict[str, dict[str, object]], active: str | None = "kit") -> None:
+    uploads_dir = scene_dir / "uploads"
+    uploads_dir.mkdir(parents=True)
+    data = {
+        "schema_version": 1,
+        "customer_id": CUSTOMER,
+        "products": {"coca": {"active": active, "history": [], "updated_at": None, "versions": versions}},
+    }
+    (uploads_dir / "images.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def test_background_removal_fields_are_read(tmp_path: Path) -> None:
+    _write_manifest(
+        tmp_path,
+        {
+            _UPLOADED: _old_version(bg_removal=_BG, cutout_version=_CUTOUT),
+            _CUTOUT: _old_version(bg_removal=_BG, derived_from=_UPLOADED, has_alpha=True),
+        },
+    )
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    assert store.broken is None
+    uploaded = store.version("coca", _UPLOADED)
+    cutout = store.version("coca", _CUTOUT)
+    assert uploaded is not None and cutout is not None
+    assert uploaded["bg_removal"] == _BG
+    assert uploaded["cutout_version"] == _CUTOUT
+    assert uploaded["derived_from"] is None
+    assert cutout["derived_from"] == _UPLOADED
+    assert cutout["cutout_version"] is None
+    assert store.issues == ()
+
+
+def test_012_version_without_the_new_fields_reads_as_none(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, {_UPLOADED: _old_version()})
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    version = store.version("coca", _UPLOADED)
+    assert version is not None
+    assert (version["bg_removal"], version["cutout_version"], version["derived_from"]) == (None, None, None)
+    assert store.version("coca", _CUTOUT) is None
+    assert store.version("other", _UPLOADED) is None
+
+
+async def test_unknown_version_keys_are_ignored_and_kept(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, {_UPLOADED: _old_version(future_key={"x": 1})})
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    assert store.broken is None and store.issues == ()
+    assert store.version("coca", _UPLOADED)["source_name"] == "thung coca.jpg"  # type: ignore[index]
+    # A later write must not drop what a newer version of the app wrote.
+    await store.save_version("toner", validate_and_normalize(image_bytes("png")), "a.png")
+    manifest = json.loads((tmp_path / "uploads" / "images.json").read_text(encoding="utf-8"))
+    assert manifest["products"]["coca"]["versions"][_UPLOADED]["future_key"] == {"x": 1}
+
+
+@pytest.mark.parametrize("derived_from", ["000000000000", 42], ids=["missing_version", "not_a_string"])
+def test_bad_derived_from_only_warns(tmp_path: Path, derived_from: object) -> None:
+    _write_manifest(tmp_path, {_CUTOUT: _old_version(derived_from=derived_from, has_alpha=True)}, active=_CUTOUT)
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    assert store.broken is None
+    assert [(i.level, i.product_id) for i in store.issues] == [("warning", "coca")]
+    assert "derived_from" in store.issues[0].message
+    assert store.active("coca") == _CUTOUT
+    assert store.version("coca", _CUTOUT) is not None
+
+
+# ---------- 013 T034: saving a background removal as a version (data-model §8–§9, research R9) ----------
+
+
+def _cut(result: str, *, method: str = "flat", reason: str | None = None, image: Image.Image | None = None) -> object:
+    """A `CutResult` stand-in: the store only reads its attributes."""
+    if result == "removed" and image is None:
+        image = Image.new("RGBA", (40, 60), (200, 60, 40, 255))
+        image.putpixel((0, 0), (200, 60, 40, 0))
+    metrics = {"fg_ratio": 0.5, "border_fg_ratio": 0.0, "uncertain_ratio": 0.01, "largest_component_ratio": 1.0}
+    return SimpleNamespace(
+        image=image,
+        method=method,
+        result=result,
+        reason=reason,
+        metrics=metrics,
+        ms=12.5,
+        model="isnet-general-use.onnx" if method == "model" else None,
+    )
+
+
+async def _uploaded(store: ProductImageStore, name: str = "thùng coca.jpg") -> str:
+    image = validate_and_normalize(image_bytes("jpeg"))
+    await store.save_version("coca", image, name)
+    return image.version_id
+
+
+async def test_removed_cut_becomes_a_new_version(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store)
+    upload = await store.record_bg_removal("coca", vid, _cut("removed"))  # type: ignore[arg-type]
+    cutout_vid = upload["cutout_version"]
+    png = store.path("coca", cutout_vid).read_bytes()
+    assert cutout_vid == hashlib.sha256(png).hexdigest()[:12]
+    assert _open(png).mode == "RGBA" and _open(png).size == (40, 60)
+    cutout = store.version("coca", cutout_vid)
+    assert cutout is not None
+    assert cutout["derived_from"] == vid
+    assert cutout["cutout_version"] is None
+    assert cutout["source_name"] == "thùng coca.jpg (đã bỏ nền)"
+    assert cutout["has_alpha"] is True
+    assert (cutout["width"], cutout["height"], cutout["bytes"]) == (40, 60, len(png))
+    assert cutout["applied_at"] is None and cutout["rights_confirmed_at"] is None
+    record = {"method": "flat", "result": "removed", "reason": None, "ms": 12.5, "model": None}
+    assert {k: cutout["bg_removal"][k] for k in record} == record
+    assert cutout["bg_removal"]["at"]
+    assert store.version("coca", vid)["bg_removal"] == cutout["bg_removal"]  # type: ignore[index]
+    assert store.version("coca", vid)["cutout_version"] == cutout_vid  # type: ignore[index]
+    # Saved, never applied: the product still shows the kit picture.
+    assert store.active("coca") == "kit"
+    # It survives a restart.
+    again = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    assert again.version("coca", cutout_vid)["derived_from"] == vid  # type: ignore[index]
+    assert again.issues == ()
+
+
+async def test_source_name_with_suffix_stays_within_the_limit(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store, "a" * 300)
+    upload = await store.record_bg_removal("coca", vid, _cut("removed"))  # type: ignore[arg-type]
+    assert len(store.version("coca", upload["cutout_version"])["source_name"]) <= 200  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("result", "method", "reason"),
+    [("failed", "model", "nền quá phức tạp, model không chắc"), ("kept", "already_transparent", None)],
+)
+async def test_failed_or_kept_only_records_the_result(
+    tmp_path: Path, result: str, method: str, reason: str | None
+) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store)
+    upload = await store.record_bg_removal("coca", vid, _cut(result, method=method, reason=reason))  # type: ignore[arg-type]
+    assert upload["cutout_version"] is None
+    assert (upload["bg_removal"]["result"], upload["bg_removal"]["reason"]) == (result, reason)
+    assert list(store.entry("coca")["versions"]) == [vid]  # type: ignore[index]
+
+
+async def test_when_to_run_the_removal(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store)
+    assert needs_bg_removal(store.version("coca", vid)) is True  # type: ignore[arg-type]
+    upload = await store.record_bg_removal("coca", vid, _cut("removed"))  # type: ignore[arg-type]
+    # Same picture again: the stored result is reused, not run again.
+    assert needs_bg_removal(store.version("coca", vid)) is False  # type: ignore[arg-type]
+    # A cut-out is never cut again.
+    assert needs_bg_removal(store.version("coca", upload["cutout_version"])) is False  # type: ignore[arg-type]
+    assert needs_bg_removal({"derived_from": vid, "bg_removal": None}) is False
+
+
+@pytest.mark.parametrize(
+    ("reason", "again"),
+    [
+        ("chưa cài model tách nền", True),
+        ("đang live, bỏ nền phức tạp sau khi dừng show", True),
+        ("nền quá phức tạp, model không chắc", False),
+        ("tách nền quá lâu", False),
+    ],
+)
+def test_a_failure_whose_cause_may_have_changed_runs_again(reason: str, again: bool) -> None:
+    version = {"derived_from": None, "bg_removal": {"method": "flat", "result": "failed", "reason": reason}}
+    assert needs_bg_removal(version) is again
+    kept = {"derived_from": None, "bg_removal": {"method": "already_transparent", "result": "kept", "reason": None}}
+    assert needs_bg_removal(kept) is False
+
+
+async def test_rerun_after_a_failure_replaces_the_result(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store)
+    await store.record_bg_removal("coca", vid, _cut("failed", reason="chưa cài model tách nền"))  # type: ignore[arg-type]
+    upload = await store.record_bg_removal("coca", vid, _cut("removed", method="model"))  # type: ignore[arg-type]
+    assert upload["bg_removal"]["result"] == "removed"
+    assert upload["bg_removal"]["model"] == "isnet-general-use.onnx"
+    assert upload["cutout_version"] is not None
+
+
+async def test_the_cutout_does_not_inherit_the_rights_tick(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER, clock=_ticking_clock())
+    vid = await _uploaded(store)
+    await store.apply("coca", vid, "2026-11-22T10:00:00.000Z")
+    upload = await store.record_bg_removal("coca", vid, _cut("removed"))  # type: ignore[arg-type]
+    assert upload["rights_confirmed_at"] == "2026-11-22T10:00:00.000Z"
+    cutout = store.version("coca", upload["cutout_version"])
+    assert cutout is not None and cutout["rights_confirmed_at"] is None
+    # Applying the cut-out is a normal 012 apply, and "Về ảnh trước" goes back to the upload.
+    await store.apply("coca", upload["cutout_version"], "2026-11-22T10:05:00.000Z")
+    assert store.active("coca") == upload["cutout_version"]
+    await store.revert("coca")
+    assert store.active("coca") == vid
+
+
+async def test_recording_for_an_unknown_version_is_refused(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    with pytest.raises(ImageStoreError):
+        await store.record_bg_removal("coca", "000000000000", _cut("removed"))  # type: ignore[arg-type]
+
+
+async def test_removal_is_logged_with_its_metrics(tmp_path: Path) -> None:
+    store = ProductImageStore(tmp_path, customer_id=CUSTOMER)
+    vid = await _uploaded(store)
+    got: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = got.append  # type: ignore[method-assign]
+    logger = logging.getLogger("ai_live.scene")
+    logger.addHandler(handler)
+    saved = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        upload = await store.record_bg_removal("coca", vid, _cut("removed"))  # type: ignore[arg-type]
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(saved)
+    records = [r for r in got if r.getMessage() == "scene_bg_removed"]
+    assert len(records) == 1
+    assert records[0].fields == {  # type: ignore[attr-defined]
+        "product_id": "coca",
+        "version_id": vid,
+        "cutout_version": upload["cutout_version"],
+        "method": "flat",
+        "result": "removed",
+        "reason": None,
+        "ms": 12.5,
+        "model": None,
+        "width": 40,
+        "height": 60,
+        "fg_ratio": 0.5,
+        "border_fg_ratio": 0.0,
+        "uncertain_ratio": 0.01,
+    }

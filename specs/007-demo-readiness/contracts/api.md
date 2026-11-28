@@ -29,10 +29,12 @@ một dòng `readiness.jsonl`. Có ở mọi `APP_ENV`.
 {"content": "verbatim"}
 ```
 
-- Không có thân hoặc `"script"`: như 004.
+- Không có thân (hoặc thân không có `content`): dùng `SHOW_CONTENT` trong `.env`, mặc định `"loop"` (ADR-088). `"script"`: như 004.
+- `"loop"` (ADR-088): lặp một đoạn cố định dựng từ file (giới thiệu, mô tả, giá, khuyến mãi) kèm câu mời hỏi tư vấn, không gọi engine;
+  comment vẫn trả lời bằng LLM. Trả lời thêm `"content": "loop"`.
 - `"verbatim"`: show đọc nguyên văn giới thiệu + mô tả trong file sản phẩm, không gọi engine (research R6). Trả lời thêm
   `"content": "verbatim"`. Show đang chạy thì trả show đó với `already_running: true` (không đổi nguồn nội dung).
-- Giá trị khác: 422.
+- Giá trị khác (kể cả `null` ghi rõ): 422.
 
 `GET /api/show` (`ShowSnapshot`) thêm `content_source`.
 

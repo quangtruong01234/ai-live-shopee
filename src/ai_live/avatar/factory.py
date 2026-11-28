@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from ai_live.avatar.character import (
+    DEFAULT_FORK_DIR,
     AvatarCharacter,
     load_character,
     read_ultralight_install,
+    ultralight_first_frame,
     validate_for_session,
 )
 from ai_live.avatar.livetalking_renderer import LiveTalkingRenderer
@@ -31,9 +33,20 @@ def load_session_character(settings: Settings) -> AvatarCharacter | None:
     return character
 
 
-def avatar_image_path(settings: Settings, character: AvatarCharacter | None) -> Path:
-    """Still image for `/avatar-image`: the character's face in `livetalking` (the fallback picture too), else 001's."""
-    return character.face if character is not None else settings.avatar_static_image
+def avatar_image_path(settings: Settings, character: AvatarCharacter | None, fork_dir: Path = DEFAULT_FORK_DIR) -> Path:
+    """Still image for `/avatar-image` and the scene still, also the picture shown after a fallback (005 FR-022).
+
+    Ultralight plays frames of its training clip, which need not look like `face.png`; its first frame keeps the host
+    and the room the same when the page switches between the still and the video. Otherwise the character's face,
+    and 001's image in `static` mode. Reads files: call it off the event loop.
+    """
+    if character is None:
+        return settings.avatar_static_image
+    if settings.livetalking_model == "ultralight":
+        frame = ultralight_first_frame(character.avatar_dir, settings.livetalking_ultralight_teacher, fork_dir)
+        if frame is not None:
+            return frame
+    return character.face
 
 
 def expected_lipsync(settings: Settings, character: AvatarCharacter | None) -> dict[str, Any] | None:

@@ -49,7 +49,8 @@ $model = $cfg['LIVETALKING_MODEL']
 if ($model -notin 'wav2lip', 'ultralight') { throw 'LIVETALKING_MODEL phải là wav2lip hoặc ultralight' }
 
 # ailive_ext reads these from the environment; the label is drawn inside the fork's frames (constitution: AI label always visible).
-$forkEnv = @('AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE')
+# LIVETALKING_WATERMARK switches only upstream's small "LiveTalking" text (ADR-075), never the AI label.
+$forkEnv = @('AI_LABEL_TEXT', 'AI_LABEL_POSITION', 'LIVETALKING_BATCH_SIZE', 'LIVETALKING_WATERMARK')
 # Clip rotation and the 010 mouth methods belong to the Wav2Lip clip path; Ultralight has one avatar and its own model
 # (research R8), so they are not passed and a non-default value is reported instead of silently ignored.
 $wav2lipOnly = @('LIVETALKING_LIP_EVERY_N', 'LIVETALKING_MOUTH_METHOD', 'LIVETALKING_TRANSITION_S', 'LIVETALKING_HOLD_S')

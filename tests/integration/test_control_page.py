@@ -154,3 +154,65 @@ def test_control_page_has_revert_remove_and_the_image_detail(settings) -> None:
         "confirm(",
     ):
         assert needle in js, needle
+
+
+# ---------- 013 T037: the background-removal frame (US2 #3, #5; FR-012; 013 contracts/api.md §4) ----------
+
+FAIL_HINT = "xin khách ảnh nền trơn hoặc ảnh đã tách nền"
+
+
+def test_control_page_shows_the_upload_and_its_cutout_side_by_side(settings) -> None:
+    with TestClient(create_app(settings)) as client:
+        html = client.get("/static/control.html").text
+        js = client.get("/static/control.js").text
+        css = client.get("/static/style.css").text
+    panel = _panel(html)
+    # Two pictures side by side on a checkerboard, so a missed background shows; one frame for live, one for staging.
+    for prefix in ("image", "staging"):
+        frame = _between(html, f"{prefix}-cut", f"<!-- /{prefix}-cut -->")
+        assert f'id="{prefix}-cut-original"' in frame and f'id="{prefix}-cut-cutout"' in frame
+        assert frame.count('class="checker"') == 2
+        assert f'id="{prefix}-cut-info"' in frame and f'id="{prefix}-cut-fail"' in frame
+        assert ">Ảnh tải lên<" in frame and ">Bản bỏ nền<" in frame
+    assert 'id="image-cut"' in panel
+    assert ".checker" in css and "conic-gradient" in css
+    # US2 #3: waiting is visible, nothing can be applied meanwhile, a failure says why and what to do.
+    assert "Đang bỏ nền…" in js
+    assert "busy" in js
+    assert FAIL_HINT in js
+    # FR-012 / US2 #5: the recommended version is picked, the other can be chosen, and Preview/Apply send the pick.
+    for needle in ("bg_removal", "recommended_version", "cutout", "chooseCut(", "renderCut("):
+        assert needle in js, needle
+    for label in ("nền trơn", "model tách nền", "ảnh đã trong suốt"):
+        assert label in js, label
+    assert "version_id: of.vid" in js and "version_id: pick.vid" in js
+
+
+# ---------- 014 T037: the "Nền sau host" line of the live scene (contracts/api.md, FR-012) ----------
+
+
+def test_control_page_has_the_background_line(settings) -> None:
+    with TestClient(create_app(settings)) as client:
+        html = client.get("/static/control.html").text
+        js = client.get("/static/control.js").text
+    line = _between(html, "scene-background", "<!-- /scene-background -->")
+    assert "Nền sau host" in line
+    for field in ("background-text", "background-preview-link", "background-preview"):
+        assert f'id="{field}"' in line, field
+    # A small picture that opens at full size.
+    assert 'href="/api/scene/background/preview.png"' in line and 'target="_blank"' in line
+    # It sits inside the live scene part of the show panel, under the scene line.
+    assert html.index('id="show-scene"') < html.index('id="scene-background"') < html.index('id="show-blocked"')
+    for needle in (
+        "/api/scene/background",
+        'msg.kind === "background"',
+        "fallback_message",
+        "hợp lệ",
+        "chưa chuẩn bị",
+        "không khớp",
+        "chưa duyệt",
+    ):
+        assert needle in js, needle
+    # Every style has a Vietnamese name.
+    for style in ("goc", "ke_hang", "bang_shop", "anh_shop"):
+        assert f"{style}:" in js, style

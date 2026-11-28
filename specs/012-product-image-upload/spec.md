@@ -1,7 +1,7 @@
 # Đặc tả tính năng: Đổi ảnh sản phẩm ngay trên trang điều khiển giữa phiên live
 
 - **Feature ID:** `012-product-image-upload` · **Branch:** `main` · **Ngày tạo:** 2026-11-20
-- **Trạng thái:** Tasked <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
+- **Trạng thái:** Done <!-- Draft → Clarified → Planned → Tasked → In progress → Done -->
 - **Mốc roadmap:** M1d (đổi sản phẩm khi tổng duyệt và demo); dùng lại ở M2 (live Shopee dài, đổi hàng trong ngày)
 - **Mô tả gốc:** "Đổi ảnh sản phẩm ngay trên trang điều khiển (control page) giữa phiên live, không cần sửa file tay hay tạo video
   mới. Người vận hành chọn một sản phẩm trong file nội dung đang nạp, tải ảnh mới lên (png/webp/jpg), xem trước, và cảnh live (bàn bày
@@ -127,7 +127,8 @@ tiết từng sản phẩm, đối chiếu với file nội dung.
 - **Ảnh động** (nhiều khung): từ chối (009: không có ảnh động).
 - **Ảnh chụp bằng điện thoại có thông tin xoay:** hiện đúng chiều như khi xem ảnh trên máy.
 - **Ảnh rất cao hoặc rất rộng:** thu cho vừa chỗ trên bàn như 009, không vươn lên che mặt host, nhãn "AI-GENERATED CONTENT" hay
-  watermark.
+  watermark. Ảnh quá rộng so với ô của món (thu vừa ô thì thấp hơn mức tối thiểu của 009) thì live chỉ hiện thẻ của món: trang điều khiển
+  báo trước khi áp và cả sau khi áp (FR-004a, thêm 2026-11-20 sau T068).
 - **Lưu ảnh lỗi** (đầy ổ đĩa, không ghi được): báo lỗi trên trang điều khiển, live giữ ảnh cũ, show không dừng.
 - **Hai tab trang điều khiển cùng mở:** cả hai thấy cùng một trạng thái ảnh sau khi áp; không cần khóa riêng.
 - **Cùng một ảnh dùng cho hai sản phẩm:** được, mỗi sản phẩm có bản ghi riêng.
@@ -153,6 +154,11 @@ tiết từng sản phẩm, đối chiếu với file nội dung.
   hơn 4000 điểm ảnh (cùng giới hạn với bộ cảnh 009), kèm lý do tiếng Việt; ảnh đang live không đổi khi bị từ chối.
 - **FR-004**: Ảnh không có nền trong suốt PHẢI vẫn được nhận và hiện nguyên khung, không kéo méo tỷ lệ; trang điều khiển PHẢI cảnh báo
   điều đó trước khi áp dụng.
+- **FR-004a** (thêm 2026-11-20 sau T068): Khi ảnh quá rộng so với ô của món trên bàn, theo bố cục của bộ mà ảnh sẽ lên (bộ đang live
+  hoặc bộ chuẩn bị), đến mức cảnh chỉ hiện thẻ, trang điều khiển PHẢI cảnh báo ngay khi nhận ảnh, trước khi áp dụng, cùng chỗ cảnh báo
+  ảnh còn nền; nếu ảnh chỉ hiện được lúc AI đang nói về món đó (ô to hơn) thì cảnh báo ghi rõ điều đó. Ảnh vẫn được nhận và áp được.
+  Món đang live mà cảnh không vẽ được ảnh PHẢI có cảnh báo trong danh sách ảnh, ghi đúng lý do (ô quá hẹp so với ảnh, hay không đủ chỗ
+  dưới vùng mặt).
 
 **Quyền dùng**
 
@@ -292,6 +298,9 @@ tiết từng sản phẩm, đối chiếu với file nội dung.
   hiển thị một lần. Sửa US2, FR-013–FR-015a, SC-005, trường hợp biên.
 - Q: Trên trang điều khiển không thấy AI nói gì và file nội dung chứa gì; thêm vào 012 hay tách feature? → A: Ghép vào 012. Thêm US4,
   FR-020–FR-023, SC-007.
+- Q (sau T068 trên GPU laptop): ảnh 1600×300 ở ô món phụ không hiện, live chỉ còn thẻ mà trang vẫn báo áp thành công; xử lý thế nào?
+  → A: người dùng "sửa 071": cảnh báo người vận hành, giữ cách thu ảnh của 009. Thêm FR-004a, sửa trường hợp biên "Ảnh rất cao hoặc rất
+  rộng", T071.
 
 ## Checklist chất lượng spec
 

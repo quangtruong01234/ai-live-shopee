@@ -24,6 +24,7 @@ def _settings(**overrides: Any) -> Settings:
     values: dict[str, Any] = {
         "freellmapi_key": fo.FAKE_KEYS["FREELLMAPI_KEY"],
         "groq_api_key": fo.FAKE_KEYS["GROQ_API_KEY"],
+        "gemini_api_key": fo.FAKE_KEYS["GEMINI_API_KEY"],
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -40,7 +41,7 @@ def test_gemini_is_an_explicit_choice():
 
 def test_gemini_without_key_is_still_a_config_error():
     with pytest.raises(ReplyEngineError) as exc:
-        create_reply_engine(_settings(reply_engine="gemini"))
+        create_reply_engine(_settings(reply_engine="gemini", gemini_api_key=None))
     assert exc.value.kind == "config_error"
 
 
@@ -50,7 +51,7 @@ async def test_chain_is_the_default_and_builds_the_chain_engine():
     engine = create_reply_engine(settings)
     try:
         assert isinstance(engine, ChainReplyEngine)
-        assert [e.label for e in engine.entries] == ["sealion", "qwen"]
+        assert [e.label for e in engine.entries] == ["sealion", "qwen", "gemini"]
     finally:
         await engine.aclose()
 

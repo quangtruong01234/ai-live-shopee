@@ -157,9 +157,20 @@ miệng khép lúc im lặng, sản phẩm đứng trên bàn trong ảnh; trang
   `073307fd…`, phiên `20261119-213243`, 621,5 s, chuỗi LLM + cảnh live): 14/14 ảnh có nhãn "AI-GENERATED CONTENT", 0/14 ảnh che
   mặt (thẻ sản phẩm chỉ che tay, phụ đề nằm dưới cằm), ảnh lúc nghỉ miệng khép; render_fps p50 25,13 (min 24,38), lặng p95
   0,047 s, câu đầu 2,36 s, 0 lỗi; số đầy đủ ở R7. **Còn lại:** người dùng xem bằng mắt chỗ nối vòng khung có giật không (FR-005);
-  ảnh chụp không thấy được và show không có bản ghi video. Ảnh: `out/011_t040/`
-- [ ] T041 [GPU] [US1] Với `.env` mặc định (Wav2Lip, `demo_host_01`, `LIVETALKING_MODEL` không đặt): show 2 phút, so câu đầu, lặng, nhãn với
-  báo cáo tổng duyệt 007 trước feature (SC-008)
+  ảnh chụp không thấy được và show không có bản ghi video. Ảnh: `out/011_t040/`.
+  Bổ sung 2026-11-20: đã có bản ghi video để xem: `out/011_t040b/ultralight_loop.mp4` (177 s, có tiếng, 4432 khung, 0 khung rớt,
+  25 fps; Ultralight `demo_host_02`, chuỗi giả + giọng VieNeu, tắt cảnh live). Vòng lúc chờ chạy kiểu đi rồi quay lại trên 81 khung
+  (0→80→0), nên chỗ quay đầu rơi khoảng mỗi 3,2 s (ví dụ 3,23 s, 6,43 s, 9,62 s; 55 chỗ). Chờ người dùng xem các chỗ đó
+- [x] T041 [GPU] [US1] Với `.env` mặc định (Wav2Lip, `demo_host_01`, `LIVETALKING_MODEL` không đặt): show 2 phút, so câu đầu, lặng, nhãn với
+  báo cáo tổng duyệt 007 trước feature (SC-008).
+  Xong 2026-11-20: fork Wav2Lip `demo_host_01`, `LIVETALKING_MOUTH_METHOD=w2l`; app đặt rõ `LIVETALKING_MODEL=wav2lip` qua biến môi
+  trường (`.env` đang để ultralight, không sửa `.env`), chuỗi giả, giọng VieNeu, tắt cảnh live. Phiên `20261120-213631` show `08f43da7…`:
+  129 s, 40 câu, 0 lỗi, câu đầu 1,75 s, lặng p95 0,86 s (max 0,875 s), FPS p50 25,08 (thấp nhất 21,26). Bộ phân tích trên bản ghi
+  `out/011_t041/t041_wav2lip.mp4` (133,8 s, 3344 khung, 0 rớt): nhãn "AI-GENERATED CONTENT" có ở 3344/3344 khung, tiếng ổn, 1 lần đứng
+  hình 402 ms ở khung 16. Không có báo cáo tổng duyệt 007 chạy Wav2Lip trước 011 (báo cáo 2026-11-13 là avatar tĩnh), nên so với số
+  005 §9 (câu đầu 1,64 s, 1,6–2,1 s; lặng nghe được p95 1,00 s; render_fps p50 25,14) và video dự phòng 007 (nhãn mọi khung, 25,3 fps):
+  không kém hơn → SC-008 đạt. Ghi chú: chỉ số miệng của bộ phân tích là r 0,076 (cờ `[!!]`), cùng khoảng với các bản ghi Wav2Lip trước
+  (0,075–0,33; LOG ghi r thấp do đoạn đầu ngửa trong clip nói), không phải lỗi mới của 011; người dùng xem bằng mắt khi duyệt
 
 **Checkpoint:** US1 chạy và test độc lập được. Dừng lại, báo người dùng số SC-001/SC-002/SC-003, demo qua Meet.
 
@@ -249,11 +260,19 @@ bị chặn trước show bằng lỗi tiếng Việt.
 
 ### Chạy thật US3
 
-- [ ] T056 [GPU] [US3] `.env` đổi `LIVETALKING_ULTRALIGHT_TEACHER=infinitetalk` (chưa cài), chạy `scripts/livetalking/run.ps1` → fork thoát
-  ngay với thông báo tiếng Việt, không nạp HuBERT; đổi lại `musetalk`
-- [ ] T057 [GPU] [US3] Đổi `.env` sang `wav2lip` mà không bật lại fork Ultralight → `readiness` báo LỖI `fork_model_mismatch`, trang điều khiển
+- [x] T056 [GPU] [US3] `.env` đổi `LIVETALKING_ULTRALIGHT_TEACHER=infinitetalk` (chưa cài), chạy `scripts/livetalking/run.ps1` → fork thoát
+  ngay với thông báo tiếng Việt, không nạp HuBERT; đổi lại `musetalk`.
+  Xong 2026-11-20 (đặt biến qua môi trường, không sửa `.env`): fork thoát mã 1 sau khoảng 10 s với thông báo tiếng Việt, không nạp
+  HuBERT. Log `out/011_t056/fork.log`
+- [x] T057 [GPU] [US3] Đổi `.env` sang `wav2lip` mà không bật lại fork Ultralight → `readiness` báo LỖI `fork_model_mismatch`, trang điều khiển
   băng đỏ (Q36); bật lại fork → OK. Bấm giờ đổi Wav2Lip ↔ Ultralight cả hai chiều: ≤ 2 phút, không sửa code (SC-006). Đổi thầy dev ↔ prod chưa bấm giờ được vì chưa
-  có model thầy prod (ADR-066); ghi "chờ model prod" vào thẻ 011
+  có model thầy prod (ADR-066); ghi "chờ model prod" vào thẻ 011.
+  Xong 2026-11-20 (đặt biến qua môi trường, không sửa `.env`): app cấu hình `wav2lip` + `demo_host_01` trong khi fork chạy Ultralight →
+  readiness LỖI ở bước `lipsync_model` ("Phần nhép miệng đang chạy ultralight, cấu hình là wav2lip: bật lại fork"; mã bước hiện có là
+  `lipsync_model`, mã `fork_model_mismatch` thuộc T054 chưa làm), log app `lipsync_model_mismatch`, trang điều khiển băng đỏ "Model
+  nhép miệng không khớp cấu hình…". Bật lại fork Wav2Lip → hết băng, "Model: Wav2Lip · demo_host_01". Bấm giờ: Ultralight → Wav2Lip
+  (chỉ bật lại fork) readiness OK sau 28,4 s; Wav2Lip → Ultralight (bật lại fork và app) OK sau 39,3 s; cả hai ≤ 2 phút, không sửa
+  code (SC-006 đạt). Đổi thầy dev ↔ prod: chờ model prod. Ảnh và log `out/011_t057/`
 
 **Checkpoint:** mọi trường hợp sai bị chặn; đổi model trong ≤ 2 phút.
 

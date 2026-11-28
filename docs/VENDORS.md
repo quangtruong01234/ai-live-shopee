@@ -60,6 +60,7 @@ chưa có adapter.
 - freellmapi (ADR-034) làm cổng OpenAI-compatible cho các nhà cung cấp free. Chuỗi đã chốt ở ADR-035: SEA-LION v4 27B (Cloudflare
   Workers AI) → gpt-oss-120b (Groq) → Qwen3.8 27B (Groq hoặc IteraCompute) → Gemini. Đã loại: OpenRouter free, Llama 3.3 70B fp8-fast.
   ADR-040 bỏ gpt-oss-120b khỏi chuỗi mặc định (không đạt SC-001 ở T055 của 008): còn SEA-LION → Qwen3.8.
+  ADR-073 thêm Gemini 3.5 Flash-Lite (gọi thẳng Google, không qua freellmapi) làm mục cuối: SEA-LION → Qwen3.8 → Gemini.
 
 ## Nguồn comment (`CommentSource`)
 

@@ -83,6 +83,7 @@ from ai_live.core.protocols import (
     TTSEngine,
     TTSEngineError,
 )
+from ai_live.director import loop_script
 from ai_live.director.faults import FaultInjector, InjectedFault
 from ai_live.director.render_report import collect_render_stats_when_settled, report_render_outcome
 from ai_live.director.segment_planner import NoSlotAvailable, PlannedSlot, SegmentPlanner
@@ -346,6 +347,8 @@ class ScriptRunner:
         # word_form -> utterance_id of the queued line that holds it.
         self._inflight_forms: dict[str, str] = {}
         self._fallback_cursor: dict[str, int] = {}  # next fallback sentence per product (R10)
+        self._loop_invite = 0  # next invite line of a `loop` show (ADR-088)
+        self._loop_turns: dict[str, int] = {}  # visits per product, picks its next paragraph (FR-031)
         self._close_requested = asyncio.Event()
         self._draining = False  # closing: nothing queued before the end may start playing
         self._closing_segment: Segment | None = None
@@ -689,6 +692,8 @@ class ScriptRunner:
         """
         if self.show.content_source == "verbatim":
             return await self._prepare_verbatim(slot, closing=closing)
+        if self.show.content_source == "loop":
+            return await self._prepare_loop(slot, closing=closing)
         catalog = self.store.catalog
         segment, settled, requested = self._open_segment(slot.product_id, slot.topic, slot.origin, catalog)
         if closing:
@@ -738,6 +743,44 @@ class ScriptRunner:
             return settled
         blocked = any(s.status is SentenceStatus.BLOCKED for s in segment.sentences)
         self._finalize(segment, SegmentStatus.BLOCKED if blocked else SegmentStatus.FAILED)
+        return settled
+
+    async def _prepare_loop(self, slot: PlannedSlot, *, closing: bool) -> asyncio.Event:
+        """ADR-088: the fixed passage repeated while nobody comments. No engine call; comments get the LLM.
+
+        The opening greets and invites questions; each product slot reads that product's whole block (intro,
+        description, price, promotions) and ends with the next invite to ask for advice. The closing is the
+        fixed `CLOSING_FALLBACK_SENTENCE`. Every line still goes through the guard, TTS and the realtime renderer.
+        """
+        if closing:
+            return await self._prepare_verbatim(slot, closing=True)
+        catalog = self.store.catalog
+        if not catalog.products:
+            await asyncio.sleep(self.llm_retry_delay_s)
+            settled = asyncio.Event()
+            settled.set()
+            return settled
+        product = next((p for p in catalog.products if p.id == slot.product_id), None)
+        if product is None and slot.topic is not Topic.OPENING:
+            product = catalog.primary
+        if product is None:
+            lines = loop_script.opening_passage(catalog)
+            segment, settled, requested = self._open_segment(None, Topic.OPENING, SegmentOrigin.FALLBACK, catalog)
+        else:
+            invites = loop_script.invite_lines(catalog)
+            turn = self._loop_turns.get(product.id, 0)
+            self._loop_turns[product.id] = turn + 1
+            lines = loop_script.product_passage(product, invites[self._loop_invite % len(invites)], turn)
+            self._loop_invite += 1
+            segment, settled, requested = self._open_segment(product.id, Topic.INTRO, SegmentOrigin.FALLBACK, catalog)
+        # The passage is meant to repeat, so it skips the repeat filter like fallback text does.
+        accepted = sum(self._take(segment, catalog, line, requested, over_max=False, dedup=False) for line in lines)
+        if accepted:
+            self._lines.put_nowait(_SegmentEnd(segment))
+            return settled
+        blocked = any(s.status is SentenceStatus.BLOCKED for s in segment.sentences)
+        self._finalize(segment, SegmentStatus.BLOCKED if blocked else SegmentStatus.FAILED)
+        await asyncio.sleep(self.llm_retry_delay_s)
         return settled
 
     def _open_segment(
@@ -1459,13 +1502,12 @@ class ScriptRunner:
         self.log.write_script_sentence(script_sentence_record(sentence, source))
         self.stats.record_sentence(sentence, source)
 
-    def _logged_source(self, segment: Segment) -> Literal["script", "fallback", "verbatim"]:
-        # A verbatim show reads through the fallback path but nothing failed, so its lines are not fallback lines in
-        # the logs and reports (004 contracts/events.md §2).
-        source = _source(segment)
-        if source == "fallback" and self.show.content_source == "verbatim":
-            return "verbatim"
-        return source
+    def _logged_source(self, segment: Segment) -> Literal["script", "fallback", "verbatim", "loop"]:
+        # Verbatim and loop shows never ask the engine (their fixed closing included) and nothing failed, so their
+        # lines are neither script nor fallback lines in the logs and reports (004 contracts/events.md §2).
+        if self.show.content_source in ("verbatim", "loop"):
+            return self.show.content_source
+        return _source(segment)
 
     def _log_milestone(self, segment: Segment, sentence: ScriptSentence, milestone: Milestone, at: float) -> None:
         sentence.marks.setdefault(milestone, at)

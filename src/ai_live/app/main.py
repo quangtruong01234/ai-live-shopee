@@ -29,8 +29,10 @@ from ai_live.avatar.factory import avatar_image_path, create_renderer, expected_
 from ai_live.brain.factory import create_reply_engine
 from ai_live.brain.guard import load_guard
 from ai_live.comment_queue.memory_queue import InMemoryCommentQueue
+from ai_live.comments.author_limits import AuthorLimiter
 from ai_live.comments.classifier import PriorityClassifier
 from ai_live.comments.filters import CommentFilter
+from ai_live.comments.greetings import GreetingReplier, GreetingRules
 from ai_live.comments.intake import CommentIntake
 from ai_live.comments.mock_source import MockSource
 from ai_live.core.config import Settings
@@ -45,6 +47,7 @@ from ai_live.ops.system import power_status
 from ai_live.ops.watchdog import WatchdogService
 from ai_live.products.models import ContentLoadError
 from ai_live.products.store import DocxProductStore
+from ai_live.scene.background import BackgroundController
 from ai_live.scene.controller import SceneController
 from ai_live.scene.uploads import ProductImageStore
 from ai_live.tts.factory import create_tts
@@ -128,6 +131,10 @@ def create_app(
             classifier=PriorityClassifier.from_settings(settings),
             queue=queue,
             bus=bus,
+            limiter=AuthorLimiter(
+                settings.comment_author_max, settings.comment_author_window_s, settings.comment_author_mute_s
+            ),
+            greetings=GreetingRules.from_settings(settings),
         )
         director = ShowDirector(
             queue=queue,
@@ -144,6 +151,7 @@ def create_app(
             guard=guard,
             settings=settings,
             faults=faults,
+            greeter=GreetingReplier.from_settings(settings),
         )
         avatar_image = avatar_image_path(settings, character)
         scene = (
@@ -151,6 +159,19 @@ def create_app(
             if settings.scene_enabled
             else None
         )
+        # 014: the room behind the host is drawn from each loaded scene set.
+        background = None
+        if scene is not None:
+            background = BackgroundController(
+                renderer,
+                bus,
+                character.avatar_dir if character is not None else None,
+                character_id=character.character_id if character is not None else settings.avatar_id,
+            )
+            scene.add_scene_loaded_listener(background.on_scene_loaded)
+            # The still behind the video shows the same room as the video (the first frame in the new room).
+            scene.set_room(background.room_face)
+            background.add_room_listener(scene.refresh)
         watchdog = None
         if watchdog_events is not None:
             watchdog = WatchdogService(
@@ -174,10 +195,14 @@ def create_app(
             avatar_image=avatar_image,
             character=character,
             scene=scene,
+            background=background,
             watchdog=watchdog,
             images=ProductImageStore(settings.scene_dir, settings.customer_id),
             spoken=spoken,
         )
+        if background is not None:
+            # Before the renderer, so it hears the fork's first `hello`.
+            await background.start()
         await renderer.start()
         if scene is not None:
             # After the renderer, so the fork link exists to take the first layer; a scene error never stops startup.

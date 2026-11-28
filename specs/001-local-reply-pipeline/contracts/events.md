@@ -15,6 +15,7 @@ Mốc độ trễ ghi `event` = tên mốc và `t_mono` (giây, `time.monotonic(
 | `turn_finished` | `utterance_id`, `outcome`, `error_step`?, `total_s`? |
 | `guard_blocked` | `utterance_id`, `reason`, `sentence_hash` (không log nguyên câu bị chặn ở mức INFO) |
 | `comment_dropped` | `comment_id`, `reason` |
+| `viewer_blocked` / `viewer_unblocked` | `author_key`, `minutes`? (null = cả phiên), `removed`? (ADR-078) |
 | `content_replaced` / `content_rejected` | `version` / `issue_count` |
 | `control_command` | `command` (`pause` \| `resume` \| `skip`), `t_mono`: lúc server nhận lệnh |
 | `control_applied` | `command`, `latency_ms`, `utterance_id`? (skip): lúc gửi `stop` tới trang host (skip) hoặc phát `session_state` (pause/resume) |
@@ -51,10 +52,11 @@ dạng key Google `AIza...`. Nội dung comment chỉ log ở mức DEBUG (dữ 
 | `type` | Payload |
 |--------|---------|
 | `state` | như `GET /api/state` (chỉ gửi lúc mới kết nối) |
-| `comment_accepted` | `{comment_id, author, text, priority}` |
-| `comment_dropped` | `{comment_id, author, text, reason}` |
-| `queue_changed` | `{queue: [{comment_id, author, text, priority, status}]}` (theo thứ tự `snapshot()`) |
-| `turn_started` | `{utterance_id, comment_id, author, text}` |
+| `comment_accepted` | `{comment_id, author, author_key, text, priority, kind?}` (`author_key` thêm bởi ADR-078, `kind` bởi ADR-077) |
+| `comment_dropped` | `{comment_id, author, author_key, text, reason}` |
+| `queue_changed` | `{queue: [{comment_id, author, author_key, text, priority, status}]}` (theo thứ tự `snapshot()`) |
+| `viewers_changed` | `{viewers: [ViewerBlock]}` khi chặn, bỏ chặn, hoặc luật tốc độ vừa tạm bỏ qua một người (ADR-078) |
+| `turn_started` | `{utterance_id, comment_id, author, author_key, text}` |
 | `sentence` | `{utterance_id, seq, text}` (câu đã qua guard, sắp phát) |
 | `guard_blocked` | `{utterance_id, reason}` |
 | `turn_finished` | `{utterance_id, outcome, error_step?, error_kind?, error_message?, total_s?}` (`error_kind`, `error_message` chỉ có khi `outcome=error`, thêm bởi 003 T043; `error_message` đã che khóa) |

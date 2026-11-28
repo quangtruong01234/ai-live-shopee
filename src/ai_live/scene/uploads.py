@@ -13,6 +13,7 @@ import copy
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import uuid
@@ -20,11 +21,18 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from ai_live.scene.models import MAX_IMAGE_BYTES, MAX_IMAGE_SIDE
+from ai_live.core.logging import log_event
+from ai_live.scene.matting import RETRYABLE_REASONS
+from ai_live.scene.models import MAX_IMAGE_BYTES, MAX_IMAGE_SIDE, SceneIssue
+
+if TYPE_CHECKING:
+    from ai_live.scene.matting import CutResult
+
+logger = logging.getLogger("ai_live.scene")
 
 PRODUCT_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 PRODUCT_ID_MAX = 120
@@ -39,7 +47,10 @@ UPLOAD_MAX_SIDE = 1280
 EMPTY_ALPHA_RATIO = 0.01
 HISTORY_MAX = 20
 SOURCE_NAME_MAX = 200
+# Background-removal fields of a version (013 contracts/scene-set.md §3); a 012 version has none of them.
+BG_FIELDS = ("bg_removal", "cutout_version", "derived_from")
 _FORMATS = frozenset({"PNG", "WEBP", "JPEG", "MPO"})
+CUTOUT_SUFFIX = " (đã bỏ nền)"
 
 ImageState = str | None  # a version id, "kit", or None for "removed"
 
@@ -143,6 +154,26 @@ def validate_and_normalize(data: bytes) -> NormalizedImage:
     return NormalizedImage(png, rgba.width, rgba.height, has_alpha, hashlib.sha256(png).hexdigest()[:12])
 
 
+def needs_bg_removal(version: dict[str, Any]) -> bool:
+    """Whether an upload should go through background removal (013 data-model §9).
+
+    A cut-out is never cut again; a stored result is reused, except a failure whose cause may be gone by now (model
+    installed later, show stopped).
+    """
+    if version.get("derived_from") is not None:
+        return False
+    record = version.get("bg_removal")
+    if not isinstance(record, dict):
+        return True
+    return record.get("result") == "failed" and record.get("reason") in RETRYABLE_REASONS
+
+
+def _encode_png(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 def _write_atomic(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
@@ -219,6 +250,35 @@ class ProductImageStore:
     def entries(self) -> dict[str, dict[str, Any]]:
         products = self._data["products"] if self._data else {}
         return {pid: copy.deepcopy(e) for pid, e in products.items() if isinstance(e, dict)}
+
+    def version(self, product_id: str, version_id: str) -> dict[str, Any] | None:
+        """A copy of one version with the 013 fields always present (None when a 012 version lacks them)."""
+        entry = self.entry(product_id)
+        versions = entry.get("versions") if entry else None
+        version = versions.get(version_id) if isinstance(versions, dict) else None
+        if not isinstance(version, dict):
+            return None
+        return {**dict.fromkeys(BG_FIELDS), **version}
+
+    @property
+    def issues(self) -> tuple[SceneIssue, ...]:
+        """Warnings about the manifest content; none of them stops the store from working."""
+        found: list[SceneIssue] = []
+        for product_id, entry in self.entries().items():
+            versions = entry.get("versions")
+            if not isinstance(versions, dict):
+                continue
+            for version_id, version in versions.items():
+                derived = version.get("derived_from") if isinstance(version, dict) else None
+                if derived is not None and (not isinstance(derived, str) or derived not in versions):
+                    found.append(
+                        SceneIssue.of(
+                            "bad_derived_from",
+                            f"Phiên bản ảnh {version_id}: derived_from = {derived!r} không trỏ tới phiên bản nào",
+                            product_id,
+                        )
+                    )
+        return tuple(found)
 
     def active(self, product_id: str) -> ImageState:
         entry = self.entry(product_id)
@@ -303,6 +363,84 @@ class ProductImageStore:
                 await asyncio.to_thread(path.unlink, True)
                 raise
             return copy.deepcopy(version), False
+
+    async def record_bg_removal(self, product_id: str, version_id: str, cut: CutResult) -> dict[str, Any]:
+        """Store the outcome of removing an upload's background (013 data-model §7–§9, contracts/api.md §5).
+
+        `removed` adds the cut-out as a new version (`derived_from` the upload) that is saved but never applied, and
+        never inherits the upload's rights tick: the operator confirms each version when applying it (FR-011, FR-017).
+        Returns the upload's version, with `cutout_version` set when there is a cut-out.
+        """
+        check_product_id(product_id)
+        check_version_id(version_id)
+        png = await asyncio.to_thread(_encode_png, cut.image) if cut.result == "removed" and cut.image else None
+        cutout_id = hashlib.sha256(png).hexdigest()[:12] if png is not None else None
+        async with self._lock:
+            data = self._writable()
+            entry = data["products"].get(product_id)
+            if not isinstance(entry, dict):
+                raise ImageStoreError(
+                    "unknown_version", f"Không có phiên bản ảnh {version_id} của sản phẩm {product_id}", 404
+                )
+            upload = self._version_of(entry, product_id, version_id)
+            record = {
+                "method": cut.method,
+                "result": cut.result,
+                "reason": cut.reason,
+                "ms": round(cut.ms, 1),
+                "model": cut.model,
+                "at": self._clock(),
+            }
+            upload["bg_removal"] = record
+            upload["cutout_version"] = None
+            written: Path | None = None
+            if png is not None and cutout_id is not None and cutout_id != version_id:
+                path = self.path(product_id, cutout_id)
+                if not await asyncio.to_thread(path.is_file):
+                    try:
+                        await asyncio.to_thread(_write_atomic, path, png)
+                    except OSError as exc:
+                        raise _save_failed(exc) from exc
+                    written = path
+                cutout = entry["versions"].get(cutout_id)
+                if not isinstance(cutout, dict):
+                    name = upload.get("source_name") or ""
+                    cutout = {
+                        "uploaded_at": record["at"],
+                        "source_name": name[: SOURCE_NAME_MAX - len(CUTOUT_SUFFIX)] + CUTOUT_SUFFIX,
+                        "width": cut.image.width,  # type: ignore[union-attr]
+                        "height": cut.image.height,  # type: ignore[union-attr]
+                        "has_alpha": True,
+                        "bytes": len(png),
+                        "applied_at": None,
+                        "rights_confirmed_at": None,
+                    }
+                    entry["versions"][cutout_id] = cutout
+                cutout.update(bg_removal=dict(record), cutout_version=None, derived_from=version_id)
+                upload["cutout_version"] = cutout_id
+            try:
+                await self._commit(data)
+            except ImageStoreError:
+                if written is not None:
+                    await asyncio.to_thread(written.unlink, True)
+                raise
+            size = cut.image.size if cut.image is not None else (upload.get("width"), upload.get("height"))
+            log_event(
+                logger,
+                "scene_bg_removed",
+                product_id=product_id,
+                version_id=version_id,
+                cutout_version=upload["cutout_version"],
+                method=cut.method,
+                result=cut.result,
+                reason=cut.reason,
+                ms=record["ms"],
+                model=cut.model,
+                width=size[0],
+                height=size[1],
+                **{key: cut.metrics.get(key) for key in ("fg_ratio", "border_fg_ratio", "uncertain_ratio")},
+            )
+            return {**dict.fromkeys(BG_FIELDS), **copy.deepcopy(upload)}
 
     async def apply(self, product_id: str, version_id: str, confirmed_at: str) -> dict[str, Any]:
         """Make an uploaded version the product's image; `confirmed_at` is when the operator ticked the rights box."""

@@ -55,9 +55,14 @@
 - [x] T017 [US1] `LIVETALKING_MOUTH_METHOD` trong `.env.example` và `scripts/livetalking/run.ps1`; contracts fork-protocol §4
 - [ ] T018 [US1] Người dùng chấm gói A/B r4 (≥ 3 người); nếu `shift=-1` thắng thì ghi ADR mới thay ADR-055, đổi mặc định trong
   `.env.example` và `docs/ARCHITECTURE.md` (**chờ người dùng**)
-- [ ] T019 [GPU] [US1] Show kịch bản 10 phút với cách được chọn: fps trung vị ≥ 20, khung đầu và lặng p95 so với 005 (SC-005). Với
+- [x] T019 [GPU] [US1] Show kịch bản 10 phút với cách được chọn: fps trung vị ≥ 20, khung đầu và lặng p95 so với 005 (SC-005). Với
   mặc định `w2l` thì dùng số show 30 phút của 005 (quickstart 005 §9: `render_fps` p50 25,14); chỉ chạy lại nếu đổi sang `shift=-1`
-  (**chờ T018**)
+  (**chờ T018**).
+  Bổ sung 2026-11-20: chạy trước luôn với `shift=-1` để T018 chỉ còn phần người chấm. Fork Wav2Lip `demo_host_01`,
+  `LIVETALKING_MOUTH_METHOD=shift=-1` (biến môi trường, không sửa `.env`), chuỗi giả, giọng VieNeu. Phiên `20261120-214330` show
+  `7502fc9c…`: 629,5 s (10,5 phút), 179 câu, 0 lỗi, 0 lần rơi về ảnh tĩnh; FPS p50 25,17 (thấp nhất 18,3), VRAM 2656 MB; câu đầu
+  1,625 s (005: 1,64 s); lặng trung vị 0,031 s, p95 0,438 s, max 0,985 s (005: p95 1,00 s; `w2l` cùng ngày ở 011 T041: 0,86 s); 0 lặng
+  > 5 s. SC-005 đạt với `shift=-1`. Có chọn `shift=-1` hay không vẫn theo kết quả chấm T018. Log `out/010_t019/`
 
 ---
 

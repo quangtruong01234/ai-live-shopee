@@ -33,7 +33,12 @@ from ai_live.avatar.static_renderer import HostLink
 from ai_live.core.events import Event, EventBus, EventType, lipsync_health_event
 from ai_live.core.logging import log_event
 from ai_live.core.models import LipsyncHealth, RenderTurnStats
-from ai_live.core.protocols import PlaybackListener, RendererError, RendererUnavailable
+from ai_live.core.protocols import (
+    ForkBackgroundStatus,
+    PlaybackListener,
+    RendererError,
+    RendererUnavailable,
+)
 from ai_live.scene.models import FrameGeometry, KeepOut, SceneLayer
 
 logger = logging.getLogger("ai_live.avatar")
@@ -134,6 +139,11 @@ class LiveTalkingRenderer:
         self._scene_layers: dict[str, SceneLayer] = {}
         self._geometry_listeners: list[Callable[[FrameGeometry], None]] = []
         self._scene_supported: bool | None = None
+        # Backdrop under the host (014): the last plate, sent again on every new fork link like the layers.
+        self._background_plate: bytes | None = None
+        self._background_set = False  # whether the app ever chose a plate (or cleared one) for this fork
+        self._background_status: ForkBackgroundStatus | None = None
+        self._background_listeners: list[Callable[[ForkBackgroundStatus | None], None]] = []
 
     # ---------- Extra state ----------
 
@@ -222,6 +232,9 @@ class LiveTalkingRenderer:
         self._interrupted = False
         ids = {"utterance_id": utterance_id, "seq": seq}
         handed_off = False
+        # The fork plays chunks as they land, so the voice can start long before CPU TTS has finished the sentence:
+        # the subtitle and "heard" follow the fork's ack, not the end of sending.
+        announced = loop.create_task(self._announce(started, utterance_id, seq, text))
         try:
             await ws.send(json.dumps({"type": "sentence_start", **ids, "text": text, "sample_rate": sample_rate}))
             audio_bytes = 0
@@ -249,13 +262,13 @@ class LiveTalkingRenderer:
             await self._wait(started, self.first_frame_timeout_s, "Phần nhép miệng không phát câu này kịp")
             if self._interrupted:
                 return
-            await self._host.send_to_host({"type": "subtitle", **ids, "text": text})
-            self._playback.started(utterance_id, seq, text)
+            started_at = await announced
             duration_s = audio_bytes / 2 / sample_rate
             if self.lead_s > 0:
                 # R15: hand back early so the next sentence's TTS overlaps the end of this one; the fork queues it.
+                left_s = duration_s - (loop.time() - started_at) - self.lead_s
                 try:
-                    await asyncio.wait_for(asyncio.shield(played), max(0.0, duration_s - self.lead_s))
+                    await asyncio.wait_for(asyncio.shield(played), max(0.0, left_s))
                 except TimeoutError:
                     handed_off = True
                     self._settled.setdefault(utterance_id, asyncio.get_running_loop().create_future())
@@ -274,8 +287,22 @@ class LiveTalkingRenderer:
                 raise RendererError("lipsync_unavailable", _LOST) from exc
             raise
         finally:
+            if not announced.done():
+                announced.cancel()
+            elif not announced.cancelled():
+                announced.exception()  # a failed ack already surfaced through `_wait`; do not log it again
             if not handed_off:
                 self._release(utterance_id, seq, started, played, counted)
+
+    async def _announce(self, started: asyncio.Future[None], utterance_id: str, seq: int, text: str) -> float:
+        """Show the subtitle and tell listeners once the fork starts playing; returns the loop time it did."""
+        # Shielded: a timeout in `speak` cancels `started` itself, which then cancels this task too.
+        await asyncio.shield(started)
+        started_at = asyncio.get_running_loop().time()
+        if not self._interrupted:
+            await self._host.send_to_host({"type": "subtitle", "utterance_id": utterance_id, "seq": seq, "text": text})
+            self._playback.started(utterance_id, seq, text)
+        return started_at
 
     async def interrupt(self) -> None:
         # A repeated skip before `speak` has unwound must not send a second `stop`.
@@ -329,6 +356,53 @@ class LiveTalkingRenderer:
         except ConnectionClosed as exc:
             # The next `hello` sends every layer again; nothing to retry here.
             log_event(logger, "scene_send_failed", logging.WARNING, layer=name, error=str(exc))
+
+    # ---------- BackgroundSink (014 fork-protocol §3) ----------
+
+    def set_scene_background(self, plate_png: bytes | None) -> None:
+        self._background_plate = plate_png
+        self._background_set = True
+        if self.ready and self._background_status is not None:
+            self._spawn(self._send_scene_background(plate_png))
+
+    def add_background_status_listener(self, callback: Callable[[ForkBackgroundStatus | None], None]) -> None:
+        self._background_listeners.append(callback)
+
+    async def _send_scene_background(self, plate_png: bytes | None) -> None:
+        ws = self._ws
+        if ws is None:
+            return
+        png_b64 = base64.b64encode(plate_png).decode("ascii") if plate_png is not None else None
+        try:
+            await ws.send(json.dumps({"type": "scene_background", "png_b64": png_b64}))
+        except ConnectionClosed as exc:
+            # The next `hello` sends the plate again; nothing to retry here.
+            log_event(logger, "scene_send_failed", logging.WARNING, layer="background", error=str(exc))
+            return
+        log_event(logger, "scene_background_sent", plate_bytes=len(plate_png) if plate_png is not None else 0)
+
+    def _on_hello_background(self, raw: Any) -> None:
+        # None (no block) is an older fork that ignores `scene_background`: nothing is sent to it.
+        self._background_status = ForkBackgroundStatus.from_hello(raw)
+        self._notify_background()
+        if self._background_status is not None and self._background_set:
+            # A new link may be a restarted fork without the plate, or one that missed a change while away.
+            self._spawn(self._send_scene_background(self._background_plate))
+
+    def _on_background_error(self, kind: str, text: str) -> None:
+        # Never a turn error: the fork keeps the old plate (rejected) or already went back to the room (failed).
+        prefix = "rejected" if kind == "background_rejected" else "failed"
+        log_event(logger, f"scene_background_{prefix}", logging.WARNING, message=text)
+        if self._background_status is not None:
+            self._background_status = replace(self._background_status, reason=f"{prefix}:{text}")
+        self._notify_background()
+
+    def _notify_background(self) -> None:
+        for callback in list(self._background_listeners):
+            try:
+                callback(self._background_status)
+            except Exception:
+                logger.exception("background status listener failed")
 
     # ---------- Speaking internals ----------
 
@@ -534,6 +608,7 @@ class LiveTalkingRenderer:
         )
         self._publish_health()
         self._on_hello_scene(message.get("scene"))
+        self._on_hello_background(message.get("background"))
 
     def _lipsync_mismatch(self, running: dict[str, Any] | None) -> list[str]:
         """Keys where the fork's block differs from the config; empty when it matches or nothing is expected."""
@@ -617,6 +692,9 @@ class LiveTalkingRenderer:
             layer = message.get("layer")
             log_event(logger, "scene_rejected", logging.WARNING, layer=layer, message=text)
             self._publish_scene_error(f"Fork từ chối lớp {layer}: {text}")
+            return
+        if kind in ("background_rejected", "background_failed"):
+            self._on_background_error(kind, text)
             return
         utterance_id = message.get("utterance_id")
         self._health = replace(self._health, last_error=kind, updated_at=datetime.now(UTC))

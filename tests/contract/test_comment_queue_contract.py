@@ -17,7 +17,10 @@ MAX_AGE_S = 30.0
 
 
 def _comment(cid: str, received_at: float) -> Comment:
-    return Comment(id=cid, source="mock", author="Lan", text=cid, received_at=received_at)
+    # One viewer per comment: these tests are about ordering, not the one-waiting-comment-per-viewer rule (FR-028).
+    return Comment(
+        id=cid, source="mock", author="Lan", text=cid, received_at=received_at, meta={"author_key": f"viewer-{cid}"}
+    )
 
 
 def _dropped(events) -> list[tuple[str, str]]:

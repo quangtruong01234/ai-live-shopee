@@ -103,7 +103,7 @@ Sản phẩm không có mục trong sổ = `"kit"`.
 | `uploaded_at`, `applied_at`, `rights_confirmed_at` | str \| null | FR-018 |
 | `has_alpha` | bool \| null | |
 | `can_revert` | bool | `history` khác rỗng |
-| `issues` | list[`SceneIssue`] | vấn đề của bộ nạp cho pid này (vd `missing_confirmation`) |
+| `issues` | list[`SceneIssue`] | vấn đề của bộ nạp cho pid này (vd `missing_confirmation`) và của bố cục lần vẽ gần nhất (vd `art_too_wide`, thêm bởi T071) |
 | `versions` | list | `{version_id, uploaded_at, source_name, applied_at}`, mới trước; cho phần chi tiết |
 
 ## 5. `PreviewRequest` (tham số của `GET /api/scene/preview.png`)

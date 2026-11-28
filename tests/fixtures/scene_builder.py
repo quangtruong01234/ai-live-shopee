@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import io
 import json
+import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from ai_live.products.models import Product, ProductCatalog, Variant
 
@@ -56,7 +57,13 @@ def demo_catalog(version: str = "v1") -> ProductCatalog:
     )
 
 
-def product_png(path: Path, size: tuple[int, int] = (120, 240), color: tuple[int, int, int] = (200, 120, 90)) -> None:
+def product_color(pid: str) -> tuple[int, int, int]:
+    """A stable, product-specific colour (never green-dominant: the 014 backdrop test reads green as stray)."""
+    seed = zlib.crc32(pid.encode("utf-8"))
+    return (90 + seed % 150, 40 + (seed >> 8) % 60, 60 + (seed >> 16) % 150)
+
+
+def product_png(path: Path, size: tuple[int, int] = (200, 400), color: tuple[int, int, int] = (200, 120, 90)) -> None:
     """A transparent picture with an opaque bottle shape in the middle."""
     image = Image.new("RGBA", (size[0] + 20, size[1] + 20), (0, 0, 0, 0))
     image.paste((*color, 255), (10, 10, 10 + size[0], 10 + size[1]))
@@ -72,14 +79,21 @@ def make_scene_dir(
     scene: dict[str, Any] | None = None,
     records: dict[str, dict[str, Any]] | None = None,
     desk: bool = True,
+    distinct_colors: bool = False,
 ) -> Path:
-    """A complete, valid scene set: desk, one PNG with alpha and one original photo per product, provenance."""
+    """A complete, valid scene set: desk, one PNG with alpha and one original photo per product, provenance.
+
+    `distinct_colors` gives each product its own colour, so a picture that shows other products looks different (014).
+    """
     root.mkdir(parents=True, exist_ok=True)
     if desk:
         Image.new("RGB", (540, 210), (150, 100, 60)).save(root / "desk.png")
     provenance_products: dict[str, dict[str, Any]] = {}
     for pid in product_ids:
-        product_png(root / "products" / f"{pid}.png")
+        if distinct_colors:
+            product_png(root / "products" / f"{pid}.png", color=product_color(pid))
+        else:
+            product_png(root / "products" / f"{pid}.png")
         original = root / "originals" / f"{pid}.jpg"
         original.parent.mkdir(parents=True, exist_ok=True)
         Image.new("RGB", (60, 80), (240, 240, 240)).save(original)
@@ -141,7 +155,7 @@ def _bottle(size: tuple[int, int], color: tuple[int, int, int], alpha: bool) -> 
 
 def image_bytes(
     kind: ImageKind = "png",
-    size: tuple[int, int] = (120, 240),
+    size: tuple[int, int] = (200, 400),
     color: tuple[int, int, int] = (200, 120, 90),
 ) -> bytes:
     """Upload bodies for 012 tests, drawn with Pillow so no picture is committed (SC-004)."""
@@ -194,3 +208,77 @@ def write_manifest(scene_dir: Path, data: dict[str, Any] | str) -> Path:
     text = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# ---------- 013: product photos for background removal (drawn on the fly, never committed) ----------
+
+MattingKind = Literal[
+    "white_bg",
+    "flat_gray_bg",
+    "flat_blue_bg",
+    "white_inside",
+    "white_on_white",
+    "baked_shadow",
+    "noisy_bg",
+    "transparent",
+    "very_wide",
+    "very_tall",
+]
+
+PRODUCT_COLOR = (200, 60, 40)
+
+
+def matting_image(kind: MattingKind, size: tuple[int, int] = (320, 400)) -> Image.Image:
+    """A product photo for 013 background-removal tests; the product is a solid box in the middle.
+
+    The box covers the centre third of the picture and never touches the border, so a correct flood fill from the
+    border removes everything outside it and nothing inside it.
+    """
+    w, h = size
+    if kind == "very_wide":
+        w, h = 1000, 200
+    elif kind == "very_tall":
+        w, h = 150, 600
+    box = (w // 4, h // 6, 3 * w // 4, 5 * h // 6)
+    if kind == "transparent":
+        image = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        image.paste((*PRODUCT_COLOR, 255), box)
+        return image
+    background = {
+        "flat_gray_bg": (128, 128, 128),
+        "flat_blue_bg": (40, 90, 200),
+    }.get(kind, (255, 255, 255))
+    image = Image.new("RGB", (w, h), background)
+    draw = ImageDraw.Draw(image)
+    if kind == "noisy_bg":
+        # Many-coloured stripes: no single border colour, so it is never "flat".
+        for x in range(0, w, 8):
+            draw.rectangle((x, 0, x + 7, h), fill=((x * 37) % 256, (x * 91) % 256, (x * 53) % 256))
+    if kind == "white_on_white":
+        # An off-white box with a thin grey outline: hard, but the outline keeps it separable from the border.
+        draw.rectangle(box, fill=(246, 246, 246), outline=(150, 150, 150), width=3)
+        return image
+    if kind == "baked_shadow":
+        x1, y1, x2, y2 = box
+        draw.ellipse((x1 - 10, y2 - 12, x2 + 10, y2 + 14), fill=(190, 190, 190))
+    draw.rectangle(box, fill=PRODUCT_COLOR)
+    if kind == "white_inside":
+        # A white label inside the box, same colour as the background but not connected to the border (US2 #4).
+        x1, y1, x2, y2 = box
+        draw.rectangle((x1 + 15, y1 + 20, x2 - 15, y1 + 20 + (y2 - y1) // 3), fill=(255, 255, 255))
+        draw.text((x1 + 22, y1 + 28), "LABEL", fill=(20, 20, 20))
+    return image
+
+
+def matting_box(kind: MattingKind, size: tuple[int, int] = (320, 400)) -> tuple[int, int, int, int]:
+    """The product box `matting_image` draws, to check what a cut kept."""
+    w, h = size
+    if kind == "very_wide":
+        w, h = 1000, 200
+    elif kind == "very_tall":
+        w, h = 150, 600
+    return (w // 4, h // 6, 3 * w // 4, 5 * h // 6)
+
+
+def matting_bytes(kind: MattingKind, size: tuple[int, int] = (320, 400), fmt: str = "PNG") -> bytes:
+    return _encode(matting_image(kind, size), fmt)

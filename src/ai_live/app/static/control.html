@@ -70,6 +70,14 @@
         <div id="show-stats" class="latency-meta"></div>
         <!-- 009: shown only when SCENE_ENABLED is on. -->
         <div id="show-scene" class="turn-meta" hidden></div>
+        <!-- 014: the room behind the host; read-only, it follows the scene set. -->
+        <div id="scene-background" class="scene-background turn-meta" hidden>
+          <span class="scene-background-label">Nền sau host:</span>
+          <span id="background-text">đang đọc…</span>
+          <a id="background-preview-link" href="/api/scene/background/preview.png" target="_blank" rel="noopener" hidden
+            title="Mở ảnh xem trước cỡ lớn"><img id="background-preview" alt="Xem trước nền sau host" /></a>
+        </div>
+        <!-- /scene-background -->
         <h3>Câu kịch bản bị chặn (10 câu gần nhất)</h3>
         <ul id="show-blocked" class="list"><li class="empty">Chưa có.</li></ul>
         <h3>Lỗi của show (10 lỗi gần nhất)</h3>
@@ -185,8 +193,23 @@
             <input id="image-file" type="file" accept="image/png,image/webp,image/jpeg">
             <span id="image-upload-msg" class="form-msg"></span>
           </div>
+          <div id="image-cut" class="cut-frame" hidden>
+            <div class="cut-pair">
+              <button id="image-cut-original" type="button" class="cut-choice" aria-pressed="false">
+                <span class="checker"><img alt="Ảnh tải lên"></span>
+                <span class="cut-label">Ảnh tải lên</span>
+              </button>
+              <button id="image-cut-cutout" type="button" class="cut-choice" aria-pressed="false">
+                <span class="checker"><img alt="Bản bỏ nền"></span>
+                <span class="cut-label">Bản bỏ nền</span>
+              </button>
+            </div>
+            <p id="image-cut-info" class="hint"></p>
+            <div id="image-cut-fail" class="banner" hidden></div>
+          </div><!-- /image-cut -->
           <div id="image-bg-warning" class="banner" hidden>Ảnh này không có nền trong suốt (ảnh còn nền): trên bàn sẽ hiện nguyên
             khung chữ nhật. Nên tách nền trước nếu kịp.</div>
+          <div id="image-wide-warning" class="banner" hidden></div>
           <label class="rights">
             <input id="image-rights" type="checkbox">
             <span>Ảnh do khách cung cấp, là ảnh chụp thật của chính sản phẩm; không chứa logo, ảnh người hay tài sản của bên thứ ba khi chưa được phép; không phải ảnh do AI tạo.</span>
@@ -231,8 +254,23 @@
                 <input id="staging-image-file" type="file" accept="image/png,image/webp,image/jpeg">
                 <span id="staging-upload-msg" class="form-msg"></span>
               </div>
+              <div id="staging-cut" class="cut-frame" hidden>
+                <div class="cut-pair">
+                  <button id="staging-cut-original" type="button" class="cut-choice" aria-pressed="false">
+                    <span class="checker"><img alt="Ảnh tải lên"></span>
+                    <span class="cut-label">Ảnh tải lên</span>
+                  </button>
+                  <button id="staging-cut-cutout" type="button" class="cut-choice" aria-pressed="false">
+                    <span class="checker"><img alt="Bản bỏ nền"></span>
+                    <span class="cut-label">Bản bỏ nền</span>
+                  </button>
+                </div>
+                <p id="staging-cut-info" class="hint"></p>
+                <div id="staging-cut-fail" class="banner" hidden></div>
+              </div><!-- /staging-cut -->
               <div id="staging-bg-warning" class="banner" hidden>Ảnh này không có nền trong suốt (ảnh còn nền): trên bàn sẽ hiện
                 nguyên khung chữ nhật. Nên tách nền trước nếu kịp.</div>
+              <div id="staging-wide-warning" class="banner" hidden></div>
               <label class="rights">
                 <input id="staging-rights" type="checkbox">
                 <span>Ảnh do khách cung cấp, là ảnh chụp thật của chính sản phẩm; không chứa logo, ảnh người hay tài sản của bên thứ ba khi chưa được phép; không phải ảnh do AI tạo.</span>
@@ -283,6 +321,13 @@
       <section class="panel">
         <h2>Comment bị loại gần đây</h2>
         <ul id="dropped" class="list"><li class="empty">Chưa có.</li></ul>
+      </section>
+
+      <section class="panel" id="viewers-panel">
+        <h2>Người xem bị chặn <span id="viewers-count" class="badge">0</span></h2>
+        <div class="turn-meta">Bấm "Chặn" cạnh một comment: comment của người đó bị bỏ, lượt đang nói vẫn nói tiếp (muốn cắt thì bấm "Bỏ qua"). Tắt app là hết chặn.</div>
+        <ul id="viewers" class="list"><li class="empty">Không có ai.</li></ul>
+        <div id="viewers-msg" class="turn-meta" role="status"></div>
       </section>
 
       <section class="panel">

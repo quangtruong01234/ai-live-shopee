@@ -24,19 +24,33 @@ body.host { background: #000; overflow: hidden; }
 .avatar.speaking { animation: talk .5s ease-in-out infinite alternate; }
 @keyframes talk { from { transform: scale(1); } to { transform: scale(1.01); } }
 
-/* AI label: always visible, above every other layer; no class or parameter can hide it (Article I). */
+/* AI label: always visible, above every other layer; no class or parameter can hide it (Article I).
+   Bold white text with a dark outline and soft shadow, no box (ADR-076), matching the label the fork draws. */
 .ai-label {
   position: absolute; z-index: 1000;
-  padding: .35em .8em; border-radius: .4em;
-  background: rgba(0, 0, 0, .65); color: #fff;
-  font-weight: 700; font-size: clamp(16px, 2.4vw, 32px); letter-spacing: .04em;
+  color: #fff;
+  font-family: "Segoe UI Black", "Segoe UI", Arial, "DejaVu Sans", sans-serif;
+  font-weight: 900; font-size: clamp(16px, 2.4vw, 32px); letter-spacing: .02em;
+  -webkit-text-stroke: .07em #141414; paint-order: stroke fill;
+  text-shadow: 0 .1em .25em rgba(0, 0, 0, .65);
   /* One line, like the fork's banner: "AI-GENERATED CONTENT" (ADR-065) must not wrap into a block over the face. */
   white-space: nowrap; pointer-events: none;
 }
+.label-top-center { top: 3vh; left: 50%; transform: translateX(-50%); }
 .label-top-right { top: 3vh; right: 3vw; }
 .label-top-left { top: 3vh; left: 3vw; }
+.label-bottom-center { bottom: 3vh; left: 50%; transform: translateX(-50%); }
 .label-bottom-right { bottom: 3vh; right: 3vw; }
 .label-bottom-left { bottom: 3vh; left: 3vw; }
+/* ADR-085: below the Shopee app's title band, wrapped into two lines between its side chips and reward widgets. */
+.label-shopee-top {
+  top: 12.5vh; left: 50%; transform: translateX(-50%);
+  white-space: normal; text-align: center; width: max-content; max-width: 26vw;
+  font-size: clamp(10px, 2.4vh, 32px); line-height: 1.1;
+  /* ADR-089: a condensed bold face stays large in this narrow room, as in the fork's frame. */
+  font-family: Bahnschrift, "Arial Narrow", "DejaVu Sans Condensed", sans-serif;
+  font-stretch: condensed; font-weight: 700; letter-spacing: 0;
+}
 
 .subtitle {
   position: absolute; left: 50%; bottom: 8vh; transform: translateX(-50%);
@@ -45,13 +59,17 @@ body.host { background: #000; overflow: hidden; }
   font-size: clamp(18px, 2.8vw, 38px); line-height: 1.35;
 }
 .subtitle:empty { display: none; }
+.subtitle.off { display: none !important; } /* HOST_SUBTITLES=false (ADR-092) */
 /* 009: with the scene on, the stage is the 480×832 frame itself (about 9:16), centred, so the AI label sits inside
    the picture (where the fork draws it), not out in a black side bar that a cropped share would lose (Article I). */
 .stage.scene-on {
   position: absolute; inset: 0; margin: auto;
   width: min(100vw, 57.69vh); height: min(100vh, 173.33vw);
 }
-.scene-on .ai-label { font-size: clamp(12px, 2.8vh, 30px); }
+.scene-on .ai-label { font-size: clamp(11px, 2.6vh, 28px); }
+.scene-on .label-top-center { top: 1.5%; }
+.scene-on .label-shopee-top { top: 12.5%; max-width: 26%; font-size: clamp(9px, 2.4vh, 32px); }
+.scene-on .label-bottom-center { bottom: 1.5%; }
 .scene-on .label-top-right { top: 1.5%; right: 2.5%; }
 .scene-on .label-top-left { top: 1.5%; left: 2.5%; }
 .scene-on .label-bottom-right { bottom: 1.5%; right: 2.5%; }
@@ -70,10 +88,13 @@ body.host { background: #000; overflow: hidden; }
   font-size: 1.6rem; padding: .7em 2.2em; border: 0; border-radius: .5em;
   background: var(--brand); color: #fff; cursor: pointer;
 }
+/* On the edge away from the AI label: a status pill over the label would hide it (constitution, constraint 2). */
 .host-status {
-  position: absolute; top: 3vh; left: 50%; transform: translateX(-50%); z-index: 950;
+  position: absolute; bottom: 3vh; left: 50%; transform: translateX(-50%); z-index: 950;
   padding: .4em .8em; border-radius: .4em; background: var(--warn-bg); color: var(--warn-ink);
+  max-width: 90%; text-align: center;
 }
+.ai-label[class*="label-bottom"] ~ .host-status { bottom: auto; top: 3vh; }
 .host-status:empty { display: none; }
 /* 006: the OBS Browser Source captures the whole page, so nothing but the picture and the AI label may show
    (contracts/api.md §1). The label is deliberately not in this list (Article I). */
@@ -126,11 +147,22 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .list .time { color: var(--muted); margin-right: 6px; font-variant-numeric: tabular-nums; }
 .list .err { color: var(--err-ink); }
 .turn-meta.err { color: var(--err-ink); }
+/* 014: "Nền sau host" line with a small preview that opens full size. */
+.scene-background { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.scene-background[hidden] { display: none; }
+.scene-background-label { font-weight: 600; }
+.turn-meta.warn { color: var(--warn-ink); }
+#background-preview { height: 64px; width: auto; border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; }
 .empty { color: var(--muted); font-size: .9rem; }
 .prio { display: inline-block; min-width: 4.5em; margin-right: 6px; padding: 0 6px; border-radius: 4px; font-size: .75rem; text-align: center; background: var(--line); }
 .prio.HIGH { background: var(--brand); color: #fff; }
 .prio.MEDIUM { background: var(--warn-bg); color: var(--warn-ink); }
 .reason { margin-right: 6px; color: var(--err-ink); }
+/* 001 FR-029: small inline buttons to block or unblock a viewer. */
+.block-ctl { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+button.mini { font: inherit; font-size: .78rem; padding: 1px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: inherit; cursor: pointer; }
+button.mini.danger { border-color: var(--err-ink); color: var(--err-ink); }
+#viewers li button.mini { margin-left: 6px; }
 
 .latency { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .latency th, .latency td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
@@ -172,6 +204,17 @@ form.comment button { justify-self: start; font: inherit; padding: 8px 18px; bor
 .image-compare img { display: block; width: 100%; max-width: 300px; border: 1px solid var(--line); border-radius: 6px; background: #000; }
 #image-apply-btn:not(:disabled) { border-color: var(--brand); background: var(--brand); color: #fff; }
 /* 012 US3: the image in use; "Gỡ ảnh" looks dangerous because it takes the picture off live. */
+/* 013: the upload and its cut-out side by side on a checkerboard, so a missed background shows (contracts §4). */
+.cut-frame { margin: 8px 0; }
+.cut-pair { display: flex; flex-wrap: wrap; gap: 12px; }
+.cut-choice { display: grid; gap: 4px; justify-items: center; padding: 6px; font: inherit; color: inherit; background: var(--panel);
+  border: 2px solid var(--line); border-radius: 8px; cursor: pointer; }
+.cut-choice[aria-pressed="true"] { border-color: var(--brand); }
+.cut-choice .cut-label { font-size: .85rem; }
+.checker { display: flex; align-items: center; justify-content: center; width: 160px; height: 160px; border-radius: 4px;
+  background: repeating-conic-gradient(#cfcfcf 0% 25%, #ffffff 0% 50%) 50% / 16px 16px; }
+.checker img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.cut-frame .hint { margin: 6px 0 0; }
 .image-editor h4 { margin: 12px 0 4px; font-size: .95rem; }
 .image-current dl { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 2px 12px; margin: 0; font-size: .9rem; }
 .image-current dt { color: var(--muted); }

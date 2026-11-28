@@ -36,7 +36,7 @@ flowchart LR
 2. Filter loại spam, comment trùng, quá ngắn hoặc chứa từ cấm, rồi tính điểm ưu tiên và đưa vào queue.
 3. `ShowDirector` lấy comment có ưu tiên cao nhất. Nếu avatar đang nói kịch bản rảnh thì dừng ở ranh giới câu gần nhất,
    hoặc chèn câu đệm (ví dụ "Dạ, bạn {author} hỏi về ... ạ") để che độ trễ LLM.
-4. `ReplyEngine` truy xuất sản phẩm liên quan và gọi Gemini (ADR-018) ở chế độ streaming. ADR-035/037 thay bằng chuỗi model free ghim sẵn (`REPLY_ENGINE=chain`, spec 008: SEA-LION qua freellmapi → Qwen3.8 gọi thẳng Groq theo ADR-040, chuyển mục khi lỗi trước câu đầu), đã code (`brain/chain_engine.py`, 2026-11-04; kiểm key + model bằng `GET /models` lúc khởi động, trang điều khiển hiện model đang nói). Số đo độ trễ thật (T055, 2026-11-04, `FakeTTS` + static): câu đầu LLM p95 SEA-LION 1,30 s, gpt-oss-120b 1,72 s, Qwen3.8 1,26 s; khoảng lặng giữa hai câu kịch bản p95 0,016 s, giữa hai phân đoạn p95 0,728 s (lớn nhất 3,578 s khi có giả lập lỗi). Câu chào ≤ 1,64 s khi SEA-LION trả lời; khi SEA-LION hết giờ chờ 3,5 s thì 4,25–4,61 s, 1/5 lần 7,08 s (rủi ro Q18). Vì vậy ADR-040 hạ giờ chờ SEA-LION xuống 2,5 s và bỏ gpt-oss-120b (không đạt SC-001). Chi tiết và số đo lại ở `specs/008-llm-provider-chain/quickstart.md`. Đủ một câu là đẩy ngay sang TTS.
+4. `ReplyEngine` truy xuất sản phẩm liên quan và gọi Gemini (ADR-018) ở chế độ streaming. ADR-035/037 thay bằng chuỗi model free ghim sẵn (`REPLY_ENGINE=chain`, spec 008: SEA-LION qua freellmapi → Qwen3.8 gọi thẳng Groq theo ADR-040 → Gemini 3.5 Flash-Lite gọi thẳng Google theo ADR-073, chuyển mục khi lỗi trước câu đầu), đã code (`brain/chain_engine.py`, 2026-11-04; kiểm key + model bằng `GET /models` lúc khởi động, trang điều khiển hiện model đang nói). Số đo độ trễ thật (T055, 2026-11-04, `FakeTTS` + static): câu đầu LLM p95 SEA-LION 1,30 s, gpt-oss-120b 1,72 s, Qwen3.8 1,26 s; khoảng lặng giữa hai câu kịch bản p95 0,016 s, giữa hai phân đoạn p95 0,728 s (lớn nhất 3,578 s khi có giả lập lỗi). Câu chào ≤ 1,64 s khi SEA-LION trả lời; khi SEA-LION hết giờ chờ 3,5 s thì 4,25–4,61 s, 1/5 lần 7,08 s (rủi ro Q18). Vì vậy ADR-040 hạ giờ chờ SEA-LION xuống 2,5 s và bỏ gpt-oss-120b (không đạt SC-001). Chi tiết và số đo lại ở `specs/008-llm-provider-chain/quickstart.md`. Đủ một câu là đẩy ngay sang TTS.
 5. `TTSEngine` trả audio PCM16 mono 16 kHz theo chunk (ADR-024, ADR-025, spec 003: `TTS_PROVIDER=vieneu | gemini | fake`;
    máy chạy phiên dùng `vieneu`, Gemini free tier 3 RPM / 10 RPD chỉ để thử);
    `AvatarRenderer` sinh frame nhép miệng realtime.
@@ -114,6 +114,32 @@ từ trang điều khiển mà không tắt show. Không đổi Protocol adapter
    như cũ (`snapshot`/`restore`).
 4. "AI vừa nói" (`app/spoken.py`, `SpokenLog`): vòng đệm 100 câu kịch bản gần nhất (câu `sentence` có `segment_id`), kèm món và chủ đề;
    trang lấy lại qua `GET /api/state` (`spoken`) khi tải lại. Bấm một món để xem đủ dữ liệu của món đó, ở bộ live hay bộ chuẩn bị.
+
+**Sản phẩm đứng trên bàn như đồ thật (feature 013, ADR-074, ADR-079):** `scene.json` chọn cách bày bằng `layout.mode`: `rows` (009,
+mặc định khi thiếu khóa), `realistic` hay `showcase`. Không đổi Protocol adapter nào; lớp `base`/`punch`, cách gửi lớp cho fork và luồng đổi món nổi giữ nguyên.
+
+1. `compute_realistic_layout` (`scene/layout.py`) trả cùng kiểu `SceneLayout` như `compute_layout`. Món chính đứng trước bên phải tay
+   host (trạm `P`; cả bố cục lật sang trái khi ở đó món chính được vẽ to rõ hơn), món phụ ở các trạm `S1`, `S2`… hai bên, món sau nhỏ hơn và lùi về sau; đáy món chạm vạch mép bàn `desk_top`, có bóng
+   đổ mềm hai lớp cắt trong `shadow_box`. Vùng tay lấy từ `character.json` `scene.hands_zone`; thiếu thì dùng vùng giữa mặc định và báo
+   `hands_zone_missing`. Không món nào chạm mặt, tay, nhãn "AI", watermark hay dải phụ đề; món không đủ chỗ bị bỏ và báo trong `issues`.
+2. Làm nổi: món đang nói to lên tối đa `highlight_scale` (mặc định 1,08) từ giữa đáy, có ánh sáng ấm mềm phía sau (`glow_box`, cắt khỏi
+   vùng tay khi vẽ); món khác tối đi (0,85). Món đứng sau (kể cả món nổi) không lấn món đứng trước nó cả chiều cao lẫn diện tích (FR-004).
+3. Thẻ `layout.cards`: `none` (mặc định), `one` (chỉ thẻ món đang nói, trên các món cùng bên, dưới dải phụ đề; hết chỗ thì xuống đáy bên
+   đó), `all` (thẻ dưới đáy từng món). Thẻ không đủ chỗ thì ẩn và báo `card_no_room`. `scene_rendered` log `layout_mode`, `cards`, trạm
+   từng món và `card_texts` (chữ trên mỗi thẻ) để đối chiếu với file nội dung (SC-007). Với `rows`, thẻ luôn có, `layout.cards` bị bỏ
+   qua kèm cảnh báo `cards_ignored`.
+4. Bỏ nền ảnh tải lên (`scene/matting.py`): nền trơn (trắng hay một màu) bỏ bằng loang màu từ viền trên luồng phụ; nền phức tạp chạy
+   model ONNX (IS-Net hay BiRefNet) trong **tiến trình con ưu tiên thấp, 2 luồng, giết sau 60 giây**, để vòng sự kiện và VieNeu không bị
+   giật. Chỉ kênh alpha đổi, R, G, B giữ nguyên. Mỗi bản cắt qua `assess_cut`; bản không chắc thành `failed` kèm lý do tiếng Việt, không
+   bao giờ được chọn sẵn. Bản bỏ nền là một phiên bản mới trong kho 012 (`derived_from`, `bg_removal`), nên áp dụng, về ảnh trước, bộ
+   chuẩn bị và xác nhận quyền dùng chạy như cũ. Biến môi trường: `MATTING_MODEL_PATH` (trống = chỉ bỏ nền trơn), `MATTING_DURING_SHOW`
+   (`false` = không chạy model khi show đang live). Hợp đồng: `specs/013-realistic-desk-products/contracts/`.
+5. Cách bày trưng bày `showcase` (ADR-079, `compute_showcase_layout`): món chính cao khoảng 0,28 H (gần cỡ thật, ADR-082) ở giữa ngay trước host, tối đa 3 món phụ
+   phía sau (phải, trái, phải xa hơn), không món nào che món nào, cách nhau ≥ 8 px kể cả lúc làm nổi (ADR-081: thiếu chỗ thì món chính
+   nhỏ lại tới 0,22 H rồi món phụ nhỏ lại); cụm được che tay và ngực nhưng ảnh, bóng, ánh sáng, bục và sticker không chạm
+   mặt, nhãn "AI", watermark. `layout.riser` vẽ bục tròn trắng dưới món chính; `layout.sticker` vẽ sticker tròn chỉ có `price_text` của món
+   chính (không bao giờ có khuyến mãi). `compute_scene_layout` thêm cảnh báo `art_low_resolution` ở mọi cách bày khi ảnh nguồn < 1,5 ×
+   chiều cao vẽ lúc nổi; phản hồi tải ảnh 012 có `low_resolution`. Ảnh sản phẩm giữ tối đa `ART_MAX_SIDE` = 960 px (`scene/limits.py`).
 
 **Hai chế độ chạy:**
 
@@ -340,8 +366,8 @@ trình duyệt đệm hoặc tab bị nền).
 |---------|------|-------|
 | Cao | Hỏi giá, khuyến mãi, cách mua, size/biến thể, tồn kho | "Giá bao nhiêu vậy shop?" |
 | Trung bình | Hỏi thông số, công dụng, so sánh | "Dùng cho da dầu được không?" |
-| Thấp | Chào hỏi, khen | "Chào shop" (có thể gộp nhiều comment để chào một lượt) |
-| Bỏ | Spam, link, tục tĩu, comment trùng, quá `COMMENT_MAX_AGE_S` | |
+| Thấp | Chào hỏi, khen | "Chào shop": lời chào ngắn được trả lời bằng câu mẫu trong `data/rules/greetings.json`, không gọi LLM (ADR-077) |
+| Bỏ | Spam, link, tục tĩu, comment trùng, quá `COMMENT_MAX_AGE_S`; người gửi quá `COMMENT_AUTHOR_MAX` comment trong `COMMENT_AUTHOR_WINDOW_S` (tạm bỏ qua `COMMENT_AUTHOR_MUTE_S`); lời chào lặp lại của người đã được chào; comment cũ hơn của người đã có comment khác đang chờ (ADR-077) | |
 
 Phân loại ban đầu dùng luật từ khóa (rẻ và nhanh). TODO: có cần LLM phân loại không? Nếu có thì sẽ tốn thêm độ trễ.
 

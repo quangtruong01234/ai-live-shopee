@@ -59,6 +59,8 @@ def settings(tmp_path):
         avatar_mode="static",
         app_env="dev",
         session_data_dir=tmp_path / "sessions",
+        # Most show tests check the LLM-written rotation; loop shows opt in (ADR-088).
+        show_content="script",
     )
 
 

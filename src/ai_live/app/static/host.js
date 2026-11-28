@@ -397,6 +397,8 @@
     }
     // A page reloaded after a fallback starts on the still image; it still offers, so switching back is quick.
     active = config.active || config.mode;
+    // ADR-092: only an explicit `true` shows the spoken text; the acks and timing stay the same either way.
+    subtitle.classList.toggle("off", config.subtitles !== true);
     video.muted = active !== "livetalking";
     applyScene(config.scene);
   }

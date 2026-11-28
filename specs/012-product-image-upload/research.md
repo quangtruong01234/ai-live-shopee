@@ -44,7 +44,7 @@ chỉ dùng Pillow (đã có, ADR-051) và FastAPI (đã có).
   Mỗi lần từ chối trả mã + câu tiếng Việt (contracts/api.md §6), không ghi gì xuống đĩa.
 - **Lý do:**
   - Cùng giới hạn với 009 nên ảnh nào tải lên được thì mở lại phiên cũng nạp được (giả định của spec).
-  - Ảnh trên bàn tối đa 640 px (`ART_MAX_SIDE`, khi nổi được phóng 1,3 lần trong ô của layout); giữ 1280 px là dư cho cỡ nổi mà file
+  - Ảnh trên bàn tối đa 640 px (013 ADR-079 nâng lên 960 px) (`ART_MAX_SIDE`, khi nổi được phóng 1,3 lần trong ô của layout); giữ 1280 px là dư cho cỡ nổi mà file
     nhỏ, nạp lại nhanh (R5, rủi ro Q39).
   - Lưu PNG RGBA thống nhất nên bộ nạp cảnh không phải biết ảnh gốc là JPEG hay WebP; luật "phải có alpha" của 009 tự đạt.
   - `layout.compute_layout` đã giữ tỷ lệ theo `art_sizes`, nên ảnh còn nền hiện nguyên khung, không méo (FR-004), không cần code vẽ mới.

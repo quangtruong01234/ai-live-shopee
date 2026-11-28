@@ -43,9 +43,8 @@ ALL_TOPICS = (
     Topic.SPECS,
     Topic.PRICE,
     Topic.PROMOTION,
-    Topic.FAQ,
     Topic.CALL_TO_ACTION,
-)
+)  # FAQ left the rotation (ADR-088)
 SPARSE_TOPICS = (Topic.INTRO, Topic.HIGHLIGHTS, Topic.PRICE, Topic.CALL_TO_ACTION)
 GUARD = OutputGuard(("giỏ hàng", "voucher"))
 REPO_PHRASES = Path(__file__).resolve().parents[2] / "data" / "rules" / "platform_phrases.txt"
@@ -192,12 +191,12 @@ async def test_bad_segment_is_flagged_with_sentence_and_reason(valid):
 
 async def test_sentence_count_outside_bounds_warns_without_violation(valid):
     pid = valid.primary.id
-    engine = FakeReplyEngine(script={(pid, Topic.FAQ): ["Da dầu dùng được nha anh chị."]})
+    engine = FakeReplyEngine(script={(pid, Topic.SPECS): ["Da dầu dùng được nha anh chị."]})
     run = await _run(engine, valid)
-    faq = next(s for s in run.segments if (s.product_id, s.topic) == (pid, "faq"))
-    assert faq.sentence_count_warning is True
+    short = next(s for s in run.segments if (s.product_id, s.topic) == (pid, "specs"))
+    assert short.sentence_count_warning is True
     assert run.violation_count == 0
-    assert not any(s.sentence_count_warning for s in run.segments if s is not faq)
+    assert not any(s.sentence_count_warning for s in run.segments if s is not short)
 
 
 # ---------- Service errors: recorded, never counted as violations ----------

@@ -21,7 +21,7 @@ from ai_live.avatar.static_renderer import HostConnection, HostRole, StaticRende
 from ai_live.core.events import EventBus, avatar_mode_event
 from ai_live.core.logging import log_event
 from ai_live.core.models import AvatarMode, AvatarModeState, HostStatus, RenderTurnStats
-from ai_live.core.protocols import PlaybackListener
+from ai_live.core.protocols import ForkBackgroundStatus, PlaybackListener
 
 if TYPE_CHECKING:
     from ai_live.scene.models import FrameGeometry, SceneLayer
@@ -204,6 +204,18 @@ class SwitchingRenderer:
 
     def add_scene_geometry_listener(self, callback: Callable[[FrameGeometry], None]) -> None:
         add = getattr(self.lipsync, "add_scene_geometry_listener", None)
+        if add is not None:
+            add(callback)
+
+    # ---------- BackgroundSink (014): only the fork composites a backdrop ----------
+
+    def set_scene_background(self, plate_png: bytes | None) -> None:
+        sink = getattr(self.lipsync, "set_scene_background", None)
+        if sink is not None:
+            sink(plate_png)
+
+    def add_background_status_listener(self, callback: Callable[[ForkBackgroundStatus | None], None]) -> None:
+        add = getattr(self.lipsync, "add_background_status_listener", None)
         if add is not None:
             add(callback)
 

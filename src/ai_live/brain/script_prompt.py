@@ -23,7 +23,8 @@ DỮ LIỆU
 - Chỉ dùng thông tin trong thẻ <products> bên dưới. Không suy đoán, không thêm giá, khuyến mãi, tồn kho, công dụng, cam kết y tế hay chính sách đổi trả ngoài dữ liệu.
 - Tuyệt đối không được nói các khẳng định nằm trong mục "Khẳng định bị cấm" của từng sản phẩm.
 - Không đọc link sản phẩm.
-- Câu hỏi thường gặp chỉ dùng đúng các cặp hỏi–đáp đã ghi trong dữ liệu, không tự đặt thêm câu hỏi hay câu trả lời.
+- Không tự đặt câu hỏi rồi tự trả lời như thể có người hỏi. Muốn nhắc thông tin trong mục hỏi–đáp thì nói thẳng thông tin đó.
+- Có thể mời người xem bình luận hỏi em để được tư vấn (theo ngân sách, thành phần, chọn loại phù hợp).
 - Thông tin nào dữ liệu không có thì không nói tới; nếu cần thì mời anh chị nhắn shop để được tư vấn thêm.
 - Không kể lời khen hay trải nghiệm của khách hàng (như "nhiều khách khen", "ai dùng cũng ưng", "khách feedback"): dữ liệu không có.
 - Không tự thêm công dụng, cảm giác trên da hay độ an toàn (như "an toàn cho da", "không gây kích ứng", "hợp da nhạy cảm", "da mềm mại hơn") khi dữ liệu không ghi đúng ý đó. Không dùng "em thấy" để nêu nhận xét riêng về sản phẩm.
@@ -48,7 +49,7 @@ _TOPIC_BRIEFS = {
     Topic.PROMOTION: "Nói các khuyến mãi đang có của sản phẩm đúng như trong dữ liệu.",
     Topic.FAQ: "Chọn vài cặp hỏi–đáp đã ghi trong dữ liệu, nêu câu hỏi rồi trả lời đúng như đã ghi.",
     Topic.CALL_TO_ACTION: (
-        "Mời anh chị chốt đơn dựa trên khuyến mãi và phân loại trong dữ liệu; "
+        "Mời anh chị chốt đơn dựa trên khuyến mãi và phân loại trong dữ liệu, cần tư vấn thì bình luận hỏi em; "
         "không nhắc thao tác hay cơ chế của nền tảng."
     ),
     Topic.CLOSING: "Cảm ơn anh chị đã xem live và chào tạm biệt, tối đa 2 câu.",

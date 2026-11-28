@@ -25,15 +25,21 @@ Một mục `ProductImageStatus` (data-model §4) cho mỗi sản phẩm của c
 }
 ```
 
-Đọc được cả khi cảnh tắt (`scene_enabled: false`): trang vẫn cho xem và chuẩn bị ảnh (trường hợp biên).
+Đọc được cả khi cảnh tắt (`scene_enabled: false`): trang vẫn cho xem và chuẩn bị ảnh (trường hợp biên). `issues` của mỗi món gồm vấn đề
+của bộ nạp và (thêm bởi T071, FR-004a) vấn đề bố cục của lần vẽ gần nhất cho món đó, vd `art_too_wide` khi ảnh quá rộng nên chỉ hiện thẻ.
 
-### `POST /api/scene/uploads?product_id={pid}`
+### `POST /api/scene/uploads?product_id={pid}&target=live|staging`
 
 Thân = nội dung file ảnh thô; header `X-Filename` (tên file, mã hóa phần trăm). Kiểm và chuẩn hóa (research R2), lưu phiên bản, **không** áp.
-`pid` phải có trong catalog live **hoặc** bộ chuẩn bị (404 `unknown_product`).
+`pid` phải có trong catalog live **hoặc** bộ chuẩn bị (404 `unknown_product`). `target` (thêm bởi T071, mặc định `live`) là bộ mà ảnh sẽ
+lên, dùng để tính cảnh báo `too_wide`; `pid` không có trong bộ đó thì dùng bộ còn lại.
 
-- 201: `{"product_id", "version_id", "reused": bool, "width", "height", "has_alpha", "warnings": ["has_background"]?, "thumb_url"}`
-  (`reused` = đã có phiên bản y hệt). `has_background` khi `has_alpha=false` (FR-004).
+- 201: `{"product_id", "version_id", "reused": bool, "width", "height", "has_alpha", "warnings": [...], "warning_messages": {...}, "thumb_url"}`
+  (`reused` = đã có phiên bản y hệt). `warnings` gồm:
+  - `has_background` khi `has_alpha=false` (FR-004);
+  - `too_wide` (FR-004a, T071) khi theo bố cục của bộ `target`, ở khung hình hiện tại, ảnh không hiện được khi món không được nhắc tới
+    (live chỉ còn thẻ). `warning_messages.too_wide` là câu tiếng Việt cho trang, ghi rõ ảnh có hiện lúc AI nói về món hay không. Không
+    tính khi cảnh tắt hoặc bộ cảnh chưa dùng được.
 - Lỗi: §6. Không ghi gì khi lỗi.
 
 ### `GET /api/scene/images/{pid}/versions/{vid}.png`
@@ -43,7 +49,7 @@ PNG của phiên bản (ảnh nhỏ trên trang dùng `<img>` thu nhỏ bằng C
 
 ### `GET /api/scene/images/{pid}/kit.png`
 
-Ảnh bộ cảnh 009 của sản phẩm (đã cắt alpha, ≤ 640 px) để làm ảnh nhỏ. 404 nếu không có. `Cache-Control: no-cache`.
+Ảnh bộ cảnh 009 của sản phẩm (đã cắt alpha, ≤ 640 px (013 ADR-079 nâng lên 960 px)) để làm ảnh nhỏ. 404 nếu không có. `Cache-Control: no-cache`.
 
 ### `GET /api/scene/preview.png?target=live|staging&product_id={pid}&version_id={vid}`
 

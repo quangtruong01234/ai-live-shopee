@@ -26,6 +26,24 @@ _PERCENT = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d{3})+(?![.,]?\d)|\d+(?:[.,]\
 
 LINK_DETAIL_MAX_CHARS = 40
 
+# Budget advice (ADR-088): a reply may say the total for buying several of one product, with or without a discount the
+# file writes, and the price of a small mix of two products. Larger orders are left to the shop.
+DERIVED_MAX_QUANTITY = 20
+DERIVED_MAX_MIX = 3
+
+# A count of items in a reply ("2 lốc", "hai chai"): a small number or number word followed by a word that is not a
+# money unit. A total for k items is allowed only when the sentence says k, so "giảm còn 2 triệu" cannot pass as
+# 20 x a 100k price.
+_COUNT_WORDS = {
+    "mot": 1, "hai": 2, "ba": 3, "bon": 4, "tu": 4, "nam": 5, "sau": 6, "bay": 7, "tam": 8, "chin": 9, "muoi": 10,
+}  # fmt: skip
+_COUNT = re.compile(
+    r"(?<![\w.,])(\d{1,2}|" + "|".join(_COUNT_WORDS) + r")\s+(?!(?:trieu|tr|nghin|ngan|k|vnd|d|dong)(?![a-z0-9]))[a-z]"
+)
+
+# A bare number under 1,000 in a comment about money is read as thousands on live chat ("có 100" = 100.000đ).
+_BARE_THOUSANDS = re.compile(r"(?<![\w.,])(\d{1,3})(?![\w.,%])")
+
 # Clause breaks for the no-info exemption: a claim after one of these starts a new statement (contracts/adapters.md §4).
 # A plain hyphen is not a break: "chữa-khỏi" is one word run.
 _CLAUSE_BREAK = re.compile(r"[,.;:!?…–—\n]+")
@@ -141,6 +159,15 @@ class OutputGuard:
         self._claim_tokens = tuple(tuple(form.split()) for form, _ in self._claims)
         self._catalog_key: ProductCatalog | None = None
         self._catalog_form = ""
+        self._derived_key: ProductCatalog | None = None
+        self._derived: dict[int, frozenset[frozenset[int]]] = {}
+
+    def _derived_totals(self, catalog: ProductCatalog) -> dict[int, frozenset[frozenset[int]]]:
+        """Totals a reply may compute from the file's prices, computed once per catalog object (ADR-088)."""
+        if self._derived_key is not catalog:
+            self._derived = derived_totals(catalog)
+            self._derived_key = catalog
+        return self._derived
 
     def _catalog_word_form(self, catalog: ProductCatalog) -> str:
         """Padded word form of all catalog text, computed once per catalog object (catalogs are immutable)."""
@@ -150,7 +177,10 @@ class OutputGuard:
             self._catalog_key = catalog
         return self._catalog_form
 
-    def check(self, sentence: str, catalog: ProductCatalog) -> GuardResult:
+    def check(self, sentence: str, catalog: ProductCatalog, *, viewer_amounts: Iterable[int] = ()) -> GuardResult:
+        """`viewer_amounts`: the money the viewer wrote (`comment_amounts`), e.g. their budget. A reply may repeat it
+        only in a sentence that also says a price from the file, so it never confirms a made-up price on its own.
+        """
         forms = claim_forms(sentence)
         # Forbidden claims apply catalog-wide: a sentence about a secondary product that carries the main product's
         # forbidden claim is still a false statement.
@@ -159,8 +189,14 @@ class OutputGuard:
                 claim_form = word_form(claim)
                 if claim_form and any(claim_form in form for form in forms):
                     return GuardResult.blocked(GuardReason.FORBIDDEN_CLAIM, claim)
-        for amount in extract_amounts(sentence):
-            if amount not in catalog.known_amounts:
+        amounts = extract_amounts(sentence)
+        totals = self._derived_totals(catalog)
+        counts = sentence_counts(sentence)
+        derived = {a for a in amounts if any(need <= counts for need in totals.get(a, ()))}
+        priced = bool(derived)
+        viewer = frozenset(viewer_amounts) if priced else frozenset()
+        for amount in amounts:
+            if amount not in catalog.known_amounts and amount not in derived and amount not in viewer:
                 return GuardResult.blocked(GuardReason.UNKNOWN_AMOUNT, str(amount))
         # `known_amounts` already holds every integer written in the file, not only prices (research R9).
         for match in _PERCENT.finditer(match_form(_drop_format_chars(sentence))):
@@ -189,6 +225,63 @@ class OutputGuard:
                     if any(view.unexempt(tuple(form.split())) for view in variants):
                         return GuardResult.blocked(GuardReason.UNSUPPORTED_CLAIM, phrase)
         return GuardResult.passed()
+
+
+def derived_totals(catalog: ProductCatalog) -> dict[int, frozenset[frozenset[int]]]:
+    """Every total a reply may compute, mapped to the counts the sentence must say for it (any one set suffices).
+
+    Totals: each price times 1..`DERIVED_MAX_QUANTITY`, those minus a discount the same product's promotions write,
+    and i x a + j x b for two different prices with i, j up to `DERIVED_MAX_MIX`. One item needs no count, so a price
+    and its discounted price always pass; a mix needs both counts ("1 lốc với 2 chai"), or the sum of two prices
+    would let a made-up round amount through ("giá chỉ 1,5 triệu" = 250.000 + 1.250.000).
+    """
+    out: dict[int, set[frozenset[int]]] = {}
+
+    def add(amount: int, *quantities: int) -> None:
+        need = quantities if len(quantities) > 1 else tuple(q for q in quantities if q > 1)
+        out.setdefault(amount, set()).add(frozenset(need))
+
+    singles: set[int] = set()
+    for product in catalog.products:
+        prices = [v.price for v in product.variants] if product.variants else [product.price or 0]
+        discounts = {d for promo in product.promotions for d in extract_amounts(promo)}
+        for price in prices:
+            if price <= 0:
+                continue
+            singles.add(price)
+            for k in range(1, DERIVED_MAX_QUANTITY + 1):
+                add(k * price, k)
+                for d in discounts:
+                    if k * price > d:
+                        add(k * price - d, k)
+    for a in singles:
+        for b in singles:
+            if a < b:
+                for i in range(1, DERIVED_MAX_MIX + 1):
+                    for j in range(1, DERIVED_MAX_MIX + 1):
+                        add(i * a + j * b, i, j)
+    return {amount: frozenset(needs) for amount, needs in out.items()}
+
+
+def derived_amounts(catalog: ProductCatalog) -> frozenset[int]:
+    """Every total `derived_totals` knows, whatever count it needs."""
+    return frozenset(derived_totals(catalog))
+
+
+def sentence_counts(sentence: str) -> frozenset[int]:
+    """Item counts the sentence says, from digits ("2 lốc") or number words ("hai chai")."""
+    counts = set()
+    for m in _COUNT.finditer(match_form(sentence)):
+        raw = m.group(1)
+        counts.add(int(raw) if raw.isdigit() else _COUNT_WORDS[raw])
+    return frozenset(counts)
+
+
+def comment_amounts(text: str) -> frozenset[int]:
+    """Money a viewer wrote: amounts with a unit or >= 1,000, plus bare numbers under 1,000 read as thousands."""
+    form = match_form(text)
+    bare = {int(m.group(1)) * 1000 for m in _BARE_THOUSANDS.finditer(form) if int(m.group(1)) > 0}
+    return frozenset(extract_amounts(text)) | bare
 
 
 _MARKER_TOKENS = tuple(tuple(word_form(m).split()) for m in NO_INFO_MARKERS)

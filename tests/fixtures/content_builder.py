@@ -68,7 +68,8 @@ def product_blocks(
         if variants is not None:
             blocks.append(("table", [["Phân loại", "Giá"], *[[v, p] for v, p in variants]]))
     if description is not None:
-        blocks += [("h2", "Mô tả"), ("p", description)]
+        # A "\n" starts a new paragraph, so a test can write a section with several paragraphs.
+        blocks += [("h2", "Mô tả"), *(("p", line) for line in description.split("\n"))]
     if specs:
         blocks.append(("h2", "Thông số"))
         blocks += [("p", s) for s in specs]
@@ -83,7 +84,7 @@ def product_blocks(
         blocks.append(("h2", "Khẳng định bị cấm"))
         blocks += [("p", f) for f in forbidden] if forbidden else [("p", "Không có")]
     if intro is not None:
-        blocks += [("h2", "Bài giới thiệu"), ("p", intro)]
+        blocks += [("h2", "Bài giới thiệu"), *(("p", line) for line in intro.split("\n"))]
     if link is not None:
         blocks += [("h2", "Link"), ("p", link)]
     return blocks

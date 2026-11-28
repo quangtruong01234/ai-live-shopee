@@ -109,6 +109,7 @@ ITEM_IDS = (
     "host",
     "content",
     "scene",
+    "background",
     "ai_label",
     "backup_video",
     "llm_chain",
@@ -127,6 +128,7 @@ LABELS = {
     "host": "Màn hình host",
     "content": "Nội dung sản phẩm",
     "scene": "Cảnh live",
+    "background": "Nền sau host",
     "ai_label": "Nhãn AI",
     "backup_video": "Video dự phòng",
     "llm_chain": "Chuỗi model LLM",
@@ -504,6 +506,34 @@ def check_content(
     return _ok("content", summary)
 
 
+def check_background(
+    status: Mapping[str, Any], *, character_id: str, frames: int, review_path: str | Path
+) -> ReadinessItem:
+    """014: the room behind the host. Never FAIL: the original room is a safe live (FR-010, SC-006).
+
+    `status` is `GET /api/scene/background`; a WARN is its own `fallback_message` split into problem and fix, so the
+    control page and this list say the same thing.
+    """
+    from ai_live.scene.background import STYLE_NAMES, fallback_text
+
+    reason = status.get("fallback_reason")
+    style = str(status.get("style") or "goc")
+    if reason in ("style_goc", "scene_disabled"):
+        return _ok("background", f"Nền: {STYLE_NAMES['goc']}")
+    if reason is not None:
+        problem, fix = fallback_text(str(reason), character_id, style=style) or (str(reason), None)
+        return _item("background", CheckStatus.WARN, problem, fix)
+    if status.get("reviewed") is not True:
+        return _item(
+            "background",
+            CheckStatus.WARN,
+            "Mặt nạ nền chưa được duyệt bằng mắt",
+            f"mở {review_path} xem viền tóc, vai và tay; ổn thì chạy uv run python -m ai_live.avatar "
+            f'background-prepare {character_id} --mark-reviewed --by "<tên người duyệt>"',
+        )
+    return _ok("background", f"Nền: {STYLE_NAMES.get(style, style)}, đã chuẩn bị {frames} khung")
+
+
 def check_scene(enabled: bool, issues: Iterable[Mapping[str, Any]] = ()) -> ReadinessItem:
     """`issues` are scene issues as `SceneIssue.to_json()` gives them."""
     if not enabled:
@@ -536,6 +566,26 @@ def check_scene(enabled: bool, issues: Iterable[Mapping[str, Any]] = ()) -> Read
             f"Bộ cảnh có {len(errors)} lỗi, phần lỗi không được vẽ: {errors[0].get('message')}",
             "Chạy uv run python -m ai_live.scene check và sửa theo lời nhắn",
         )
+    # 013 warnings: each one only makes the desk look worse, so they are all shown together.
+    codes = {str(i.get("code")) for i in issues}
+    messages: list[str] = []
+    actions: list[str] = []
+    if "hands_zone_missing" in codes:
+        # Without the hands zone the realistic desk guesses where the hands move; a hand may cross a product.
+        messages.append("Nhân vật chưa có vùng tay, bàn thật đang dùng vùng tay mặc định")
+        actions.append(
+            "Đo vùng tay bằng uv run python -m ai_live.scene preview --debug-zones "
+            "rồi ghi scene.hands_zone vào character.json"
+        )
+    backgrounds = sorted({str(i.get("product_id")) for i in issues if i.get("code") == "art_has_background"})
+    if backgrounds:
+        messages.append(f"Ảnh còn nền trên bàn thật, trông như dán lên: {', '.join(backgrounds)}")
+        actions.append("Ảnh sản phẩm trên trang điều khiển: chọn bản đã bỏ nền hoặc tải ảnh nền trong suốt")
+    if "matting_model_missing" in codes:
+        messages.append("Chưa cài model tách nền: ảnh nền phức tạp sẽ không bỏ nền được")
+        actions.append("Tải model (013 quickstart) rồi đặt MATTING_MODEL_PATH trong .env")
+    if messages:
+        return _item("scene", CheckStatus.WARN, "; ".join(messages), "; ".join(actions))
     return _ok("scene", "Bộ cảnh dùng ảnh thật của khách")
 
 
@@ -756,6 +806,8 @@ async def run_readiness(ctx: AppContext, *, fork_transport: httpx.AsyncBaseTrans
     health = getattr(getattr(ctx.renderer, "lipsync", None), "health", None)
     catalog = ctx.store.catalog
     scene_issues = ctx.scene.status().get("issues", []) if ctx.scene is not None else []
+    if ctx.scene is not None and ctx.scene.enabled:
+        scene_issues = [*scene_issues, *await asyncio.to_thread(_matting_issues, settings)]
     character = ctx.character
     install, install_problem = await _ultralight_install(settings, character)
 
@@ -792,10 +844,51 @@ async def run_readiness(ctx: AppContext, *, fork_transport: httpx.AsyncBaseTrans
             app_port=settings.app_port,
         ),
         check_scene(ctx.scene is not None and ctx.scene.enabled, scene_issues),
+        _app_background_item(ctx),
         check_llm_chain(settings.reply_engine, dict(ctx.chain.snapshot()) if ctx.chain is not None else None),
         *await asyncio.to_thread(blocking),
     ]
     return build_result(items, "app", started, output_mode=settings.output_mode)
+
+
+def _app_background_item(ctx: AppContext) -> ReadinessItem:
+    from ai_live.scene.background import disabled_background_status
+
+    background = ctx.background
+    if background is None:
+        return check_background(
+            disabled_background_status(), character_id=ctx.settings.avatar_id, frames=0, review_path=""
+        )
+    return check_background(
+        background.status(),
+        character_id=background.character_id,
+        frames=background.frames(),
+        review_path=background.review_path or "",
+    )
+
+
+async def _offline_background_item(
+    settings: Settings, catalog: ProductCatalog | None, character: AvatarCharacter | None
+) -> ReadinessItem:
+    """The same controller as the app, fed by the masks on disk (the fork may be down)."""
+    from ai_live.scene.background import disabled_background_status, offline_background
+
+    if not settings.scene_enabled:
+        return check_background(disabled_background_status(), character_id=settings.avatar_id, frames=0, review_path="")
+    from ai_live.scene.loader import load_scene_set
+
+    ids = [p.id for p in catalog.products] if catalog is not None else []
+    scene = await asyncio.to_thread(load_scene_set, settings.scene_dir, ids, customer_id=settings.customer_id)
+    character_dir = character.avatar_dir if character is not None else settings.avatar_dir
+    background = await offline_background(
+        scene, character_dir, settings.avatar_id, lipsync=settings.avatar_mode == "livetalking"
+    )
+    return check_background(
+        background.status(),
+        character_id=background.character_id,
+        frames=background.frames(),
+        review_path=background.review_path or "",
+    )
 
 
 async def _ultralight_install(
@@ -857,11 +950,34 @@ def _offline_content(settings: Settings) -> tuple[ProductCatalog | None, str | N
 
 
 def _offline_scene(settings: Settings, catalog: ProductCatalog | None) -> list[dict[str, Any]]:
+    from ai_live.scene.layout import HANDS_MISSING_MESSAGE, art_background_issues
     from ai_live.scene.loader import load_scene_set
+    from ai_live.scene.models import SceneIssue
 
-    product_ids = [p.id for p in catalog.products] if catalog is not None else []
-    scene = load_scene_set(settings.scene_dir, product_ids, customer_id=settings.customer_id)
-    return [issue.to_json() for issue in scene.issues]
+    products = catalog.products if catalog is not None else []
+    scene = load_scene_set(settings.scene_dir, [p.id for p in products], customer_id=settings.customer_id)
+    issues = [issue.to_json() for issue in scene.issues]
+    if scene.layout.mode == "realistic":
+        # The app has a character only with lip-sync on (static mode loads none), so check the same way.
+        character = _offline_character(settings) if settings.avatar_mode == "livetalking" else None
+        if character is None or character.hands_zone is None:
+            issues.append(SceneIssue.of("hands_zone_missing", HANDS_MISSING_MESSAGE).to_json())
+    if scene.layout.mode != "rows":
+        # The showcase covers the hands (ADR-079) but a background rectangle looks just as pasted on there.
+        if not scene.blocked:
+            issues.extend(issue.to_json() for issue in art_background_issues(products, scene.art, scene.layout))
+    return [*issues, *_matting_issues(settings)]
+
+
+def _matting_issues(settings: Settings) -> list[dict[str, Any]]:
+    """`matting_model_missing` when uploads with a complex background cannot be cut (013 research R6). Blocking I/O."""
+    from ai_live.scene.layout import MATTING_MISSING_MESSAGE
+    from ai_live.scene.models import SceneIssue
+
+    path = settings.matting_model_path
+    if path is not None and path.is_file():
+        return []
+    return [SceneIssue.of("matting_model_missing", MATTING_MISSING_MESSAGE).to_json()]
 
 
 async def run_offline(settings: Settings, *, fork_transport: httpx.AsyncBaseTransport | None = None) -> ReadinessResult:
@@ -870,8 +986,9 @@ async def run_offline(settings: Settings, *, fork_transport: httpx.AsyncBaseTran
     livetalking = settings.avatar_mode == "livetalking"
     fork = await fetch_fork_health(settings.livetalking_url, transport=fork_transport) if livetalking else None
 
+    catalog, error = await asyncio.to_thread(_offline_content, settings)
+
     def blocking() -> list[ReadinessItem]:
-        catalog, error = _offline_content(settings)
         scene_issues = _offline_scene(settings, catalog) if settings.scene_enabled else []
         return [
             check_content(catalog, error),
@@ -895,6 +1012,7 @@ async def run_offline(settings: Settings, *, fork_transport: httpx.AsyncBaseTran
         _lipsync_model_item(settings, character, install, install_problem, fork),
         check_host(None, None, None),
         check_llm_chain(settings.reply_engine, None, app_running=False),
+        await _offline_background_item(settings, catalog, character),
         *await asyncio.to_thread(blocking),
     ]
     return build_result(items, "offline", started, output_mode=settings.output_mode)

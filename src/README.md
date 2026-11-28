@@ -62,8 +62,10 @@ Module cảnh live (feature 009; hợp đồng ở `specs/009-live-scene-layout/
 | Module | Vai trò |
 |--------|---------|
 | `scene/loader.py` | Đọc và kiểm bộ cảnh `SCENE_DIR` (`scene.json`, bàn, ảnh sản phẩm); không bao giờ ném lỗi, mọi vấn đề thành `SceneIssue` |
-| `scene/layout.py` | Bố cục thuần: vùng mặt, dải phụ đề, chỗ đặt sản phẩm trên bàn, thẻ tên/giá; món đang nói to hơn |
-| `scene/render.py` | Vẽ bằng Pillow (ADR-051) lớp `base` (bàn, sản phẩm, thẻ) và `subtitle`, trong suốt ở vùng mặt, nhãn "AI", watermark |
+| `scene/layout.py` | Bố cục thuần: vùng mặt, dải phụ đề, chỗ đặt sản phẩm trên bàn, thẻ tên/giá; món đang nói to hơn. Ba cách bày: `rows` (009), `realistic` (013: món đứng hai bên tay host, có bóng, thẻ `none`/`one`/`all`) và `showcase` (013, ADR-079: món chính to giữa trước host, món phụ phía sau, bục và sticker giá tùy chọn); cảnh báo ảnh nhỏ `art_low_resolution` |
+| `scene/limits.py` | Cỡ dùng chung cho bộ nạp và bố cục: `ART_MAX_SIDE` (960 px, cạnh dài tối đa của ảnh sản phẩm giữ lại) |
+| `scene/render.py` | Vẽ bằng Pillow (ADR-051) lớp `base` (bàn, sản phẩm, thẻ, bục, sticker giá) và `subtitle`, trong suốt ở vùng mặt, nhãn "AI", watermark |
+| `scene/matting.py` | Bỏ nền ảnh tải lên (013): nền trơn bằng loang màu từ viền, nền phức tạp bằng model ONNX trong tiến trình con ưu tiên thấp (`MATTING_MODEL_PATH`, `MATTING_DURING_SHOW`); chỉ đổi kênh alpha, bản không chắc báo `failed` |
 | `scene/fonts.py` | Chọn font có đủ dấu tiếng Việt (`SCENE_FONT_PATH` hoặc font hệ thống); thiếu font là lỗi lúc khởi động |
 | `scene/controller.py` | `SceneController`: vẽ lại khi đổi file sản phẩm, khi fork báo khung thật, khi đổi câu đang nghe; gửi lớp cho fork và ảnh tĩnh cho `/host` |
 | `scene/__main__.py` | `uv run python -m ai_live.scene check\|preview` cho người vận hành |
@@ -81,6 +83,7 @@ Thư mục khác ở gốc repo:
 | `data/customers/` | Dữ liệu thật của khách | Không (gitignore) |
 | `scripts/runpod/` | Script dựng và khởi động môi trường GPU (xem `docs/RUNPOD.md`) | Có |
 | `scripts/livetalking/` | `setup.ps1` dựng fork LiveTalking vào `vendor/livetalking/` (venv riêng, không tải model), `run.ps1` bật fork với biến lấy từ `.env` (quickstart 005 bước 1, 5) | Có |
+| `scripts/freellmapi/` | `backup.ps1`: sao lưu và khôi phục database cùng `ENCRYPTION_KEY` của freellmapi (ADR-034) ra `%USERPROFILE%\freellmapi-backup`, có kiểm giải mã key (RUNBOOK §2, §4) | Có (bản sao lưu không commit) |
 | `scripts/selfcheck/` | `lipsync_check.py`: ghi và chấm một lượt nhép miệng từ bộ ghi luồng của fork, không cần người xem (quickstart 005 bước 11) | Có |
 | `out/` | Bản ghi, ảnh chụp, số đo tự kiểm (có gương mặt nhân vật) | Không (gitignore) |
 | `scripts/avatar_clips/` | Notebook Kaggle/Colab tạo gương mặt AI và clip nền (ADR-036); chạy trên cloud, không chạy trên laptop | Có (chỉ notebook, kết quả không commit) |

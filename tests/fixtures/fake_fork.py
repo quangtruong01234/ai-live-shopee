@@ -7,12 +7,18 @@ on connect, then `playback_started`, `sentence_played` and `stats` per sentence,
 Test controls (plain attributes, change them at any time):
 - `time_scale`: playback time = audio length x this (0 = instant, the default keeps tests fast).
 - `ack_delay_s`: extra wait before `playback_started`.
+- `start_on_audio`: send `playback_started` when a sentence's first audio chunk lands, as the real fork does (it plays
+  chunks as they arrive), instead of after `sentence_end`.
 - `ack`: False = take sentences but never ack them (first-frame timeout).
 - `fail_next(kind, message)`: answer the next finished sentence with `error {kind}` instead of acks.
 - `disconnect()`: drop the app connection; `restart()`: new `boot_id`, then drop (the app sees a fork restart).
 - `scene`: the `hello.scene` block (009 fork-protocol §3); None = an older fork that knows nothing of scenes and ignores
   `scene_layer`. `reject_scene`: answer every `scene_layer` with `error {kind: "scene_rejected"}`. `scene_ms`: added to
   `stats` when set.
+- `background`: the 014 `hello.background` block (fork-protocol §2); None = an older fork that ignores
+  `scene_background`. Every `scene_background` message is kept in `scene_backgrounds`. `reject_background`: answer
+  each one with `error {kind: "background_rejected"}`. `fail_background(message)`: push
+  `error {kind: "background_failed"}` now. `background_ms`: added to `stats` when set.
 - `mouth_method`: the 010 mouth method name in `hello` and `stats`; None = an older fork that sends neither.
 - `record_enabled`: the 007 `/ailive/health` flag saying the test recorder is on (`AILIVE_RECORD_DIR` set).
 - `lipsync`: the 011 block (model, teacher, character, checkpoint) in `hello` and `/ailive/health`; build one with
@@ -48,6 +54,7 @@ class ReceivedSentence:
     sample_rate: int
     audio: bytearray = field(default_factory=bytearray)
     clip_id: str = ""
+    started: bool = False
 
     @property
     def duration_s(self) -> float:
@@ -74,6 +81,7 @@ class FakeFork:
         health_interval_s: float = 5.0,
         scene: dict[str, Any] | None = None,
         lipsync: dict[str, Any] | None | object = _DEFAULT,
+        background: dict[str, Any] | None = None,
     ) -> None:
         self.sessions: set[str] = {session_id}
         self.boot_id = uuid.uuid4().hex
@@ -89,11 +97,15 @@ class FakeFork:
         # Test controls
         self.time_scale = 0.0
         self.ack_delay_s = 0.0
+        self.start_on_audio = False
         self.stats_delay_s = 0.0  # gap between `sentence_played` and `stats`, as on a busy real fork
         self.ack = True
         self.scene = scene
         self.reject_scene = False
         self.scene_ms: float | None = None
+        self.background = background
+        self.reject_background = False
+        self.background_ms: float | None = None
         self.mouth_method: str | None = None
         self.record_enabled = False
         self.lipsync: dict[str, Any] | None = (
@@ -106,6 +118,7 @@ class FakeFork:
         self.audio_bytes_received = 0  # every audio frame, including a sentence still being streamed
         self.stopped: list[str] = []
         self.scene_layers: dict[str, dict[str, Any]] = {}  # name -> last accepted `scene_layer`
+        self.scene_backgrounds: list[dict[str, Any]] = []  # every `scene_background` received, in order
         self.connections = 0
         self._clips = cycle(talk_clips)
         self._turn_clip: dict[str, str] = {}
@@ -160,6 +173,32 @@ class FakeFork:
         """Push any message (e.g. an unsolicited `error` or `health`) to the connected app."""
         if self._conn is not None:
             await self._conn.send(json.dumps(message))
+
+    async def fail_background(self, message: str = "ghép nền lỗi") -> None:
+        """Report a compositing error like the real fork does once per failure (fork-protocol §4)."""
+        await self.send({"type": "error", "kind": "background_failed", "message": message})
+
+    @staticmethod
+    def background_block(
+        status: str = "valid",
+        *,
+        reason: str | None = None,
+        frames: int = 81,
+        width: int = 480,
+        height: int = 832,
+        method: str | None = "plate",
+        reviewed: bool | None = False,
+    ) -> dict[str, Any]:
+        """Same shape as the real fork's `hello.background` (014 fork-protocol §2)."""
+        return {
+            "status": status,
+            "reason": reason,
+            "frames": frames,
+            "width": width,
+            "height": height,
+            "method": method,
+            "reviewed": reviewed,
+        }
 
     async def send_health(self) -> None:
         await self.send(
@@ -239,6 +278,7 @@ class FakeFork:
                         "lip_every_n": self.lip_every_n,
                         "ai_label": self.ai_label,
                         **({"scene": self.scene} if self.scene is not None else {}),
+                        **({"background": self.background} if self.background is not None else {}),
                         **({"mouth_method": self.mouth_method} if self.mouth_method is not None else {}),
                         **self._lipsync_part(),
                     }
@@ -249,6 +289,10 @@ class FakeFork:
                     self.audio_bytes_received += len(raw)
                     if current is not None:
                         current.audio += raw
+                        if self.start_on_audio and self.ack and not current.started:
+                            current.started = True
+                            ids = {"utterance_id": current.utterance_id, "seq": current.seq}
+                            await ws.send(json.dumps({"type": "playback_started", **ids}))
                     continue
                 message = json.loads(raw)
                 self.received.append(message)
@@ -289,6 +333,12 @@ class FakeFork:
                         self.scene_layers.pop(name, None)
                     else:
                         self.scene_layers[name] = message
+                elif kind == "scene_background" and self.background is not None:
+                    self.scene_backgrounds.append(message)
+                    if self.reject_background:
+                        await ws.send(
+                            json.dumps({"type": "error", "kind": "background_rejected", "message": "sai cỡ khung"})
+                        )
                 elif kind == "stop":
                     uid = message.get("utterance_id")
                     self.stopped.append(uid)
@@ -340,9 +390,10 @@ class FakeFork:
                     continue
                 if not self.ack:
                     continue
-                if self.ack_delay_s:
-                    await asyncio.sleep(self.ack_delay_s)
-                await ws.send(json.dumps({"type": "playback_started", **ids}))
+                if not sentence.started:
+                    if self.ack_delay_s:
+                        await asyncio.sleep(self.ack_delay_s)
+                    await ws.send(json.dumps({"type": "playback_started", **ids}))
                 await asyncio.sleep(sentence.duration_s * self.time_scale)
                 await ws.send(json.dumps({"type": "sentence_played", **ids}))
                 if self.stats_delay_s:
@@ -357,6 +408,7 @@ class FakeFork:
                             "render_fps": float(self.fps),
                             "clip_id": sentence.clip_id,
                             **({"scene_ms": self.scene_ms} if self.scene_ms is not None else {}),
+                            **({"background_ms": self.background_ms} if self.background_ms is not None else {}),
                             **({"mouth_method": self.mouth_method} if self.mouth_method is not None else {}),
                         }
                     )

@@ -689,3 +689,40 @@ def test_staged_product_detail_says_staging(client):
     assert (r.status_code, r.json()["error"]) == (404, "unknown_product")
     # The live set is untouched while a set is staged.
     assert client.get("/api/content/products/kem-chong-nang-x").json()["source"] == "live"
+
+
+# ---------- 001 FR-029, ADR-078: block a viewer from the control page ----------
+
+
+def test_block_viewer_drops_waiting_comment_and_lists_them(client):
+    # Paused, so the director does not take the comment before the block.
+    client.post("/api/pause")
+    client.post("/api/comments", json={"author": "Tú", "text": "giá bao nhiêu vậy shop?"})
+    state = client.get("/api/state").json()
+    assert state["queue"][0]["author_key"] == "tu"
+    r = client.post("/api/viewers/block", json={"author_key": "tu", "author": "Tú", "minutes": 5})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["removed"] == 1
+    assert [(v["author_key"], v["kind"]) for v in body["viewers"]] == [("tu", "manual")]
+    again = client.post("/api/comments", json={"author": "Tú", "text": "còn hàng không?"}).json()
+    assert again["status"] == "dropped" and again["drop_reason"] == "blocked"
+    state = client.get("/api/state").json()
+    assert state["queue"] == [] and state["viewers"][0]["author"] == "Tú"
+
+    r = client.post("/api/viewers/unblock", json={"author_key": "tu"})
+    assert r.status_code == 200 and r.json() == {"viewers": []}
+    assert client.post("/api/comments", json={"author": "Tú", "text": "giá sao?"}).json()["status"] == "waiting"
+
+
+def test_block_viewer_for_the_whole_session(client):
+    body = client.post("/api/viewers/block", json={"author_key": "tu", "minutes": None}).json()
+    assert body["viewers"][0]["remaining_s"] is None and body["removed"] == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"author_key": "tu", "minutes": 0}, {"author_key": "tu", "minutes": 241}, {"author_key": "", "minutes": 5}, {}],
+)
+def test_block_viewer_bad_body_is_422(client, payload):
+    assert client.post("/api/viewers/block", json=payload).status_code == 422

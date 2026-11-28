@@ -37,9 +37,10 @@ from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from ai_live.brain.guard import OutputGuard, refusal_sentence, word_form
+from ai_live.brain.guard import OutputGuard, comment_amounts, refusal_sentence, word_form
 from ai_live.brain.prompt import addressee
 from ai_live.brain.sanitize import clean_spoken
+from ai_live.comments.greetings import GreetingReplier, is_greeting_comment
 from ai_live.core.config import Settings
 from ai_live.core.events import Event, EventBus, EventType, comment_dropped_event
 from ai_live.core.logging import log_event
@@ -151,8 +152,11 @@ class ShowDirector:
         faults: FaultInjector | None = None,
         guard: OutputGuard | None = None,
         settings: Settings | None = None,
+        greeter: GreetingReplier | None = None,
     ) -> None:
         self.queue = queue
+        # Template replies for comments intake tagged as greetings (001 FR-026); None sends them to the engine.
+        self.greeter = greeter
         self.store = store
         self.engine = engine
         self.tts = tts
@@ -597,6 +601,7 @@ class ShowDirector:
             utterance_id=utt.utterance_id,
             comment_id=comment.id,
             priority=queued.priority.name,
+            kind=comment.meta.get("kind", "comment"),
             queue_wait_s=round(started - comment.received_at, 3),
         )
         log_event(
@@ -609,6 +614,7 @@ class ShowDirector:
                     "utterance_id": utt.utterance_id,
                     "comment_id": comment.id,
                     "author": comment.author,
+                    "author_key": comment.author_key,
                     "text": comment.text,
                 },
             )
@@ -670,8 +676,13 @@ class ShowDirector:
         self, utt: Utterance, queued: QueuedComment, catalog: ProductCatalog, out: asyncio.Queue[object]
     ) -> None:
         who = addressee(queued.comment.author)
-        replies = self.faults.stream("llm", lambda: self.engine.reply(queued.comment, catalog))
+        if self.greeter is not None and is_greeting_comment(queued.comment):
+            # No LLM call and so no LLM fault to inject; the guard below still checks every template sentence.
+            replies = self.greeter.reply(queued.comment, catalog)
+        else:
+            replies = self.faults.stream("llm", lambda: self.engine.reply(queued.comment, catalog))
         budget = _LlmBudget(self.llm_timeout_s)
+        viewer_amounts = comment_amounts(queued.comment.text)  # the viewer's budget may be repeated (ADR-088)
         try:
             while True:
                 sentence = await self._next_sentence(replies, budget)
@@ -683,7 +694,7 @@ class ShowDirector:
                 if not sentence:
                     continue
                 try:
-                    result = self._guard.check(sentence, catalog)
+                    result = self._guard.check(sentence, catalog, viewer_amounts=viewer_amounts)
                 except Exception as exc:
                     raise _StepError(ErrorStep.GUARD, f"Guard lỗi: {exc}", type(exc).__name__) from exc
                 if result.ok:

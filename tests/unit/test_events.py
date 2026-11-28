@@ -75,6 +75,7 @@ def test_event_types_cover_contract():
         "comment_accepted",
         "comment_dropped",
         "queue_changed",
+        "viewers_changed",  # 001 FR-029 (ADR-078)
         "turn_started",
         "sentence",
         "guard_blocked",

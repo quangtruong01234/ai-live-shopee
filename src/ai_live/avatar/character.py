@@ -38,6 +38,7 @@ _CLIP_KINDS: tuple[ClipKind, ...] = ("idle", "talk")
 _LIPSYNC_MODELS: tuple[LipsyncModel, ...] = ("wav2lip", "ultralight")
 # Same bounds as `layout.desk_top` in the scene loader (009), so a desk drawn in the image fits the layout maths.
 DESK_TOP_RANGE = (0.55, 0.92)
+HandsZone = tuple[float, float, float, float]
 _PROVENANCE_TEXT_FIELDS = ("character_id", "created_by", "created_at", "platform")
 # Written by the fork's `ailive_ext.ultralight install` next to the trained model (011 data-model §3); read only here.
 INSTALL_RECORD = "ultralight_install.json"
@@ -132,6 +133,8 @@ class AvatarCharacter:
     # True: the desk is part of the character image, so the scene draws no desk layer (011 FR-011).
     desk_in_image: bool = False
     desk_top: float | None = None
+    # 013: where the hands move, as frame fractions (x1, y1, x2, y2); the realistic layout keeps products out of it.
+    hands_zone: HandsZone | None = None
 
     def clips_of(self, kind: ClipKind) -> list[BaseClip]:
         return [c for c in self.clips if c.kind == kind]
@@ -206,7 +209,7 @@ def load_character(avatar_dir: Path) -> AvatarCharacter:
     lipsync_models = _load_lipsync_models(data.get("lipsync_models", ["wav2lip"]), errors)
     # Clips are the Wav2Lip library; a character with only its own model has none (011 data-model §2).
     clips = _load_clips(avatar_dir, data.get("clips"), errors, warnings, require_kinds="wav2lip" in lipsync_models)
-    desk_in_image, desk_top = _load_scene(data.get("scene", {}), errors)
+    desk_in_image, desk_top, hands_zone = _load_scene(data.get("scene", {}), errors)
 
     provenance = _inside(avatar_dir, data.get("provenance"))
     if provenance is None or not provenance.is_file():
@@ -235,6 +238,7 @@ def load_character(avatar_dir: Path) -> AvatarCharacter:
         lipsync_models=lipsync_models,
         desk_in_image=desk_in_image,
         desk_top=desk_top,
+        hands_zone=hands_zone,
     )
 
 
@@ -254,10 +258,31 @@ def _load_lipsync_models(raw: Any, errors: list[PrepareError]) -> list[LipsyncMo
     return list(raw)
 
 
-def _load_scene(raw: Any, errors: list[PrepareError]) -> tuple[bool, float | None]:
+def _load_scene(raw: Any, errors: list[PrepareError]) -> tuple[bool, float | None, HandsZone | None]:
     if not isinstance(raw, dict):
         errors.append(PrepareError("bad_character", "scene phải là một object"))
-        return False, None
+        return False, None, None
+    return (*_load_desk(raw, errors), _load_hands_zone(raw.get("hands_zone"), errors))
+
+
+def _load_hands_zone(raw: Any, errors: list[PrepareError]) -> HandsZone | None:
+    if raw is None:
+        return None
+    if (
+        not isinstance(raw, list)
+        or len(raw) != 4
+        or not all(isinstance(v, int | float) and not isinstance(v, bool) and 0 <= v <= 1 for v in raw)
+        or not (raw[0] < raw[2] and raw[1] < raw[3])
+    ):
+        errors.append(
+            PrepareError("bad_character", "scene.hands_zone phải là [x1, y1, x2, y2] trong [0; 1], x1 < x2 và y1 < y2")
+        )
+        return None
+    x1, y1, x2, y2 = (float(v) for v in raw)
+    return x1, y1, x2, y2
+
+
+def _load_desk(raw: dict[str, Any], errors: list[PrepareError]) -> tuple[bool, float | None]:
     desk_in_image = raw.get("desk_in_image", False)
     if not isinstance(desk_in_image, bool):
         errors.append(PrepareError("bad_character", "scene.desk_in_image phải là true hoặc false"))
@@ -424,6 +449,28 @@ def read_ultralight_install(avatar_dir: Path, teacher: str) -> tuple[UltralightI
         ),
         None,
     )
+
+
+def ultralight_first_frame(avatar_dir: Path, teacher: str, fork_dir: Path = DEFAULT_FORK_DIR) -> Path | None:
+    """First frame of the fork avatar the install record names for Ultralight, or None when any piece is missing.
+
+    The training clip rarely starts from `face.png` (another pose, another room), so this is the picture that matches
+    what viewers see. Reads one small JSON and lists one folder; it does not hash the model.
+    """
+    try:
+        record = json.loads((ultralight_dir(avatar_dir, teacher) / INSTALL_RECORD).read_text(encoding="utf-8"))
+        name = (record.get("avatars") or {}).get("ultralight")
+    except (OSError, ValueError, AttributeError):
+        return None
+    # A bare folder name only: the record must not point the app at files outside the fork's avatars.
+    if not isinstance(name, str) or not name or Path(name).name != name or name in {".", ".."}:
+        return None
+    full = fork_dir / "data" / "avatars" / name / "full_imgs"
+    try:
+        frames = sorted(p for p in full.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"} and p.is_file())
+    except OSError:
+        return None
+    return frames[0] if frames else None
 
 
 def validate_for_session(character: AvatarCharacter, settings: Settings) -> None:

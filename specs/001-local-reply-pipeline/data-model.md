@@ -15,14 +15,14 @@ Giữ đúng các trường của ARCHITECTURE §2; trạng thái và mức ưu 
 | `text` | `str` | NFC, gộp khoảng trắng, cắt `COMMENT_MAX_CHARS` (300) |
 | `received_at` | `float` | `time.monotonic()` khi API nhận; là mốc `comment_received` |
 | `platform_ts` | `datetime \| None` | `None` với mock |
-| `meta` | `dict[str, Any]` | `received_wall` (datetime UTC để hiển thị), `truncated: bool` |
+| `meta` | `dict[str, Any]` | `received_wall` (datetime UTC để hiển thị), `truncated: bool`, `author_key` (khóa người xem: mã tài khoản nếu nguồn có, mock dùng dạng so khớp của tên; ADR-077), `kind` (`"greeting"` khi là lời chào, FR-026) |
 
 ### Priority (`IntEnum`, số nhỏ là ưu tiên cao)
 `HIGH = 0` (giá, khuyến mãi, cách mua, size/biến thể, tồn kho) · `MEDIUM = 1` (thông số, công dụng, so sánh, câu hỏi khác) · `LOW = 2` (chào, khen)
 
 ### DropReason (`StrEnum`)
 `empty` "không có nội dung" · `link` "chứa link" · `profanity` "từ ngữ không phù hợp" · `duplicate` "trùng" · `stale` "quá cũ" ·
-`queue_full` "hàng đợi đầy". Lệnh bỏ qua của người vận hành áp cho lượt nói (`TurnOutcome.skipped`), không phải lý do loại comment.
+`queue_full` "hàng đợi đầy" · `spam` "gửi quá nhanh" (FR-027) · `greeted` "đã chào rồi" (FR-026) · `superseded` "đã có comment khác của cùng người" (FR-028) · `blocked` "người vận hành đã chặn" (FR-029, ADR-078). Lệnh bỏ qua của người vận hành áp cho lượt nói (`TurnOutcome.skipped`), không phải lý do loại comment.
 
 ### QueuedComment
 
@@ -36,13 +36,31 @@ Giữ đúng các trường của ARCHITECTURE §2; trạng thái và mức ưu 
 
 **Chuyển trạng thái:**
 ```
-(nhận) ──lọc trượt──▶ dropped(empty|link|profanity|duplicate)
+(nhận) ──người vận hành đã chặn──▶ dropped(blocked)
+   │ ──người đang bị tạm bỏ qua / vượt giới hạn──▶ dropped(spam)
+   │ ──lọc trượt──▶ dropped(empty|link|profanity|duplicate)
+   │ ──lời chào lặp lại──▶ dropped(greeted)
    │
    └─lọc qua─▶ waiting ──hàng đợi đầy, bị đẩy ra──▶ dropped(queue_full)
+                  │ ──cùng người có comment mới ưu tiên cao hơn hoặc bằng──▶ dropped(superseded)
+                  │ ──người vận hành chặn người này──▶ dropped(blocked)
                   │ ──quá COMMENT_MAX_AGE_S──▶ dropped(stale)
                   └─director lấy─▶ answering ──▶ answered | skipped | error   (lượt lỗi → error; bị bỏ qua → skipped)
 ```
 Comment ở `dropped` không bao giờ được chuyển cho `ReplyEngine` (FR-002, US2 #4).
+
+### ViewerBlock (FR-029, ADR-078)
+
+Một người xem đang bị chặn tay hoặc tạm bỏ qua tự động. Chỉ giữ trong bộ nhớ của `AuthorLimiter`; tắt app là mất.
+
+| Trường | Kiểu | Ghi chú |
+|--------|------|---------|
+| `author_key` | `str` | khóa người xem (`Comment.author_key`) |
+| `author` | `str` | tên hiển thị gần nhất, chỉ để hiện trên trang |
+| `kind` | `"manual" \| "auto"` | `manual`: người vận hành chặn (FR-029); `auto`: luật tốc độ (FR-027) |
+| `remaining_s` | `float \| null` | giây còn lại; `null` = chặn cả phiên |
+
+Một người vừa bị chặn tay vừa bị tạm bỏ qua tự động chỉ hiện một dòng `manual`.
 
 ## 2. Nội dung sản phẩm
 

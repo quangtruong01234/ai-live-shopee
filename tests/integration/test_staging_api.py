@@ -15,7 +15,7 @@ from PIL import Image
 import ai_live.scene.uploads as uploads_module
 from ai_live.app.main import create_app
 from fixtures.content_builder import build_docx, product_blocks, valid_docx
-from fixtures.scene_builder import CUSTOMER, image_bytes, make_scene_dir
+from fixtures.scene_builder import CUSTOMER, image_bytes, make_scene_dir, matting_bytes
 
 # Live products (`valid_docx()`), with a kit image each.
 LIVE_IDS = ["kem-chong-nang-x", "sua-rua-mat-y", "toner-z"]
@@ -376,3 +376,69 @@ def _scene_event(control: Any, kind: str) -> dict:
         if data.get("type") == "scene" and data.get("kind") == kind:
             return {k: v for k, v in data.items() if k != "ts"}
     raise AssertionError(f"no scene {kind} event")
+
+
+# ---------- T071 (FR-004a): the shape warning follows the set the picture goes to ----------
+
+HALF_FLAT = (440, 200)  # fits a secondary slot among 3 products, not among 4 (unless highlighted)
+
+
+def four_product_docx() -> bytes:
+    return build_docx(
+        [
+            *product_blocks("Son môi A", "chính", price="199.000đ"),
+            *product_blocks("Sữa rửa mặt Y", "phụ", price="159.000đ", forbidden=()),
+            *product_blocks("Phấn B", "phụ", price="99.000đ"),
+            *product_blocks("Sản phẩm C", "phụ", price="89.000đ"),
+        ]
+    )
+
+
+def upload_shape(client: TestClient, pid: str, size, target: str | None = None) -> dict:
+    query = f"product_id={pid}" + (f"&target={target}" if target else "")
+    r = client.post(
+        f"/api/scene/uploads?{query}",
+        content=image_bytes("png", size=size),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("ảnh.png")},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_the_shape_warning_follows_the_target_set(client: TestClient) -> None:
+    wait_drawn(client)
+    assert stage(client, four_product_docx()).status_code in (200, 201)
+    # Live has 3 products: the slot is wide enough. The staged set has 4: narrower slots.
+    assert upload_shape(client, KEPT, HALF_FLAT)["warnings"] == []
+    staged = upload_shape(client, KEPT, HALF_FLAT, "staging")
+    assert staged["warnings"] == ["too_wide"]
+    assert "chỉ hiện lúc AI đang nói về món này" in staged["warning_messages"]["too_wide"]
+
+
+def test_a_staged_only_product_is_judged_on_the_staged_set(client: TestClient) -> None:
+    wait_drawn(client)
+    assert stage(client, four_product_docx()).status_code in (200, 201)
+    # Not in the live set: `target=live` falls back to the staged set.
+    assert upload_shape(client, NEW_SIDE, HALF_FLAT)["warnings"] == ["too_wide"]
+
+
+# ---------- 013 T035 (FR-017): a background-removed version goes into the staged set like any upload ----------
+
+
+def test_a_cutout_version_can_be_assigned_to_the_staged_set(client: TestClient) -> None:
+    wait_drawn(client)
+    staged_id = stage(client).json()["staged_id"]
+    r = client.post(
+        f"/api/scene/uploads?product_id={NEW_MAIN}",
+        content=matting_bytes("white_bg"),
+        headers={"Content-Type": "application/octet-stream", "X-Filename": quote("son.png")},
+    )
+    assert r.status_code == 201, r.text
+    cut = r.json()["cutout"]["version_id"]
+    r = assign(client, staged_id, NEW_MAIN, cut)
+    assert r.status_code == 200, r.text
+    product = by_id(r.json())[NEW_MAIN]
+    assert (product["image"], product["version_id"], product["has_alpha"]) == ("staged", cut, True)
+    r = apply_set(client, staged_id, confirm=True)
+    assert r.status_code == 200, r.text
+    assert scene_sources(client)[NEW_MAIN] == ("upload", cut)
